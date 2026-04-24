@@ -1,15 +1,16 @@
 use std::env;
 
-use aicore_control::{
-    default_control_plane, ControlPlane, EvolutionTargetView, KernelSurface,
-    MemoryProposalTypeView, SkillScopeView,
+use aicore_control::{default_control_plane, ControlPlane};
+use aicore_runtime::{default_runtime, GatewaySource, OutputTarget, TransportEnvelope};
+use aicore_surface::{
+    default_kernel_surface, EvolutionTargetView, KernelSurface, MemoryProposalTypeView,
+    SkillScopeView,
 };
-use aicore_runtime::{default_runtime, GatewaySource, OutputTarget};
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     let control_plane = default_control_plane();
-    let kernel_surface = control_plane.default_kernel_surface();
+    let kernel_surface = default_kernel_surface();
 
     match args.as_slice() {
         [] => print_help(),
@@ -59,9 +60,17 @@ fn print_app_list(control_plane: &ControlPlane) {
 fn print_instance_list(control_plane: &ControlPlane) {
     println!("已知实例：");
     for instance in control_plane.instance_registry().list() {
+        let kind = format!("{:?}", instance.kind).to_lowercase();
+        let kind = match kind.as_str() {
+            "globalmain" => "global_main",
+            "workspace" => "workspace",
+            _ => "unknown",
+        };
         println!(
             "- {} [{}] {}",
-            instance.id, instance.kind, instance.workspace_root
+            instance.id.as_str(),
+            kind,
+            instance.workspace_root.display()
         );
     }
 }
@@ -123,13 +132,25 @@ fn print_skill_list(surface: &KernelSurface) {
 
 fn print_runtime_demo() {
     let mut runtime = default_runtime();
-    let output = runtime.handle_user_input(GatewaySource::Cli, "demo");
+    let ingress = runtime.ingest_user_input(
+        TransportEnvelope {
+            source: GatewaySource::Cli,
+            platform: None,
+            target_id: None,
+            sender_id: None,
+            is_group: false,
+            mentioned_bot: false,
+        },
+        "demo",
+    );
+    let output = runtime.append_assistant_output("已收到来自 cli 的输入。");
     let summary = runtime.summary();
 
     println!("实例运行时演示：");
     println!("  实例: {}", summary.instance_id);
     println!("  会话: {}", summary.conversation_id);
     println!("  账本消息数: {}", summary.event_count);
+    println!("  接收来源: {}", gateway_source_name(&ingress.accepted_source));
     println!("  输出目标: {}", output_target_name(&output.target));
     println!("  输出内容: {}", output.content);
 }
@@ -166,5 +187,14 @@ fn output_target_name(target: &OutputTarget) -> &'static str {
     match target {
         OutputTarget::ActiveView => "active-view",
         OutputTarget::ExternalReply => "external-reply",
+    }
+}
+
+fn gateway_source_name(source: &GatewaySource) -> &'static str {
+    match source {
+        GatewaySource::Cli => "cli",
+        GatewaySource::Tui => "tui",
+        GatewaySource::Web => "web",
+        GatewaySource::External => "external",
     }
 }

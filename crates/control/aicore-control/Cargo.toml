@@ -9,8 +9,4 @@ authors.workspace = true
 
 [dependencies]
 aicore-contracts.workspace = true
-aicore-evolution.workspace = true
 aicore-foundation.workspace = true
-aicore-memory.workspace = true
-aicore-skills.workspace = true
-aicore-tools.workspace = true

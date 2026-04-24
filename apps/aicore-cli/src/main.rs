@@ -1,8 +1,9 @@
 use aicore_control::default_control_plane;
+use aicore_surface::default_kernel_surface;
 
 fn main() {
     let control_plane = default_control_plane();
-    let surface = control_plane.default_kernel_surface();
+    let surface = default_kernel_surface();
     let summary = control_plane.summary();
 
     println!("AICore CLI 骨架");

@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "aicore-control",
  "aicore-runtime",
+ "aicore-surface",
 ]
 
 [[package]]
@@ -15,6 +16,7 @@ name = "aicore-cli"
 version = "0.1.0"
 dependencies = [
  "aicore-control",
+ "aicore-surface",
 ]
 
 [[package]]
@@ -29,11 +31,7 @@ name = "aicore-control"
 version = "0.1.0"
 dependencies = [
  "aicore-contracts",
- "aicore-evolution",
  "aicore-foundation",
- "aicore-memory",
- "aicore-skills",
- "aicore-tools",
 ]
 
 [[package]]
@@ -60,6 +58,16 @@ name = "aicore-skills"
 version = "0.1.0"
 
 [[package]]
+name = "aicore-surface"
+version = "0.1.0"
+dependencies = [
+ "aicore-evolution",
+ "aicore-memory",
+ "aicore-skills",
+ "aicore-tools",
+]
+
+[[package]]
 name = "aicore-tools"
 version = "0.1.0"
 
@@ -69,4 +77,5 @@ version = "0.1.0"
 dependencies = [
  "aicore-control",
  "aicore-runtime",
+ "aicore-surface",
 ]

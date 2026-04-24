@@ -1,6 +1,6 @@
 use crate::{
     conversation::ConversationController,
-    gateway::{GatewaySource, InstanceIoGateway},
+    gateway::{GatewaySource, InstanceIoGateway, TransportEnvelope},
     ledger::{LedgerEvent, LedgerEventKind, LedgerRole},
     output::{OutputEvent, OutputRouter, OutputTarget},
 };
@@ -17,6 +17,12 @@ pub struct RuntimeSummary {
     pub conversation_id: String,
     pub event_count: usize,
     pub status: RuntimeStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IngressResult {
+    pub accepted_source: GatewaySource,
+    pub event_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,9 +45,14 @@ impl InstanceRuntime {
         }
     }
 
-    pub fn handle_user_input(&mut self, source: GatewaySource, content: &str) -> OutputEvent {
+    pub fn ingest_user_input(
+        &mut self,
+        envelope: TransportEnvelope,
+        content: &str,
+    ) -> IngressResult {
         self.status = RuntimeStatus::HandlingInput;
-        let normalized = self.gateway.normalize_user_input(source, content);
+        let normalized = self.gateway.normalize_user_input(envelope, content);
+        let accepted_source = normalized.envelope.source.clone();
 
         self.conversation.append(LedgerEvent {
             seq: 0,
@@ -50,24 +61,22 @@ impl InstanceRuntime {
             content: normalized.content,
         });
 
-        let source_name = match normalized.source {
-            GatewaySource::Cli => "cli",
-            GatewaySource::Tui => "tui",
-            GatewaySource::Web => "web",
-            GatewaySource::External => "external",
-        };
-        let reply = format!("已收到来自 {} 的输入。", source_name);
+        self.status = RuntimeStatus::Idle;
+        IngressResult {
+            accepted_source,
+            event_count: self.conversation.events().len(),
+        }
+    }
 
+    pub fn append_assistant_output(&mut self, content: &str) -> OutputEvent {
         self.conversation.append(LedgerEvent {
             seq: 0,
             kind: LedgerEventKind::Message,
             role: LedgerRole::Assistant,
-            content: reply.clone(),
+            content: content.to_string(),
         });
 
-        let output = self.output_router.route_reply(reply);
-        self.status = RuntimeStatus::Idle;
-        output
+        self.output_router.route_reply(content)
     }
 
     pub fn conversation(&self) -> &ConversationController {
@@ -92,17 +101,30 @@ impl InstanceRuntime {
 mod tests {
     use super::{InstanceRuntime, RuntimeStatus};
     use crate::{
-        gateway::GatewaySource,
+        gateway::{GatewaySource, TransportEnvelope},
         ledger::{LedgerEventKind, LedgerRole},
         output::OutputTarget,
     };
 
+    fn cli_envelope() -> TransportEnvelope {
+        TransportEnvelope {
+            source: GatewaySource::Cli,
+            platform: None,
+            target_id: None,
+            sender_id: None,
+            is_group: false,
+            mentioned_bot: false,
+        }
+    }
+
     #[test]
     fn preserves_message_order_in_ledger() {
         let mut runtime = InstanceRuntime::new("global-main", "conv_main");
-        let output = runtime.handle_user_input(GatewaySource::Cli, "hello");
+        let ingress = runtime.ingest_user_input(cli_envelope(), "hello");
+        let output = runtime.append_assistant_output("reply");
 
         let events = runtime.conversation().events();
+        assert_eq!(ingress.event_count, 1);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].seq, 0);
         assert_eq!(events[0].kind, LedgerEventKind::Message);

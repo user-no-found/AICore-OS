@@ -11,9 +11,7 @@ pub use config::{
     ServiceProfile,
 };
 pub use control_plane::{
-    default_control_plane, ControlPlane, ControlPlaneSummary, EvolutionSummary,
-    EvolutionTargetView, KernelSurface, MainInstanceSummary, MemoryProposalTypeView,
-    MemorySummary, SkillScopeView, SkillSummary, ToolSummary,
+    default_control_plane, ControlPlane, ControlPlaneSummary, MainInstanceSummary,
 };
 pub use instance_registry::{
     default_instance_registry, global_main_instance, workspace_instance, InstanceRegistry,

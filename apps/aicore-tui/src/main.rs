@@ -1,10 +1,11 @@
 use aicore_control::default_control_plane;
 use aicore_runtime::default_runtime;
+use aicore_surface::default_kernel_surface;
 
 fn main() {
     let control_plane = default_control_plane();
     let runtime = default_runtime();
-    let surface = control_plane.default_kernel_surface();
+    let surface = default_kernel_surface();
     let control_summary = control_plane.summary();
     let runtime_summary = runtime.summary();
     let main_instance = control_plane.main_instance_summary();

@@ -7,8 +7,18 @@ pub enum GatewaySource {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GatewayInput {
+pub struct TransportEnvelope {
     pub source: GatewaySource,
+    pub platform: Option<String>,
+    pub target_id: Option<String>,
+    pub sender_id: Option<String>,
+    pub is_group: bool,
+    pub mentioned_bot: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GatewayInput {
+    pub envelope: TransportEnvelope,
     pub content: String,
 }
 
@@ -26,11 +36,11 @@ impl InstanceIoGateway {
 
     pub fn normalize_user_input(
         &self,
-        source: GatewaySource,
+        envelope: TransportEnvelope,
         content: impl Into<String>,
     ) -> GatewayInput {
         GatewayInput {
-            source,
+            envelope,
             content: content.into(),
         }
     }

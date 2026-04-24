@@ -34,6 +34,10 @@ impl InstanceId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    pub fn global_main() -> Self {
+        Self("global-main".to_string())
+    }
 }
 
 fn is_valid_token(value: &str) -> bool {

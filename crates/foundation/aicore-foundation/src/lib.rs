@@ -4,4 +4,4 @@ pub mod paths;
 
 pub use error::AicoreError;
 pub use ids::{ComponentId, InstanceId};
-pub use paths::AicorePaths;
+pub use paths::{AicoreLayout, AicoreLayout as AicorePaths};
