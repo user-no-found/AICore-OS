@@ -1,0 +1,16 @@
+[package]
+name = "aicore-control"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+aicore-contracts.workspace = true
+aicore-evolution.workspace = true
+aicore-foundation.workspace = true
+aicore-memory.workspace = true
+aicore-skills.workspace = true
+aicore-tools.workspace = true

@@ -1,0 +1,32 @@
+[workspace]
+resolver = "3"
+members = [
+  "apps/aicore",
+  "apps/aicore-cli",
+  "apps/aicore-tui",
+  "crates/foundation/aicore-foundation",
+  "crates/contracts/aicore-contracts",
+  "crates/control/aicore-control",
+  "crates/evolution/aicore-evolution",
+  "crates/memory/aicore-memory",
+  "crates/runtime/aicore-runtime",
+  "crates/skills/aicore-skills",
+  "crates/tools/aicore-tools",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+repository = "https://github.com/user-no-found/AICore-OS.git"
+authors = ["user-no-found"]
+
+[workspace.dependencies]
+aicore-contracts = { path = "crates/contracts/aicore-contracts" }
+aicore-control = { path = "crates/control/aicore-control" }
+aicore-evolution = { path = "crates/evolution/aicore-evolution" }
+aicore-foundation = { path = "crates/foundation/aicore-foundation" }
+aicore-memory = { path = "crates/memory/aicore-memory" }
+aicore-runtime = { path = "crates/runtime/aicore-runtime" }
+aicore-skills = { path = "crates/skills/aicore-skills" }
+aicore-tools = { path = "crates/tools/aicore-tools" }
