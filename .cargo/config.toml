@@ -1,0 +1,4 @@
+[alias]
+build-foundation = "run -p aicore-workflow -- foundation"
+build-kernel = "run -p aicore-workflow -- kernel"
+build-core = "run -p aicore-workflow -- core"

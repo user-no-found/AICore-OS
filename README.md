@@ -3,17 +3,25 @@
 ## 底层编译
 
 ```bash
-cd /vol1/1000/sun/aicore/AICore-OS && TARGET_BYTES=$(du -s -B1 target 2>/dev/null | cut -f1); if [ -n "$TARGET_BYTES" ] && [ "$TARGET_BYTES" -gt 32212254720 ]; then rm -rf target; fi && cargo fmt --check && cargo test -p aicore-foundation -p aicore-contracts --offline && cargo build -p aicore-foundation -p aicore-contracts --offline
+cargo build-foundation
 ```
 
 ## 内核层编译
 
 ```bash
-cd /vol1/1000/sun/aicore/AICore-OS && TARGET_BYTES=$(du -s -B1 target 2>/dev/null | cut -f1); if [ -n "$TARGET_BYTES" ] && [ "$TARGET_BYTES" -gt 32212254720 ]; then rm -rf target; fi && cargo fmt --check && cargo test -p aicore-auth -p aicore-config -p aicore-control -p aicore-runtime -p aicore-surface -p aicore-tools -p aicore-memory -p aicore-skills -p aicore-evolution --offline && cargo build -p aicore-auth -p aicore-config -p aicore-control -p aicore-runtime -p aicore-surface -p aicore-tools -p aicore-memory -p aicore-skills -p aicore-evolution --offline
+cargo build-kernel
 ```
 
 ## 底层与内核层一键编译
 
 ```bash
-cd /vol1/1000/sun/aicore/AICore-OS && TARGET_BYTES=$(du -s -B1 target 2>/dev/null | cut -f1); if [ -n "$TARGET_BYTES" ] && [ "$TARGET_BYTES" -gt 32212254720 ]; then rm -rf target; fi && cargo fmt --check && cargo test -p aicore-foundation -p aicore-contracts -p aicore-auth -p aicore-config -p aicore-control -p aicore-runtime -p aicore-surface -p aicore-tools -p aicore-memory -p aicore-skills -p aicore-evolution --offline && cargo build -p aicore-foundation -p aicore-contracts -p aicore-auth -p aicore-config -p aicore-control -p aicore-runtime -p aicore-surface -p aicore-tools -p aicore-memory -p aicore-skills -p aicore-evolution --offline
+cargo build-core
 ```
+
+说明：
+
+- `build-foundation` 执行底层 workflow。
+- `build-kernel` 执行内核层 workflow。
+- `build-core` 按顺序执行底层与内核层 workflow。
+- workflow 会自动检查 `target/`，超过 `30GiB` 时会先清理再重新编译。
+- 当前阶段不包含应用层编译。

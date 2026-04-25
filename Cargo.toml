@@ -15,6 +15,7 @@ members = [
   "crates/surface/aicore-surface",
   "crates/skills/aicore-skills",
   "crates/tools/aicore-tools",
+  "crates/workflows/aicore-workflow",
 ]
 
 [workspace.package]
