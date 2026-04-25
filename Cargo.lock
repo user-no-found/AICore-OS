@@ -18,6 +18,8 @@ version = "0.1.0"
 name = "aicore-cli"
 version = "0.1.0"
 dependencies = [
+ "aicore-auth",
+ "aicore-config",
  "aicore-contracts",
  "aicore-control",
  "aicore-runtime",

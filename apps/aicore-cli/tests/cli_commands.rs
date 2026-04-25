@@ -55,3 +55,81 @@ fn renders_runtime_smoke_command() {
     assert!(stdout.contains("输出目标：followed-external"));
     assert!(stdout.contains("投递身份：external:feishu:chat-2"));
 }
+
+#[test]
+fn renders_config_smoke_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "smoke"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置 Smoke Test："));
+    assert!(stdout.contains("默认配置文件：通过"));
+    assert!(stdout.contains("认证池保存/读取：通过"));
+    assert!(stdout.contains("实例运行配置保存/读取：通过"));
+    assert!(stdout.contains("服务角色配置保存/读取：通过"));
+    assert!(stdout.contains("配置校验：通过"));
+}
+
+#[test]
+fn renders_auth_list_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["auth", "list"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("认证池："));
+    assert!(stdout.contains("auth.openrouter.main"));
+    assert!(stdout.contains("provider: openrouter"));
+    assert!(stdout.contains("kind: api_key"));
+    assert!(stdout.contains("enabled: true"));
+    assert!(stdout.contains("capabilities: chat, vision"));
+    assert!(stdout.contains("secret_ref: secret://auth.openrouter.main"));
+}
+
+#[test]
+fn renders_model_show_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["model", "show"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("实例模型配置："));
+    assert!(stdout.contains("instance: global-main"));
+    assert!(stdout.contains("primary:"));
+    assert!(stdout.contains("auth_ref: auth.openrouter.main"));
+    assert!(stdout.contains("model: openai/gpt-5"));
+    assert!(stdout.contains("fallback:"));
+    assert!(stdout.contains("auth_ref: auth.openai.backup"));
+    assert!(stdout.contains("model: gpt-4.1"));
+}
+
+#[test]
+fn renders_service_list_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["service", "list"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("服务角色配置："));
+    assert!(stdout.contains("memory_dreamer"));
+    assert!(stdout.contains("mode: inherit_instance"));
+    assert!(stdout.contains("evolution_reviewer"));
+    assert!(stdout.contains("mode: disabled"));
+    assert!(stdout.contains("search"));
+    assert!(stdout.contains("mode: explicit"));
+    assert!(stdout.contains("auth_ref: auth.openrouter.search"));
+    assert!(stdout.contains("model: perplexity/sonar"));
+}

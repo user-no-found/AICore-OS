@@ -8,6 +8,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+aicore-auth.workspace = true
+aicore-config.workspace = true
 aicore-control.workspace = true
 aicore-contracts.workspace = true
 aicore-runtime.workspace = true
