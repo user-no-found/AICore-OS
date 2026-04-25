@@ -2,7 +2,9 @@ use crate::{
     conversation::ConversationController,
     gateway::{GatewaySource, InstanceIoGateway, TransportEnvelope},
     ledger::{EventCursor, LedgerEvent, LedgerEventKind, LedgerRole},
-    output::{OutputEvent, OutputRouter, OutputTarget, RoutedOutputs},
+    output::{
+        DeliveryIdentity, OutputEvent, OutputRouter, OutputTarget, RoutedOutputs, dedupe_outputs,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +89,9 @@ pub struct RuntimeSummary {
 pub struct IngressResult {
     pub accepted_source: GatewaySource,
     pub event_count: usize,
+    pub decision: InterruptDecision,
+    pub active_turn_id: Option<String>,
+    pub queue_len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +144,57 @@ impl InstanceRuntime {
         IngressResult {
             accepted_source,
             event_count: self.conversation.events().len(),
+            decision: InterruptDecision::StartTurn,
+            active_turn_id: self.active_turn.as_ref().map(|turn| turn.id.clone()),
+            queue_len: self.pending_queue.len(),
+        }
+    }
+
+    pub fn handle_ingress(
+        &mut self,
+        envelope: TransportEnvelope,
+        content: &str,
+        requested_mode: InterruptMode,
+    ) -> IngressResult {
+        let accepted_source = envelope.source.clone();
+        let decision = self.decide_interrupt(&envelope, requested_mode.clone());
+
+        match decision {
+            InterruptDecision::StartTurn => {
+                let next_turn_id = format!("turn_{}", self.conversation.next_cursor());
+                if accepted_source == GatewaySource::External {
+                    self.begin_turn_with_origin(next_turn_id, envelope.clone());
+                } else {
+                    self.begin_turn(next_turn_id);
+                }
+
+                self.status = RuntimeStatus::HandlingInput;
+                let normalized = self.gateway.normalize_user_input(envelope, content);
+                self.conversation.append(LedgerEvent {
+                    seq: 0,
+                    kind: LedgerEventKind::Message,
+                    role: LedgerRole::User,
+                    content: normalized.content,
+                });
+                self.status = RuntimeStatus::Idle;
+            }
+            InterruptDecision::Queue => {
+                self.queue_message(envelope, content, requested_mode);
+            }
+            InterruptDecision::AppendContext => {
+                self.conversation_status = ConversationStatus::Running;
+            }
+            InterruptDecision::SoftInterrupt | InterruptDecision::HardInterrupt => {
+                self.interrupt(requested_mode);
+            }
+        }
+
+        IngressResult {
+            accepted_source,
+            event_count: self.conversation.events().len(),
+            decision,
+            active_turn_id: self.active_turn.as_ref().map(|turn| turn.id.clone()),
+            queue_len: self.pending_queue.len(),
         }
     }
 
@@ -154,24 +210,51 @@ impl InstanceRuntime {
         let assistant_seq = self.conversation.events().len() - 1;
         let mut events = vec![self.output_router.route_reply(content)];
 
-        if self.active_turn_origin_is_external() {
+        if let Some(identity) = self.active_turn_origin_identity() {
             events.push(OutputEvent {
                 target: OutputTarget::Origin,
+                identity,
                 content: content.to_string(),
             });
         }
 
         if let Some(follow) = &self.follow_subscription {
             if assistant_seq >= follow.cursor {
-                events.push(OutputEvent {
-                    target: OutputTarget::FollowedExternal,
-                    content: content.to_string(),
-                });
+                if let Some(identity) = Self::external_identity_from_envelope(&follow.envelope) {
+                    events.push(OutputEvent {
+                        target: OutputTarget::FollowedExternal,
+                        identity,
+                        content: content.to_string(),
+                    });
+                }
             }
         }
 
-        self.conversation_status = ConversationStatus::Idle;
-        RoutedOutputs { events }
+        self.conversation_status = if self.active_turn.is_some() {
+            ConversationStatus::Running
+        } else if self.pending_queue.is_empty() {
+            ConversationStatus::Idle
+        } else {
+            ConversationStatus::Queued
+        };
+        dedupe_outputs(events)
+    }
+
+    fn active_turn_origin_identity(&self) -> Option<DeliveryIdentity> {
+        self.active_turn
+            .as_ref()
+            .and_then(|turn| turn.origin.as_ref())
+            .and_then(Self::external_identity_from_envelope)
+    }
+
+    fn external_identity_from_envelope(envelope: &TransportEnvelope) -> Option<DeliveryIdentity> {
+        match (&envelope.platform, &envelope.target_id) {
+            (Some(platform), Some(target_id)) => Some(DeliveryIdentity::External {
+                platform: platform.clone(),
+                target_id: target_id.clone(),
+            }),
+            _ => None,
+        }
     }
 
     pub fn conversation(&self) -> &ConversationController {
@@ -320,13 +403,6 @@ impl InstanceRuntime {
     pub fn follow_subscription(&self) -> Option<&FollowSubscription> {
         self.follow_subscription.as_ref()
     }
-
-    fn active_turn_origin_is_external(&self) -> bool {
-        self.active_turn
-            .as_ref()
-            .and_then(|turn| turn.origin.as_ref())
-            .is_some_and(|origin| origin.source == GatewaySource::External)
-    }
 }
 
 #[cfg(test)]
@@ -338,7 +414,7 @@ mod tests {
     use crate::{
         gateway::{GatewaySource, TransportEnvelope},
         ledger::{LedgerEventKind, LedgerRole},
-        output::OutputTarget,
+        output::{DeliveryIdentity, OutputTarget},
     };
 
     fn cli_envelope() -> TransportEnvelope {
@@ -595,5 +671,244 @@ mod tests {
             .expect("follow subscription must exist");
         assert_eq!(follow.cursor, runtime.conversation().next_cursor());
         assert_eq!(runtime.summary().event_count, 2);
+    }
+
+    #[test]
+    fn assistant_output_during_active_turn_keeps_conversation_running() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn_with_origin("turn_1", external_envelope());
+
+        runtime.append_assistant_output("reply");
+
+        assert_eq!(runtime.active_turn_id(), Some("turn_1"));
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Running
+        );
+    }
+
+    #[test]
+    fn idle_external_input_starts_turn_with_origin() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        let result = runtime.handle_ingress(external_envelope(), "hello", InterruptMode::Queue);
+
+        assert_eq!(result.decision, InterruptDecision::StartTurn);
+        assert!(result.active_turn_id.is_some());
+        assert_eq!(runtime.active_turn_id(), result.active_turn_id.as_deref());
+        assert_eq!(runtime.conversation().events().len(), 1);
+        assert_eq!(runtime.conversation().events()[0].role, LedgerRole::User);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Running
+        );
+    }
+
+    #[test]
+    fn idle_local_input_starts_turn_without_origin_reply_semantics() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        let result = runtime.handle_ingress(tui_envelope(), "hello", InterruptMode::Queue);
+        let outputs = runtime.append_assistant_output("reply");
+        let targets: Vec<_> = outputs
+            .events
+            .iter()
+            .map(|event| event.target.clone())
+            .collect();
+
+        assert_eq!(result.decision, InterruptDecision::StartTurn);
+        assert!(result.active_turn_id.is_some());
+        assert_eq!(targets, vec![OutputTarget::ActiveViews]);
+    }
+
+    #[test]
+    fn busy_external_input_queues() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn("turn_1");
+
+        let result = runtime.handle_ingress(external_envelope(), "queued", InterruptMode::Queue);
+
+        assert_eq!(result.decision, InterruptDecision::Queue);
+        assert_eq!(runtime.pending_queue_len(), 1);
+        assert_eq!(runtime.active_turn_id(), Some("turn_1"));
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Running
+        );
+    }
+
+    #[test]
+    fn busy_local_append_context_does_not_queue() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn("turn_1");
+
+        let result = runtime.handle_ingress(
+            tui_envelope(),
+            "context update",
+            InterruptMode::AppendContext,
+        );
+
+        assert_eq!(result.decision, InterruptDecision::AppendContext);
+        assert_eq!(runtime.pending_queue_len(), 0);
+        assert_eq!(runtime.active_turn_id(), Some("turn_1"));
+    }
+
+    #[test]
+    fn hard_interrupt_marks_active_turn_cancel_requested() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn("turn_1");
+
+        let result = runtime.handle_ingress(cli_envelope(), "stop", InterruptMode::HardInterrupt);
+
+        assert_eq!(result.decision, InterruptDecision::HardInterrupt);
+        assert_eq!(
+            runtime.turn_state().active_turn_status,
+            Some(TurnStatus::CancelRequested)
+        );
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Interrupted
+        );
+    }
+
+    #[test]
+    fn external_ingress_origin_causes_assistant_output_to_include_origin() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        let result = runtime.handle_ingress(external_envelope(), "hello", InterruptMode::Queue);
+        let outputs = runtime.append_assistant_output("reply");
+        let targets: Vec<_> = outputs
+            .events
+            .iter()
+            .map(|event| event.target.clone())
+            .collect();
+
+        assert_eq!(result.decision, InterruptDecision::StartTurn);
+        assert!(targets.contains(&OutputTarget::ActiveViews));
+        assert!(targets.contains(&OutputTarget::Origin));
+    }
+
+    #[test]
+    fn external_origin_output_has_external_identity() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn_with_origin("turn_1", external_envelope());
+
+        let outputs = runtime.append_assistant_output("reply");
+        let origin = outputs
+            .events
+            .iter()
+            .find(|event| event.target == OutputTarget::Origin)
+            .expect("origin output must exist");
+
+        assert_eq!(
+            origin.identity,
+            DeliveryIdentity::External {
+                platform: "feishu".to_string(),
+                target_id: "chat-1".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn followed_external_output_has_external_identity() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("feishu".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+
+        let outputs = runtime.append_assistant_output("reply");
+        let followed = outputs
+            .events
+            .iter()
+            .find(|event| event.target == OutputTarget::FollowedExternal)
+            .expect("followed external output must exist");
+
+        assert_eq!(
+            followed.identity,
+            DeliveryIdentity::External {
+                platform: "feishu".to_string(),
+                target_id: "chat-2".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn origin_and_followed_external_same_target_dedupes() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(external_envelope());
+        runtime.begin_turn_with_origin("turn_1", external_envelope());
+
+        let outputs = runtime.append_assistant_output("reply");
+        let targets: Vec<_> = outputs
+            .events
+            .iter()
+            .map(|event| event.target.clone())
+            .collect();
+        let external_count = outputs
+            .events
+            .iter()
+            .filter(|event| matches!(event.identity, DeliveryIdentity::External { .. }))
+            .count();
+
+        assert!(targets.contains(&OutputTarget::ActiveViews));
+        assert!(targets.contains(&OutputTarget::Origin));
+        assert!(!targets.contains(&OutputTarget::FollowedExternal));
+        assert_eq!(external_count, 1);
+    }
+
+    #[test]
+    fn origin_and_followed_external_different_targets_both_remain() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("feishu".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+        runtime.begin_turn_with_origin("turn_1", external_envelope());
+
+        let outputs = runtime.append_assistant_output("reply");
+        let targets: Vec<_> = outputs
+            .events
+            .iter()
+            .map(|event| event.target.clone())
+            .collect();
+
+        assert!(targets.contains(&OutputTarget::ActiveViews));
+        assert!(targets.contains(&OutputTarget::Origin));
+        assert!(targets.contains(&OutputTarget::FollowedExternal));
+        assert_eq!(outputs.events.len(), 3);
+    }
+
+    #[test]
+    fn missing_external_identity_skips_external_output() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.begin_turn_with_origin(
+            "turn_1",
+            TransportEnvelope {
+                source: GatewaySource::External,
+                platform: Some("feishu".to_string()),
+                target_id: None,
+                sender_id: Some("user-1".to_string()),
+                is_group: true,
+                mentioned_bot: true,
+            },
+        );
+
+        let outputs = runtime.append_assistant_output("reply");
+        let targets: Vec<_> = outputs
+            .events
+            .iter()
+            .map(|event| event.target.clone())
+            .collect();
+
+        assert_eq!(targets, vec![OutputTarget::ActiveViews]);
     }
 }
