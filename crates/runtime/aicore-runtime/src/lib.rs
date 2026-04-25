@@ -17,5 +17,5 @@ pub use runtime::{
 };
 
 pub fn default_runtime() -> InstanceRuntime {
-    InstanceRuntime::new("global-main", "conv_main")
+    InstanceRuntime::new("global-main", "main")
 }

@@ -8,7 +8,7 @@ use layers::Workflow;
 
 fn main() -> ExitCode {
     let Some(arg) = env::args().nth(1) else {
-        eprintln!("缺少 workflow 参数。可用值：foundation、kernel、core");
+        eprintln!("缺少 workflow 参数。可用值：foundation、kernel、core、app-aicore");
         return ExitCode::from(1);
     };
 

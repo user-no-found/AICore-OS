@@ -3,6 +3,7 @@ pub enum Workflow {
     Foundation,
     Kernel,
     Core,
+    AppAicore,
 }
 
 impl Workflow {
@@ -11,6 +12,7 @@ impl Workflow {
             "foundation" => Some(Self::Foundation),
             "kernel" => Some(Self::Kernel),
             "core" => Some(Self::Core),
+            "app-aicore" => Some(Self::AppAicore),
             _ => None,
         }
     }
@@ -20,6 +22,7 @@ impl Workflow {
             Self::Foundation => "底层",
             Self::Kernel => "内核层",
             Self::Core => "底层与内核层",
+            Self::AppAicore => "应用层 aicore",
         }
     }
 
@@ -38,6 +41,22 @@ impl Workflow {
                 "aicore-evolution",
             ],
             Self::Core => &[],
+            Self::AppAicore => &["aicore"],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Workflow;
+
+    #[test]
+    fn parses_app_aicore_workflow() {
+        assert_eq!(Workflow::parse("app-aicore"), Some(Workflow::AppAicore));
+    }
+
+    #[test]
+    fn app_aicore_workflow_maps_to_aicore_package() {
+        assert_eq!(Workflow::AppAicore.crates(), &["aicore"]);
     }
 }

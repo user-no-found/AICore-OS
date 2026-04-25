@@ -2,3 +2,4 @@
 foundation = "run -p aicore-workflow -- foundation"
 kernel = "run -p aicore-workflow -- kernel"
 core = "run -p aicore-workflow -- core"
+app-aicore = "run -p aicore-workflow -- app-aicore"
