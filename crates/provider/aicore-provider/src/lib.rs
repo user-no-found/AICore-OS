@@ -26,6 +26,17 @@ mod tests {
         }])
     }
 
+    fn auth_pool_with_disabled_entry() -> GlobalAuthPool {
+        GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.openrouter.main"),
+            provider: "openrouter".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.openrouter.main"),
+            capabilities: vec![AuthCapability::Chat],
+            enabled: false,
+        }])
+    }
+
     fn runtime_config() -> InstanceRuntimeConfig {
         InstanceRuntimeConfig {
             instance_id: "global-main".to_string(),
@@ -60,6 +71,14 @@ mod tests {
         };
 
         assert!(ProviderResolver::resolve_primary(&auth_pool(), &runtime).is_err());
+    }
+
+    #[test]
+    fn provider_resolver_rejects_disabled_auth_ref() {
+        assert!(
+            ProviderResolver::resolve_primary(&auth_pool_with_disabled_entry(), &runtime_config())
+                .is_err()
+        );
     }
 
     #[test]

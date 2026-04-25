@@ -39,6 +39,7 @@ impl Workflow {
                 "aicore-auth",
                 "aicore-config",
                 "aicore-control",
+                "aicore-provider",
                 "aicore-runtime",
                 "aicore-surface",
                 "aicore-tools",
@@ -86,5 +87,10 @@ mod tests {
     #[test]
     fn app_tui_workflow_maps_to_aicore_tui_package() {
         assert_eq!(Workflow::AppTui.crates(), &["aicore-tui"]);
+    }
+
+    #[test]
+    fn kernel_workflow_includes_provider_package() {
+        assert!(Workflow::Kernel.crates().contains(&"aicore-provider"));
     }
 }

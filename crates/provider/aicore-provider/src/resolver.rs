@@ -12,12 +12,12 @@ impl ProviderResolver {
         runtime: &InstanceRuntimeConfig,
     ) -> Result<ResolvedModel, ProviderError> {
         let entry = auth_pool
-            .entries()
-            .iter()
+            .available_entries()
+            .into_iter()
             .find(|entry| entry.auth_ref == runtime.primary.auth_ref)
             .ok_or_else(|| {
                 ProviderError::Resolve(format!(
-                    "missing auth_ref: {}",
+                    "missing or disabled auth_ref: {}",
                     runtime.primary.auth_ref.as_str()
                 ))
             })?;
