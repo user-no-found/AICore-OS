@@ -25,19 +25,20 @@ pub struct InstanceRuntimeConfig {
 
 #[cfg(test)]
 mod tests {
-    use aicore_auth::{AuthEntry, AuthPool};
+    use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 
     use super::{GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile};
 
     #[test]
     fn separates_auth_pool_from_runtime_config() {
-        let auth_pool = AuthPool {
-            entries: vec![AuthEntry {
-                auth_ref: "auth.openrouter.main".to_string(),
-                provider: "openrouter".to_string(),
-                kind: "api_key".to_string(),
-            }],
-        };
+        let auth_pool = GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.openrouter.main"),
+            provider: "openrouter".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.openrouter.main"),
+            capabilities: vec![AuthCapability::Chat],
+            enabled: true,
+        }]);
 
         let runtime = InstanceRuntimeConfig {
             instance_id: "global-main".to_string(),
@@ -48,7 +49,7 @@ mod tests {
             fallback: None,
         };
 
-        assert_eq!(auth_pool.entries.len(), 1);
+        assert_eq!(auth_pool.entries().len(), 1);
         assert_eq!(runtime.primary.model, "openai/gpt-5");
     }
 

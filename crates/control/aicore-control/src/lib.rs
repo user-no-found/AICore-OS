@@ -2,7 +2,7 @@ pub mod component_registry;
 pub mod control_plane;
 pub mod instance_registry;
 
-pub use aicore_auth::{AuthEntry, AuthPool};
+pub use aicore_auth::{AuthEntry, GlobalAuthPool};
 pub use aicore_config::{
     GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile,
 };
