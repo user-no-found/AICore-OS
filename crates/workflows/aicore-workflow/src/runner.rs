@@ -1,6 +1,10 @@
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use aicore_foundation::AicoreLayout;
 
 use crate::layers::Workflow;
 
@@ -125,6 +129,13 @@ fn find_repo_root() -> Result<PathBuf, String> {
 }
 
 fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
+    if matches!(
+        workflow,
+        Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui
+    ) {
+        install_app_binary(workflow, target_dir)?;
+    }
+
     let manifest_path = install_manifest_for(target_dir);
     if let Some(parent) = manifest_path.parent() {
         fs::create_dir_all(parent)
@@ -139,6 +150,62 @@ fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
 
 fn install_manifest_for(target_dir: &Path) -> PathBuf {
     target_dir.join("install/install.toml")
+}
+
+fn install_bin_dir_for(home_root: &Path) -> PathBuf {
+    home_root.join(".aicore/bin")
+}
+
+fn installed_binary_path(home_root: &Path, workflow: Workflow) -> PathBuf {
+    install_bin_dir_for(home_root).join(binary_name_for(workflow))
+}
+
+fn built_binary_path(target_dir: &Path, workflow: Workflow) -> PathBuf {
+    target_dir.join("debug").join(binary_name_for(workflow))
+}
+
+fn binary_name_for(workflow: Workflow) -> &'static str {
+    match workflow {
+        Workflow::AppAicore => "aicore",
+        Workflow::AppCli => "aicore-cli",
+        Workflow::AppTui => "aicore-tui",
+        Workflow::Foundation | Workflow::Kernel | Workflow::Core => {
+            unreachable!("non-app workflows do not install binaries")
+        }
+    }
+}
+
+fn install_app_binary(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
+    let layout = AicoreLayout::from_system_home();
+    let install_dir = install_bin_dir_for(&layout.home_root);
+    fs::create_dir_all(&install_dir)
+        .map_err(|error| format!("创建应用安装目录 {} 失败: {error}", install_dir.display()))?;
+
+    let source_path = built_binary_path(target_dir, workflow);
+    if !source_path.exists() {
+        return Err(format!("未找到待安装二进制: {}", source_path.display()));
+    }
+
+    let target_path = installed_binary_path(&layout.home_root, workflow);
+    fs::copy(&source_path, &target_path).map_err(|error| {
+        format!(
+            "复制二进制 {} -> {} 失败: {error}",
+            source_path.display(),
+            target_path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&target_path)
+            .map_err(|error| format!("读取安装后二进制权限失败: {error}"))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&target_path, permissions)
+            .map_err(|error| format!("设置二进制可执行权限失败: {error}"))?;
+    }
+
+    Ok(())
 }
 
 fn render_install_manifest(workflow: Workflow, target_dir: &Path) -> String {
@@ -171,7 +238,7 @@ mod tests {
 
     use crate::layers::Workflow;
 
-    use super::{install_manifest_for, target_dir_for};
+    use super::{install_bin_dir_for, install_manifest_for, installed_binary_path, target_dir_for};
 
     #[test]
     fn foundation_workflow_uses_foundation_target_dir() {
@@ -224,6 +291,19 @@ mod tests {
         assert_eq!(
             install_manifest_for(&target_dir),
             PathBuf::from("/repo/target/layers/foundation/install/install.toml")
+        );
+    }
+
+    #[test]
+    fn app_workflow_installs_binary_into_aicore_bin() {
+        let home_root = Path::new("/home/demo");
+        assert_eq!(
+            install_bin_dir_for(home_root),
+            PathBuf::from("/home/demo/.aicore/bin")
+        );
+        assert_eq!(
+            installed_binary_path(home_root, Workflow::AppCli),
+            PathBuf::from("/home/demo/.aicore/bin/aicore-cli")
         );
     }
 }
