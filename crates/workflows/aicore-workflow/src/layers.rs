@@ -4,6 +4,7 @@ pub enum Workflow {
     Kernel,
     Core,
     AppAicore,
+    AppCli,
 }
 
 impl Workflow {
@@ -13,6 +14,7 @@ impl Workflow {
             "kernel" => Some(Self::Kernel),
             "core" => Some(Self::Core),
             "app-aicore" => Some(Self::AppAicore),
+            "app-cli" => Some(Self::AppCli),
             _ => None,
         }
     }
@@ -23,6 +25,7 @@ impl Workflow {
             Self::Kernel => "内核层",
             Self::Core => "底层与内核层",
             Self::AppAicore => "应用层 aicore",
+            Self::AppCli => "应用层 aicore-cli",
         }
     }
 
@@ -42,6 +45,7 @@ impl Workflow {
             ],
             Self::Core => &[],
             Self::AppAicore => &["aicore"],
+            Self::AppCli => &["aicore-cli"],
         }
     }
 }
@@ -58,5 +62,15 @@ mod tests {
     #[test]
     fn app_aicore_workflow_maps_to_aicore_package() {
         assert_eq!(Workflow::AppAicore.crates(), &["aicore"]);
+    }
+
+    #[test]
+    fn parses_app_cli_workflow() {
+        assert_eq!(Workflow::parse("app-cli"), Some(Workflow::AppCli));
+    }
+
+    #[test]
+    fn app_cli_workflow_maps_to_aicore_cli_package() {
+        assert_eq!(Workflow::AppCli.crates(), &["aicore-cli"]);
     }
 }

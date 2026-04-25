@@ -18,8 +18,9 @@ version = "0.1.0"
 name = "aicore-cli"
 version = "0.1.0"
 dependencies = [
+ "aicore-contracts",
  "aicore-control",
- "aicore-surface",
+ "aicore-runtime",
 ]
 
 [[package]]
