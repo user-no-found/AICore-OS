@@ -1,9 +1,32 @@
 use aicore_auth::AuthRef;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceRole {
+    MemoryExtractor,
+    MemoryCurator,
+    MemoryDreamer,
+    EvolutionProposer,
+    EvolutionReviewer,
+    Search,
+    Tts,
+    ImageGeneration,
+    VideoGeneration,
+    Vision,
+    Reranker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceProfileMode {
+    InheritInstance,
+    Explicit,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceProfile {
-    pub role: String,
-    pub auth_ref: Option<String>,
+    pub role: ServiceRole,
+    pub mode: ServiceProfileMode,
+    pub auth_ref: Option<AuthRef>,
     pub model: Option<String>,
 }
 
@@ -29,7 +52,10 @@ pub struct InstanceRuntimeConfig {
 mod tests {
     use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 
-    use super::{GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile};
+    use super::{
+        GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile,
+        ServiceProfileMode, ServiceRole,
+    };
 
     #[test]
     fn separates_auth_pool_from_runtime_config() {
@@ -132,7 +158,8 @@ mod tests {
     fn separates_service_profiles_from_instance_runtime() {
         let services = GlobalServiceProfiles {
             profiles: vec![ServiceProfile {
-                role: "memory.dreamer".to_string(),
+                role: ServiceRole::MemoryDreamer,
+                mode: ServiceProfileMode::InheritInstance,
                 auth_ref: None,
                 model: None,
             }],
@@ -150,7 +177,78 @@ mod tests {
             }),
         };
 
-        assert_eq!(services.profiles[0].role, "memory.dreamer");
+        assert_eq!(services.profiles[0].role, ServiceRole::MemoryDreamer);
         assert_eq!(runtime.instance_id, "inst_project_a");
+    }
+
+    #[test]
+    fn default_service_profile_inherits_instance() {
+        let profile = ServiceProfile {
+            role: ServiceRole::MemoryDreamer,
+            mode: ServiceProfileMode::InheritInstance,
+            auth_ref: None,
+            model: None,
+        };
+
+        assert_eq!(profile.mode, ServiceProfileMode::InheritInstance);
+        assert_eq!(profile.auth_ref, None);
+        assert_eq!(profile.model, None);
+    }
+
+    #[test]
+    fn explicit_service_profile_uses_auth_ref_and_model() {
+        let profile = ServiceProfile {
+            role: ServiceRole::Search,
+            mode: ServiceProfileMode::Explicit,
+            auth_ref: Some(AuthRef::new("auth.openrouter.search")),
+            model: Some("perplexity/sonar".to_string()),
+        };
+
+        assert_eq!(profile.mode, ServiceProfileMode::Explicit);
+        assert_eq!(
+            profile.auth_ref,
+            Some(AuthRef::new("auth.openrouter.search"))
+        );
+        assert_eq!(profile.model.as_deref(), Some("perplexity/sonar"));
+    }
+
+    #[test]
+    fn disabled_service_profile_has_no_auth_or_model_requirement() {
+        let profile = ServiceProfile {
+            role: ServiceRole::EvolutionReviewer,
+            mode: ServiceProfileMode::Disabled,
+            auth_ref: None,
+            model: None,
+        };
+
+        assert_eq!(profile.mode, ServiceProfileMode::Disabled);
+        assert_eq!(profile.auth_ref, None);
+        assert_eq!(profile.model, None);
+    }
+
+    #[test]
+    fn memory_dreamer_can_be_explicit() {
+        let profile = ServiceProfile {
+            role: ServiceRole::MemoryDreamer,
+            mode: ServiceProfileMode::Explicit,
+            auth_ref: Some(AuthRef::new("auth.openrouter.memory")),
+            model: Some("openai/gpt-5".to_string()),
+        };
+
+        assert_eq!(profile.role, ServiceRole::MemoryDreamer);
+        assert_eq!(profile.mode, ServiceProfileMode::Explicit);
+    }
+
+    #[test]
+    fn evolution_reviewer_can_be_disabled() {
+        let profile = ServiceProfile {
+            role: ServiceRole::EvolutionReviewer,
+            mode: ServiceProfileMode::Disabled,
+            auth_ref: None,
+            model: None,
+        };
+
+        assert_eq!(profile.role, ServiceRole::EvolutionReviewer);
+        assert_eq!(profile.mode, ServiceProfileMode::Disabled);
     }
 }
