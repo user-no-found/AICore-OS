@@ -102,7 +102,7 @@ pub struct InstanceRuntime {
     status: RuntimeStatus,
     active_turn: Option<ActiveTurn>,
     pending_queue: Vec<QueuedMessage>,
-    follow_subscription: Option<FollowSubscription>,
+    follow_subscriptions: Vec<FollowSubscription>,
     conversation_status: ConversationStatus,
 }
 
@@ -117,7 +117,7 @@ impl InstanceRuntime {
             status: RuntimeStatus::Idle,
             active_turn: None,
             pending_queue: Vec::new(),
-            follow_subscription: None,
+            follow_subscriptions: Vec::new(),
             conversation_status: ConversationStatus::Idle,
         }
     }
@@ -218,7 +218,7 @@ impl InstanceRuntime {
             });
         }
 
-        if let Some(follow) = &self.follow_subscription {
+        for follow in &self.follow_subscriptions {
             if assistant_seq >= follow.cursor {
                 if let Some(identity) = Self::external_identity_from_envelope(&follow.envelope) {
                     events.push(OutputEvent {
@@ -394,14 +394,40 @@ impl InstanceRuntime {
     }
 
     pub fn follow_external(&mut self, envelope: TransportEnvelope) {
-        self.follow_subscription = Some(FollowSubscription {
+        let Some(identity) = Self::external_identity_from_envelope(&envelope) else {
+            return;
+        };
+
+        let already_exists = self.follow_subscriptions.iter().any(|follow| {
+            Self::external_identity_from_envelope(&follow.envelope)
+                .is_some_and(|existing| existing == identity)
+        });
+
+        if already_exists {
+            return;
+        }
+
+        self.follow_subscriptions.push(FollowSubscription {
             cursor: self.conversation.next_cursor(),
             envelope,
         });
     }
 
-    pub fn follow_subscription(&self) -> Option<&FollowSubscription> {
-        self.follow_subscription.as_ref()
+    pub fn follow_subscriptions(&self) -> &[FollowSubscription] {
+        &self.follow_subscriptions
+    }
+
+    pub fn follow_count(&self) -> usize {
+        self.follow_subscriptions.len()
+    }
+
+    pub fn unfollow_external(&mut self, identity: &DeliveryIdentity) -> bool {
+        let original_len = self.follow_subscriptions.len();
+        self.follow_subscriptions.retain(|follow| {
+            Self::external_identity_from_envelope(&follow.envelope)
+                .is_none_or(|existing| &existing != identity)
+        });
+        self.follow_subscriptions.len() != original_len
     }
 }
 
@@ -619,7 +645,8 @@ mod tests {
 
         runtime.follow_external(external_envelope());
         let follow = runtime
-            .follow_subscription()
+            .follow_subscriptions()
+            .first()
             .expect("follow subscription must exist");
 
         assert_eq!(follow.cursor, runtime.conversation().next_cursor());
@@ -667,7 +694,8 @@ mod tests {
         runtime.follow_external(external_envelope());
 
         let follow = runtime
-            .follow_subscription()
+            .follow_subscriptions()
+            .first()
             .expect("follow subscription must exist");
         assert_eq!(follow.cursor, runtime.conversation().next_cursor());
         assert_eq!(runtime.summary().event_count, 2);
@@ -910,5 +938,147 @@ mod tests {
             .collect();
 
         assert_eq!(targets, vec![OutputTarget::ActiveViews]);
+    }
+
+    #[test]
+    fn adding_two_different_follow_targets_stores_both() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        runtime.follow_external(external_envelope());
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("wechat".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+
+        assert_eq!(runtime.follow_count(), 2);
+    }
+
+    #[test]
+    fn adding_same_follow_target_twice_dedupes() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        runtime.follow_external(external_envelope());
+        runtime.follow_external(external_envelope());
+
+        assert_eq!(runtime.follow_count(), 1);
+    }
+
+    #[test]
+    fn invalid_follow_envelope_without_platform_or_target_id_is_ignored() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("feishu".to_string()),
+            target_id: None,
+            sender_id: Some("user-1".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+
+        assert_eq!(runtime.follow_count(), 0);
+    }
+
+    #[test]
+    fn assistant_output_routes_to_all_followed_external_targets() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(external_envelope());
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("wechat".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+
+        let outputs = runtime.append_assistant_output("reply");
+        let followed_count = outputs
+            .events
+            .iter()
+            .filter(|event| event.target == OutputTarget::FollowedExternal)
+            .count();
+
+        assert_eq!(followed_count, 2);
+    }
+
+    #[test]
+    fn origin_and_one_followed_target_same_identity_dedupes() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(external_envelope());
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("wechat".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+        runtime.begin_turn_with_origin("turn_1", external_envelope());
+
+        let outputs = runtime.append_assistant_output("reply");
+        let external_targets: Vec<_> = outputs
+            .events
+            .iter()
+            .filter_map(|event| match &event.identity {
+                DeliveryIdentity::External {
+                    platform,
+                    target_id,
+                } => Some((event.target.clone(), platform.clone(), target_id.clone())),
+                DeliveryIdentity::ActiveViews => None,
+            })
+            .collect();
+
+        assert!(external_targets.contains(&(
+            OutputTarget::Origin,
+            "feishu".to_string(),
+            "chat-1".to_string()
+        )));
+        assert!(external_targets.contains(&(
+            OutputTarget::FollowedExternal,
+            "wechat".to_string(),
+            "chat-2".to_string()
+        )));
+        assert_eq!(external_targets.len(), 2);
+    }
+
+    #[test]
+    fn removing_a_follow_target_stops_future_followed_output() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(external_envelope());
+
+        let removed = runtime.unfollow_external(&DeliveryIdentity::External {
+            platform: "feishu".to_string(),
+            target_id: "chat-1".to_string(),
+        });
+        let outputs = runtime.append_assistant_output("reply");
+        let followed_count = outputs
+            .events
+            .iter()
+            .filter(|event| event.target == OutputTarget::FollowedExternal)
+            .count();
+
+        assert!(removed);
+        assert_eq!(followed_count, 0);
+    }
+
+    #[test]
+    fn list_follows_returns_current_subscriptions() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        runtime.follow_external(external_envelope());
+        runtime.follow_external(TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("wechat".to_string()),
+            target_id: Some("chat-2".to_string()),
+            sender_id: Some("user-2".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        });
+
+        assert_eq!(runtime.follow_subscriptions().len(), 2);
     }
 }
