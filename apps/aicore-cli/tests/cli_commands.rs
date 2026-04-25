@@ -8,9 +8,10 @@ fn temp_root(name: &str) -> PathBuf {
     root
 }
 
-fn run_cli(args: &[&str]) -> std::process::Output {
+fn run_cli_with_config_root(args: &[&str], root: &PathBuf) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
         .args(args)
+        .env("AICORE_CONFIG_ROOT", root)
         .output()
         .expect("aicore-cli should run")
 }
@@ -90,11 +91,12 @@ fn renders_config_smoke_command() {
 }
 
 #[test]
-fn renders_auth_list_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
-        .args(["auth", "list"])
-        .output()
-        .expect("aicore-cli should run");
+fn auth_list_reads_real_config_root() {
+    let root = temp_root("auth-list-real-root");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["auth", "list"], &root);
 
     assert!(output.status.success());
 
@@ -109,11 +111,12 @@ fn renders_auth_list_command() {
 }
 
 #[test]
-fn renders_model_show_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
-        .args(["model", "show"])
-        .output()
-        .expect("aicore-cli should run");
+fn model_show_reads_real_config_root() {
+    let root = temp_root("model-show-real-root");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["model", "show"], &root);
 
     assert!(output.status.success());
 
@@ -129,8 +132,12 @@ fn renders_model_show_command() {
 }
 
 #[test]
-fn renders_service_list_command() {
-    let output = run_cli(&["service", "list"]);
+fn service_list_reads_real_config_root() {
+    let root = temp_root("service-list-real-root");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["service", "list"], &root);
 
     assert!(output.status.success());
 
@@ -144,6 +151,46 @@ fn renders_service_list_command() {
     assert!(stdout.contains("mode: explicit"));
     assert!(stdout.contains("auth_ref: auth.openrouter.search"));
     assert!(stdout.contains("model: perplexity/sonar"));
+}
+
+#[test]
+fn auth_list_fails_when_config_missing() {
+    let root = temp_root("auth-list-missing");
+    let output = run_cli_with_config_root(&["auth", "list"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少认证池配置，请先运行 config init。"));
+}
+
+#[test]
+fn model_show_fails_when_runtime_missing() {
+    let root = temp_root("model-show-missing-runtime");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(root.join("auth.toml"), "").expect("auth.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["model", "show"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少 global-main runtime 配置，请先运行 config init 或配置模型。"));
+}
+
+#[test]
+fn service_list_fails_when_services_missing() {
+    let root = temp_root("service-list-missing");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(root.join("auth.toml"), "").expect("auth.toml should be writable");
+
+    let output = run_cli_with_config_root(&["service", "list"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少服务角色配置，请先运行 config init。"));
 }
 
 #[test]

@@ -291,8 +291,8 @@ fn print_config_validate() -> Result<(), String> {
 }
 
 fn print_auth_list() -> Result<(), String> {
-    let store = prepare_demo_config_store("auth-list")?;
-    let auth_pool = store.load_auth_pool().map_err(config_error)?;
+    let store = real_config_store()?;
+    let auth_pool = load_real_auth_pool(&store)?;
 
     println!("认证池：");
     for entry in auth_pool.available_entries() {
@@ -316,10 +316,10 @@ fn print_auth_list() -> Result<(), String> {
 }
 
 fn print_model_show() -> Result<(), String> {
-    let store = prepare_demo_config_store("model-show")?;
+    let store = real_config_store()?;
     let runtime = store
         .load_instance_runtime("global-main")
-        .map_err(config_error)?;
+        .map_err(map_runtime_load_error)?;
 
     println!("实例模型配置：");
     println!("instance: {}", runtime.instance_id);
@@ -341,8 +341,8 @@ fn print_model_show() -> Result<(), String> {
 }
 
 fn print_service_list() -> Result<(), String> {
-    let store = prepare_demo_config_store("service-list")?;
-    let services = store.load_services().map_err(config_error)?;
+    let store = real_config_store()?;
+    let services = load_real_services(&store)?;
 
     println!("服务角色配置：");
     for profile in services.profiles {
@@ -405,6 +405,22 @@ fn prepare_demo_config_store(command_name: &str) -> Result<ConfigStore, String> 
 
 fn real_config_store() -> Result<ConfigStore, String> {
     Ok(ConfigStore::new(real_config_paths()?))
+}
+
+fn load_real_auth_pool(store: &ConfigStore) -> Result<GlobalAuthPool, String> {
+    if !store.paths.auth_toml.exists() {
+        return Err("缺少认证池配置，请先运行 config init。".to_string());
+    }
+
+    store.load_auth_pool().map_err(config_error)
+}
+
+fn load_real_services(store: &ConfigStore) -> Result<GlobalServiceProfiles, String> {
+    if !store.paths.services_toml.exists() {
+        return Err("缺少服务角色配置，请先运行 config init。".to_string());
+    }
+
+    store.load_services().map_err(config_error)
 }
 
 fn real_config_paths() -> Result<ConfigPaths, String> {
