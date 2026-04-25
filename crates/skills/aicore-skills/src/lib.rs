@@ -47,7 +47,7 @@ pub fn default_skill_records() -> Vec<SkillRecord> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_skill_records, SkillScope, SkillStatus};
+    use super::{SkillScope, SkillStatus, default_skill_records};
 
     #[test]
     fn global_skill_does_not_delete_with_instance() {

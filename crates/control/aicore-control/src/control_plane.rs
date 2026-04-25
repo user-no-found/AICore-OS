@@ -105,8 +105,8 @@ pub fn default_control_plane() -> ControlPlane {
 #[cfg(test)]
 mod tests {
     use super::ControlPlane;
-    use aicore_contracts::LifecycleState;
     use crate::{default_component_registry, default_instance_registry};
+    use aicore_contracts::LifecycleState;
 
     #[test]
     fn reports_control_plane_health() {
@@ -118,7 +118,8 @@ mod tests {
 
     #[test]
     fn updates_control_plane_lifecycle() {
-        let mut plane = ControlPlane::new(default_component_registry(), default_instance_registry());
+        let mut plane =
+            ControlPlane::new(default_component_registry(), default_instance_registry());
         assert_eq!(plane.lifecycle_state(), &LifecycleState::Registered);
 
         plane.install();

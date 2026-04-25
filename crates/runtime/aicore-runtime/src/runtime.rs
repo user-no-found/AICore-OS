@@ -12,11 +12,20 @@ pub enum RuntimeStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversationStatus {
+    Idle,
+    Running,
+    Queued,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSummary {
     pub instance_id: String,
     pub conversation_id: String,
     pub event_count: usize,
     pub status: RuntimeStatus,
+    pub queue_len: usize,
+    pub conversation_status: ConversationStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +40,8 @@ pub struct InstanceRuntime {
     conversation: ConversationController,
     output_router: OutputRouter,
     status: RuntimeStatus,
+    queue_len: usize,
+    conversation_status: ConversationStatus,
 }
 
 impl InstanceRuntime {
@@ -42,6 +53,8 @@ impl InstanceRuntime {
             conversation: ConversationController::new(instance_id, conversation_id),
             output_router: OutputRouter::new(OutputTarget::ActiveView),
             status: RuntimeStatus::Idle,
+            queue_len: 0,
+            conversation_status: ConversationStatus::Idle,
         }
     }
 
@@ -51,6 +64,7 @@ impl InstanceRuntime {
         content: &str,
     ) -> IngressResult {
         self.status = RuntimeStatus::HandlingInput;
+        self.conversation_status = ConversationStatus::Running;
         let normalized = self.gateway.normalize_user_input(envelope, content);
         let accepted_source = normalized.envelope.source.clone();
 
@@ -62,6 +76,7 @@ impl InstanceRuntime {
         });
 
         self.status = RuntimeStatus::Idle;
+        self.conversation_status = ConversationStatus::Idle;
         IngressResult {
             accepted_source,
             event_count: self.conversation.events().len(),
@@ -69,6 +84,7 @@ impl InstanceRuntime {
     }
 
     pub fn append_assistant_output(&mut self, content: &str) -> OutputEvent {
+        self.conversation_status = ConversationStatus::Running;
         self.conversation.append(LedgerEvent {
             seq: 0,
             kind: LedgerEventKind::Message,
@@ -76,7 +92,9 @@ impl InstanceRuntime {
             content: content.to_string(),
         });
 
-        self.output_router.route_reply(content)
+        let output = self.output_router.route_reply(content);
+        self.conversation_status = ConversationStatus::Idle;
+        output
     }
 
     pub fn conversation(&self) -> &ConversationController {
@@ -93,13 +111,29 @@ impl InstanceRuntime {
             conversation_id: self.conversation.conversation_id().to_string(),
             event_count: self.conversation.events().len(),
             status: self.status.clone(),
+            queue_len: self.queue_len,
+            conversation_status: self.conversation_status.clone(),
         }
+    }
+
+    pub fn queue_len(&self) -> usize {
+        self.queue_len
+    }
+
+    pub fn queue_message(&mut self) {
+        self.queue_len += 1;
+        self.conversation_status = ConversationStatus::Queued;
+    }
+
+    pub fn clear_queue(&mut self) {
+        self.queue_len = 0;
+        self.conversation_status = ConversationStatus::Idle;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InstanceRuntime, RuntimeStatus};
+    use super::{ConversationStatus, InstanceRuntime, RuntimeStatus};
     use crate::{
         gateway::{GatewaySource, TransportEnvelope},
         ledger::{LedgerEventKind, LedgerRole},
@@ -142,5 +176,29 @@ mod tests {
 
         assert_eq!(runtime.conversation().instance_id(), "inst_project_a");
         assert_eq!(runtime.conversation().conversation_id(), "conv_a");
+    }
+
+    #[test]
+    fn exposes_queue_and_interrupt_skeleton() {
+        let mut runtime = InstanceRuntime::new("global-main", "conv_main");
+        assert_eq!(runtime.queue_len(), 0);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Idle
+        );
+
+        runtime.queue_message();
+        assert_eq!(runtime.queue_len(), 1);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Queued
+        );
+
+        runtime.clear_queue();
+        assert_eq!(runtime.queue_len(), 0);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Idle
+        );
     }
 }

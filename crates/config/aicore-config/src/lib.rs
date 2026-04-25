@@ -1,16 +1,4 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuthEntry {
-    pub auth_ref: String,
-    pub provider: String,
-    pub kind: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuthPool {
-    pub entries: Vec<AuthEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServiceProfile {
     pub role: String,
     pub auth_ref: Option<String>,
@@ -37,7 +25,9 @@ pub struct InstanceRuntimeConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AuthEntry, AuthPool, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile};
+    use aicore_auth::{AuthEntry, AuthPool};
+
+    use super::{GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding, ServiceProfile};
 
     #[test]
     fn separates_auth_pool_from_runtime_config() {

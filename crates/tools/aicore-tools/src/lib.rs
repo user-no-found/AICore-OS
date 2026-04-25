@@ -70,7 +70,7 @@ pub fn default_tool_broker() -> ToolBroker {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_tool_broker, ToolBroker};
+    use super::{ToolBroker, default_tool_broker};
 
     #[test]
     fn registration_increases_revision() {

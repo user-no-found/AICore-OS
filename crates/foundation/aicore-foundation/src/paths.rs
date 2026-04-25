@@ -60,8 +60,14 @@ mod tests {
             layout.instances_root,
             PathBuf::from("/home/demo/.aicore/instances")
         );
-        assert_eq!(layout.config_root, PathBuf::from("/home/demo/.aicore/config"));
-        assert_eq!(layout.secrets_root, PathBuf::from("/home/demo/.aicore/secrets"));
+        assert_eq!(
+            layout.config_root,
+            PathBuf::from("/home/demo/.aicore/config")
+        );
+        assert_eq!(
+            layout.secrets_root,
+            PathBuf::from("/home/demo/.aicore/secrets")
+        );
         assert_eq!(layout.run_root, PathBuf::from("/home/demo/.aicore/run"));
         assert_eq!(layout.logs_root, PathBuf::from("/home/demo/.aicore/logs"));
     }

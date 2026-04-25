@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
-use aicore_contracts::{InstanceKind, InstanceRecord, LifecycleState, RegistrationRecord, RegistryKind};
-use aicore_foundation::{AicoreLayout, InstanceId};
+use aicore_contracts::{
+    InstanceKind, InstanceRecord, LifecycleState, RegistrationRecord, RegistryKind,
+};
+use aicore_foundation::{AicoreError, AicoreLayout, InstanceId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceRegistry {
@@ -15,17 +17,28 @@ impl InstanceRegistry {
         }
     }
 
-    pub fn register(&mut self, instance: InstanceRecord) -> Result<(), String> {
+    pub fn register(&mut self, instance: InstanceRecord) -> Result<(), AicoreError> {
         if instance.id == InstanceId::global_main() && instance.kind != InstanceKind::GlobalMain {
-            return Err("global-main must use InstanceKind::GlobalMain".to_string());
+            return Err(AicoreError::InvalidState(
+                "global-main must use InstanceKind::GlobalMain".to_string(),
+            ));
         }
 
         if instance.id != InstanceId::global_main() && instance.kind == InstanceKind::GlobalMain {
-            return Err("only global-main can use InstanceKind::GlobalMain".to_string());
+            return Err(AicoreError::InvalidState(
+                "only global-main can use InstanceKind::GlobalMain".to_string(),
+            ));
         }
 
-        if self.instances.iter().any(|existing| existing.id == instance.id) {
-            return Err(format!("duplicate instance id: {}", instance.id.as_str()));
+        if self
+            .instances
+            .iter()
+            .any(|existing| existing.id == instance.id)
+        {
+            return Err(AicoreError::Duplicate(format!(
+                "instance id: {}",
+                instance.id.as_str()
+            )));
         }
 
         self.instances.push(instance);
@@ -44,6 +57,26 @@ impl InstanceRegistry {
                 subject_id: instance.id.as_str().to_string(),
                 lifecycle_state: LifecycleState::Registered,
             })
+            .collect()
+    }
+
+    pub fn get(&self, id: &InstanceId) -> Result<&InstanceRecord, AicoreError> {
+        self.instances
+            .iter()
+            .find(|instance| &instance.id == id)
+            .ok_or_else(|| AicoreError::Missing(format!("instance id: {}", id.as_str())))
+    }
+
+    pub fn global_main(&self) -> Option<&InstanceRecord> {
+        self.instances
+            .iter()
+            .find(|instance| instance.id == InstanceId::global_main())
+    }
+
+    pub fn workspaces(&self) -> Vec<&InstanceRecord> {
+        self.instances
+            .iter()
+            .filter(|instance| instance.kind == InstanceKind::Workspace)
             .collect()
     }
 }
@@ -111,7 +144,9 @@ mod tests {
         let instance = workspace_instance("inst_project_a", "/workspace/project-a", &layout)
             .expect("workspace instance should be valid");
 
-        registry.register(instance).expect("workspace instance should register");
+        registry
+            .register(instance)
+            .expect("workspace instance should register");
 
         assert_eq!(registry.list().len(), 2);
     }
@@ -124,7 +159,7 @@ mod tests {
             .register(global_main_instance(&layout))
             .expect_err("duplicate global-main should be rejected");
 
-        assert_eq!(error, "duplicate instance id: global-main");
+        assert_eq!(error.to_string(), "duplicate: instance id: global-main");
     }
 
     #[test]
@@ -143,5 +178,35 @@ mod tests {
 
         assert_eq!(main.workspace_root, PathBuf::from("/home/demo"));
         assert_eq!(main.state_root, PathBuf::from("/home/demo/.aicore/main"));
+    }
+
+    #[test]
+    fn supports_get_global_main_and_workspaces() {
+        let layout = AicoreLayout::new("/home/demo");
+        let mut registry = default_instance_registry();
+        let workspace = workspace_instance("inst_project_a", "/workspace/project-a", &layout)
+            .expect("workspace instance should be valid");
+        let workspace_id = workspace.id.clone();
+        registry
+            .register(workspace)
+            .expect("workspace instance should register");
+
+        assert_eq!(
+            registry
+                .get(&workspace_id)
+                .expect("workspace must exist")
+                .id
+                .as_str(),
+            "inst_project_a"
+        );
+        assert_eq!(
+            registry
+                .global_main()
+                .expect("global-main must exist")
+                .id
+                .as_str(),
+            "global-main"
+        );
+        assert_eq!(registry.workspaces().len(), 1);
     }
 }

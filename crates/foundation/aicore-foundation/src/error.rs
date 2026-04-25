@@ -5,6 +5,11 @@ use std::fmt::{self, Display, Formatter};
 pub enum AicoreError {
     InvalidComponentId(String),
     InvalidInstanceId(String),
+    InvalidPath(String),
+    Duplicate(String),
+    Missing(String),
+    InvalidState(String),
+    PermissionDenied(String),
 }
 
 impl Display for AicoreError {
@@ -12,6 +17,11 @@ impl Display for AicoreError {
         match self {
             Self::InvalidComponentId(value) => write!(f, "invalid component id: {value}"),
             Self::InvalidInstanceId(value) => write!(f, "invalid instance id: {value}"),
+            Self::InvalidPath(value) => write!(f, "invalid path: {value}"),
+            Self::Duplicate(value) => write!(f, "duplicate: {value}"),
+            Self::Missing(value) => write!(f, "missing: {value}"),
+            Self::InvalidState(value) => write!(f, "invalid state: {value}"),
+            Self::PermissionDenied(value) => write!(f, "permission denied: {value}"),
         }
     }
 }

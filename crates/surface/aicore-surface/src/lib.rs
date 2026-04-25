@@ -1,7 +1,7 @@
-use aicore_evolution::{default_evolution_proposals, EvolutionProposal, EvolutionTarget};
-use aicore_memory::{default_memory_kernel, MemoryProposal, MemoryType};
-use aicore_skills::{default_skill_records, SkillRecord, SkillScope};
-use aicore_tools::{default_tool_broker, ToolDescriptor};
+use aicore_evolution::{EvolutionProposal, EvolutionTarget, default_evolution_proposals};
+use aicore_memory::{MemoryProposal, MemoryType, default_memory_kernel};
+use aicore_skills::{SkillRecord, SkillScope, default_skill_records};
+use aicore_tools::{ToolDescriptor, default_tool_broker};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolSummary {

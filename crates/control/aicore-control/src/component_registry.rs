@@ -1,6 +1,7 @@
 use aicore_contracts::{
-    Capability, CapabilityBoundary, Compatibility, ComponentManifest, InstallAction, LifecycleState,
-    ManifestMetadata, PermissionBoundary, RegistrationRecord, RegistryKind, VersionDescriptor,
+    Capability, CapabilityBoundary, Compatibility, ComponentManifest, InstallAction,
+    LifecycleState, ManifestMetadata, PermissionBoundary, RegistrationRecord, RegistryKind,
+    VersionDescriptor,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,7 +191,7 @@ pub fn default_component_registry() -> ComponentRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_component_registry, ComponentRegistry};
+    use super::{ComponentRegistry, default_component_registry};
     use aicore_contracts::{
         Compatibility, ComponentManifest, InstallAction, LifecycleState, ManifestMetadata,
         PermissionBoundary, VersionDescriptor,
@@ -230,7 +231,9 @@ mod tests {
             capabilities: Vec::new(),
         };
 
-        registry.register(manifest.clone()).expect("first insert should pass");
+        registry
+            .register(manifest.clone())
+            .expect("first insert should pass");
         let error = registry
             .register(manifest)
             .expect_err("duplicate insert should fail");

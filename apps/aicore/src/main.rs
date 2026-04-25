@@ -1,10 +1,10 @@
 use std::env;
 
-use aicore_control::{default_control_plane, ControlPlane};
-use aicore_runtime::{default_runtime, GatewaySource, OutputTarget, TransportEnvelope};
+use aicore_control::{ControlPlane, default_control_plane};
+use aicore_runtime::{GatewaySource, OutputTarget, TransportEnvelope, default_runtime};
 use aicore_surface::{
-    default_kernel_surface, EvolutionTargetView, KernelSurface, MemoryProposalTypeView,
-    SkillScopeView,
+    EvolutionTargetView, KernelSurface, MemoryProposalTypeView, SkillScopeView,
+    default_kernel_surface,
 };
 
 fn main() {
@@ -22,8 +22,12 @@ fn main() {
         [group, action] if group == "evolution" && action == "list" => {
             print_evolution_list(&kernel_surface)
         }
-        [group, action] if group == "memory" && action == "list" => print_memory_list(&kernel_surface),
-        [group, action] if group == "skill" && action == "list" => print_skill_list(&kernel_surface),
+        [group, action] if group == "memory" && action == "list" => {
+            print_memory_list(&kernel_surface)
+        }
+        [group, action] if group == "skill" && action == "list" => {
+            print_skill_list(&kernel_surface)
+        }
         [group, action] if group == "tool" && action == "list" => print_tool_list(&kernel_surface),
         [group, action] if group == "runtime" && action == "demo" => print_runtime_demo(),
         _ => {
@@ -150,7 +154,10 @@ fn print_runtime_demo() {
     println!("  实例: {}", summary.instance_id);
     println!("  会话: {}", summary.conversation_id);
     println!("  账本消息数: {}", summary.event_count);
-    println!("  接收来源: {}", gateway_source_name(&ingress.accepted_source));
+    println!(
+        "  接收来源: {}",
+        gateway_source_name(&ingress.accepted_source)
+    );
     println!("  输出目标: {}", output_target_name(&output.target));
     println!("  输出内容: {}", output.content);
 }

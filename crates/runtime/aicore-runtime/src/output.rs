@@ -17,9 +17,7 @@ pub struct OutputRouter {
 
 impl OutputRouter {
     pub fn new(default_target: OutputTarget) -> Self {
-        Self {
-            default_target,
-        }
+        Self { default_target }
     }
 
     pub fn route_reply(&self, content: impl Into<String>) -> OutputEvent {

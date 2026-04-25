@@ -56,7 +56,7 @@ pub fn default_memory_kernel() -> MemoryKernel {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_memory_kernel, MemoryKernel, MemoryProposal, MemoryStatus, MemoryType};
+    use super::{MemoryKernel, MemoryProposal, MemoryStatus, MemoryType, default_memory_kernel};
 
     #[test]
     fn stores_memory_proposal() {
@@ -75,7 +75,10 @@ mod tests {
     #[test]
     fn preserves_source_excerpt_verbatim() {
         let kernel = default_memory_kernel();
-        assert_eq!(kernel.proposals()[0].source_excerpt, "User prefers Chinese UI.");
+        assert_eq!(
+            kernel.proposals()[0].source_excerpt,
+            "User prefers Chinese UI."
+        );
     }
 
     #[test]

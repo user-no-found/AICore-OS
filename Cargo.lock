@@ -12,11 +12,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-auth"
+version = "0.1.0"
+
+[[package]]
 name = "aicore-cli"
 version = "0.1.0"
 dependencies = [
  "aicore-control",
  "aicore-surface",
+]
+
+[[package]]
+name = "aicore-config"
+version = "0.1.0"
+dependencies = [
+ "aicore-auth",
 ]
 
 [[package]]
@@ -30,6 +41,8 @@ dependencies = [
 name = "aicore-control"
 version = "0.1.0"
 dependencies = [
+ "aicore-auth",
+ "aicore-config",
  "aicore-contracts",
  "aicore-foundation",
 ]

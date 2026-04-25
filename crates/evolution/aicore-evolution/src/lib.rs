@@ -53,7 +53,7 @@ pub fn default_evolution_proposals() -> Vec<EvolutionProposal> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_evolution_proposals, EvolutionMode, EvolutionProposal, EvolutionTarget};
+    use super::{EvolutionMode, EvolutionProposal, EvolutionTarget, default_evolution_proposals};
 
     #[test]
     fn high_risk_targets_require_user_discussion() {
