@@ -1,4 +1,19 @@
-use std::process::Command;
+use std::{fs, path::PathBuf, process::Command};
+
+fn temp_root(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("aicore-cli-p46-tests-{name}"));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("temp root should be removable");
+    }
+    root
+}
+
+fn run_cli(args: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(args)
+        .output()
+        .expect("aicore-cli should run")
+}
 
 #[test]
 fn renders_status_command() {
@@ -115,10 +130,7 @@ fn renders_model_show_command() {
 
 #[test]
 fn renders_service_list_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
-        .args(["service", "list"])
-        .output()
-        .expect("aicore-cli should run");
+    let output = run_cli(&["service", "list"]);
 
     assert!(output.status.success());
 
@@ -132,4 +144,168 @@ fn renders_service_list_command() {
     assert!(stdout.contains("mode: explicit"));
     assert!(stdout.contains("auth_ref: auth.openrouter.search"));
     assert!(stdout.contains("model: perplexity/sonar"));
+}
+
+#[test]
+fn renders_config_path_command() {
+    let root = temp_root("config-path");
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "path"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置路径："));
+    assert!(stdout.contains(&format!("root: {}", root.display())));
+    assert!(stdout.contains(&format!("auth.toml: {}", root.join("auth.toml").display())));
+    assert!(stdout.contains(&format!(
+        "services.toml: {}",
+        root.join("services.toml").display()
+    )));
+    assert!(stdout.contains(&format!("instances: {}", root.join("instances").display())));
+    assert!(stdout.contains(&format!(
+        "global-main runtime: {}",
+        root.join("instances").join("global-main").join("runtime.toml").display()
+    )));
+}
+
+#[test]
+fn config_path_uses_default_home_root_without_override() {
+    let home = temp_root("config-path-home");
+    let expected_root = home.join(".aicore").join("config");
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "path"])
+        .env("HOME", &home)
+        .env_remove("AICORE_CONFIG_ROOT")
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains(&format!("root: {}", expected_root.display())));
+}
+
+#[test]
+fn config_init_creates_real_config_files_under_override_root() {
+    let root = temp_root("config-init");
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "init"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+    assert!(root.join("auth.toml").exists());
+    assert!(root.join("services.toml").exists());
+    assert!(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml")
+            .exists()
+    );
+}
+
+#[test]
+fn config_init_does_not_overwrite_existing_files() {
+    let root = temp_root("config-init-no-overwrite");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(root.join("auth.toml"), "sentinel-auth").expect("auth.toml should be writable");
+    fs::write(root.join("services.toml"), "sentinel-services")
+        .expect("services.toml should be writable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        "sentinel-runtime",
+    )
+    .expect("runtime.toml should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "init"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+    assert_eq!(
+        fs::read_to_string(root.join("auth.toml")).expect("auth.toml should remain readable"),
+        "sentinel-auth"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("services.toml"))
+            .expect("services.toml should remain readable"),
+        "sentinel-services"
+    );
+    assert_eq!(
+        fs::read_to_string(
+            root.join("instances")
+                .join("global-main")
+                .join("runtime.toml")
+        )
+        .expect("runtime.toml should remain readable"),
+        "sentinel-runtime"
+    );
+}
+
+#[test]
+fn config_validate_accepts_initialized_config() {
+    let root = temp_root("config-validate-ok");
+
+    let init_output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "init"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+    assert!(init_output.status.success());
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "validate"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置校验："));
+    assert!(stdout.contains("认证池：已读取"));
+    assert!(stdout.contains("实例运行配置：通过"));
+    assert!(stdout.contains("服务角色配置：通过"));
+}
+
+#[test]
+fn config_validate_fails_when_runtime_missing() {
+    let root = temp_root("config-validate-missing-runtime");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(root.join("auth.toml"), "").expect("auth.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "validate"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少 global-main runtime 配置，请先运行 config init 或配置模型。"));
+}
+
+#[test]
+fn config_smoke_still_uses_temp_demo_root() {
+    let root = temp_root("config-smoke-real-root");
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "smoke"])
+        .env("AICORE_CONFIG_ROOT", &root)
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+    assert!(!root.exists());
 }

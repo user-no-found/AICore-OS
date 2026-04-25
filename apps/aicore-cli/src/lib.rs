@@ -28,6 +28,15 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "config" && action == "smoke" => {
             run_config_command(print_config_smoke)
         }
+        [group, action] if group == "config" && action == "path" => {
+            run_config_command(print_config_path)
+        }
+        [group, action] if group == "config" && action == "init" => {
+            run_config_command(print_config_init)
+        }
+        [group, action] if group == "config" && action == "validate" => {
+            run_config_command(print_config_validate)
+        }
         [group, action] if group == "auth" && action == "list" => {
             run_config_command(print_auth_list)
         }
@@ -39,13 +48,13 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, _] if group == "config" => {
             eprintln!("未知 config 命令。");
-            eprintln!("可用命令：config smoke");
+            eprintln!("可用命令：config smoke | config path | config init | config validate");
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | auth list | model show | service list"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list"
             );
             1
         }
@@ -227,6 +236,60 @@ fn print_config_smoke() -> Result<(), String> {
     Ok(())
 }
 
+fn print_config_path() -> Result<(), String> {
+    let paths = real_config_paths()?;
+
+    println!("配置路径：");
+    println!("root: {}", paths.root.display());
+    println!("auth.toml: {}", paths.auth_toml.display());
+    println!("services.toml: {}", paths.services_toml.display());
+    println!("instances: {}", paths.instances_dir.display());
+    println!(
+        "global-main runtime: {}",
+        paths.runtime_toml_for("global-main").display()
+    );
+
+    Ok(())
+}
+
+fn print_config_init() -> Result<(), String> {
+    let store = real_config_store()?;
+    let status = initialize_real_config(&store)?;
+
+    println!("配置初始化：");
+    println!("- root: {}", store.paths.root.display());
+    println!("- auth.toml: {}", init_status_name(status.auth_created));
+    println!(
+        "- services.toml: {}",
+        init_status_name(status.services_created)
+    );
+    println!(
+        "- global-main runtime.toml: {}",
+        init_status_name(status.runtime_created)
+    );
+
+    Ok(())
+}
+
+fn print_config_validate() -> Result<(), String> {
+    let store = real_config_store()?;
+    let auth_pool = store.load_auth_pool().map_err(config_error)?;
+    let runtime = store
+        .load_instance_runtime("global-main")
+        .map_err(map_runtime_load_error)?;
+    let services = store.load_services().map_err(config_error)?;
+
+    ConfigStore::validate_runtime_config(&runtime, &auth_pool).map_err(config_error)?;
+    ConfigStore::validate_service_profiles(&services, &auth_pool).map_err(config_error)?;
+
+    println!("配置校验：");
+    println!("- 认证池：已读取");
+    println!("- 实例运行配置：通过");
+    println!("- 服务角色配置：通过");
+
+    Ok(())
+}
+
 fn print_auth_list() -> Result<(), String> {
     let store = prepare_demo_config_store("auth-list")?;
     let auth_pool = store.load_auth_pool().map_err(config_error)?;
@@ -340,6 +403,25 @@ fn prepare_demo_config_store(command_name: &str) -> Result<ConfigStore, String> 
     Ok(store)
 }
 
+fn real_config_store() -> Result<ConfigStore, String> {
+    Ok(ConfigStore::new(real_config_paths()?))
+}
+
+fn real_config_paths() -> Result<ConfigPaths, String> {
+    Ok(ConfigPaths::new(resolve_real_config_root()?))
+}
+
+fn resolve_real_config_root() -> Result<PathBuf, String> {
+    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
+        return Ok(PathBuf::from(root));
+    }
+
+    let home = env::var_os("HOME")
+        .ok_or_else(|| "无法确定配置根目录，请设置 HOME 或 AICORE_CONFIG_ROOT。".to_string())?;
+
+    Ok(PathBuf::from(home).join(".aicore").join("config"))
+}
+
 fn demo_config_root(command_name: &str) -> PathBuf {
     env::temp_dir().join(format!(
         "aicore-cli-p45-{command_name}-{}",
@@ -354,6 +436,58 @@ fn reset_demo_root(root: &PathBuf) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+struct InitStatus {
+    auth_created: bool,
+    services_created: bool,
+    runtime_created: bool,
+}
+
+fn initialize_real_config(store: &ConfigStore) -> Result<InitStatus, String> {
+    let auth_created = write_auth_pool_if_missing(store, &demo_auth_pool())?;
+    let services_created = write_services_if_missing(store, &demo_service_profiles())?;
+    let runtime_created = write_runtime_if_missing(store, &demo_runtime_config())?;
+
+    Ok(InitStatus {
+        auth_created,
+        services_created,
+        runtime_created,
+    })
+}
+
+fn write_auth_pool_if_missing(store: &ConfigStore, pool: &GlobalAuthPool) -> Result<bool, String> {
+    if store.paths.auth_toml.exists() {
+        return Ok(false);
+    }
+
+    store.save_auth_pool(pool).map_err(config_error)?;
+    Ok(true)
+}
+
+fn write_services_if_missing(
+    store: &ConfigStore,
+    services: &GlobalServiceProfiles,
+) -> Result<bool, String> {
+    if store.paths.services_toml.exists() {
+        return Ok(false);
+    }
+
+    store.save_services(services).map_err(config_error)?;
+    Ok(true)
+}
+
+fn write_runtime_if_missing(
+    store: &ConfigStore,
+    runtime: &InstanceRuntimeConfig,
+) -> Result<bool, String> {
+    let runtime_path = store.paths.runtime_toml_for(&runtime.instance_id);
+    if runtime_path.exists() {
+        return Ok(false);
+    }
+
+    store.save_instance_runtime(runtime).map_err(config_error)?;
+    Ok(true)
 }
 
 fn demo_auth_pool() -> GlobalAuthPool {
@@ -431,6 +565,23 @@ fn config_error(error: aicore_config::ConfigError) -> String {
         aicore_config::ConfigError::Validation(message) => {
             format!("配置校验错误：{message}")
         }
+    }
+}
+
+fn map_runtime_load_error(error: aicore_config::ConfigError) -> String {
+    match error {
+        aicore_config::ConfigError::Io(message) if message.contains("missing runtime config") => {
+            "缺少 global-main runtime 配置，请先运行 config init 或配置模型。".to_string()
+        }
+        other => config_error(other),
+    }
+}
+
+fn init_status_name(created: bool) -> &'static str {
+    if created {
+        "已创建"
+    } else {
+        "已存在，未覆盖"
     }
 }
 
