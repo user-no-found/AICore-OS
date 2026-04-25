@@ -6,11 +6,12 @@ pub mod runtime;
 
 pub use conversation::ConversationController;
 pub use gateway::{GatewayInput, GatewaySource, InstanceIoGateway, TransportEnvelope};
-pub use ledger::{LedgerEvent, LedgerEventKind, LedgerRole, MessageLedger};
-pub use output::{OutputEvent, OutputRouter, OutputTarget};
+pub use ledger::{EventCursor, LedgerEvent, LedgerEventKind, LedgerRole, MessageLedger};
+pub use output::{OutputEvent, OutputRouter, OutputTarget, RoutedOutputs};
 pub use runtime::{
-    ConversationStatus, IngressResult, InstanceRuntime, InterruptMode, RuntimeStatus,
-    RuntimeSummary, TurnState,
+    ActiveTurn, ConversationStatus, FollowSubscription, IngressResult, InstanceRuntime,
+    InterruptDecision, InterruptMode, QueuedMessage, RuntimeStatus, RuntimeSummary, TurnId,
+    TurnState, TurnStatus,
 };
 
 pub fn default_runtime() -> InstanceRuntime {

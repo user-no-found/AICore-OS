@@ -26,6 +26,8 @@ pub struct MessageLedger {
     events: Vec<LedgerEvent>,
 }
 
+pub type EventCursor = usize;
+
 impl MessageLedger {
     pub fn new() -> Self {
         Self { events: Vec::new() }
@@ -38,5 +40,9 @@ impl MessageLedger {
 
     pub fn events(&self) -> &[LedgerEvent] {
         &self.events
+    }
+
+    pub fn next_cursor(&self) -> EventCursor {
+        self.events.len()
     }
 }

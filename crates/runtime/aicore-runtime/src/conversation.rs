@@ -1,4 +1,4 @@
-use crate::ledger::{LedgerEvent, MessageLedger};
+use crate::ledger::{EventCursor, LedgerEvent, MessageLedger};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConversationController {
@@ -30,5 +30,9 @@ impl ConversationController {
 
     pub fn conversation_id(&self) -> &str {
         &self.conversation_id
+    }
+
+    pub fn next_cursor(&self) -> EventCursor {
+        self.ledger.next_cursor()
     }
 }

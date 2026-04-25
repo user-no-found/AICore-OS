@@ -150,6 +150,10 @@ fn print_runtime_demo() {
     );
     let output = runtime.append_assistant_output("已收到来自 cli 的输入。");
     let summary = runtime.summary();
+    let primary_output = output
+        .events
+        .first()
+        .expect("runtime demo must produce at least one output event");
 
     println!("实例运行时演示：");
     println!("  实例: {}", summary.instance_id);
@@ -159,8 +163,8 @@ fn print_runtime_demo() {
         "  接收来源: {}",
         gateway_source_name(&ingress.accepted_source)
     );
-    println!("  输出目标: {}", output_target_name(&output.target));
-    println!("  输出内容: {}", output.content);
+    println!("  输出目标: {}", output_target_name(&primary_output.target));
+    println!("  输出内容: {}", primary_output.content);
 }
 
 fn memory_type_name(memory_type: &MemoryProposalTypeView) -> &'static str {
@@ -193,8 +197,9 @@ fn evolution_target_name(target: &EvolutionTargetView) -> &'static str {
 
 fn output_target_name(target: &OutputTarget) -> &'static str {
     match target {
-        OutputTarget::ActiveView => "active-view",
-        OutputTarget::ExternalReply => "external-reply",
+        OutputTarget::Origin => "origin",
+        OutputTarget::ActiveViews => "active-views",
+        OutputTarget::FollowedExternal => "followed-external",
     }
 }
 
