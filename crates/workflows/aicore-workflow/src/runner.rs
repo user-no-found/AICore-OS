@@ -27,6 +27,7 @@ fn run_single(repo_root: &Path, workflow: Workflow) -> Result<(), String> {
     run_cargo(repo_root, None, &["fmt", "--check"])?;
     run_cargo_for_workflow(repo_root, workflow, &target_dir, "test")?;
     run_cargo_for_workflow(repo_root, workflow, &target_dir, "build")?;
+    install_layer(workflow, &target_dir)?;
     println!("{} workflow 执行完成。", workflow.label_zh());
     Ok(())
 }
@@ -116,13 +117,51 @@ fn find_repo_root() -> Result<PathBuf, String> {
     }
 }
 
+fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
+    let manifest_path = install_manifest_for(target_dir);
+    if let Some(parent) = manifest_path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("创建安装目录 {} 失败: {error}", parent.display()))?;
+    }
+
+    let content = render_install_manifest(workflow, target_dir);
+    fs::write(&manifest_path, content)
+        .map_err(|error| format!("写入安装记录 {} 失败: {error}", manifest_path.display()))?;
+    Ok(())
+}
+
+fn install_manifest_for(target_dir: &Path) -> PathBuf {
+    target_dir.join("install/install.toml")
+}
+
+fn render_install_manifest(workflow: Workflow, target_dir: &Path) -> String {
+    let target_dir_escaped = target_dir.display().to_string();
+    let packages = workflow
+        .crates()
+        .iter()
+        .map(|pkg| format!("\"{pkg}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "layer = \"{}\"\nstatus = \"installed\"\ntarget_dir = \"{}\"\npackages = [{}]\n",
+        match workflow {
+            Workflow::Foundation => "foundation",
+            Workflow::Kernel => "kernel",
+            Workflow::Core => unreachable!("core should not render install manifest"),
+        },
+        target_dir_escaped,
+        packages
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use crate::layers::Workflow;
 
-    use super::target_dir_for;
+    use super::{install_manifest_for, target_dir_for};
 
     #[test]
     fn foundation_workflow_uses_foundation_target_dir() {
@@ -139,6 +178,15 @@ mod tests {
         assert_eq!(
             target_dir_for(root, Workflow::Kernel),
             root.join("target/layers/kernel")
+        );
+    }
+
+    #[test]
+    fn foundation_install_manifest_path_is_under_install_dir() {
+        let target_dir = PathBuf::from("/repo/target/layers/foundation");
+        assert_eq!(
+            install_manifest_for(&target_dir),
+            PathBuf::from("/repo/target/layers/foundation/install/install.toml")
         );
     }
 }

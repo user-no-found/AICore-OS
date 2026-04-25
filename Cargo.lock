@@ -92,3 +92,7 @@ dependencies = [
  "aicore-runtime",
  "aicore-surface",
 ]
+
+[[package]]
+name = "aicore-workflow"
+version = "0.1.0"
