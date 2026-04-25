@@ -37,19 +37,7 @@ impl Workflow {
                 "aicore-skills",
                 "aicore-evolution",
             ],
-            Self::Core => &[
-                "aicore-foundation",
-                "aicore-contracts",
-                "aicore-auth",
-                "aicore-config",
-                "aicore-control",
-                "aicore-runtime",
-                "aicore-surface",
-                "aicore-tools",
-                "aicore-memory",
-                "aicore-skills",
-                "aicore-evolution",
-            ],
+            Self::Core => &[],
         }
     }
 }
