@@ -13,5 +13,6 @@ pub use control_plane::{
     ControlPlane, ControlPlaneSummary, MainInstanceSummary, default_control_plane,
 };
 pub use instance_registry::{
-    InstanceRegistry, default_instance_registry, global_main_instance, workspace_instance,
+    InstanceRegistry, default_instance_registry, default_instance_registry_with_layout,
+    global_main_instance, workspace_instance,
 };

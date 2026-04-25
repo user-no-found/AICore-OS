@@ -86,6 +86,7 @@ fn print_main_instance(control_plane: &ControlPlane) {
     println!("  ID: {}", instance.id);
     println!("  类型: {}", instance.kind);
     println!("  工作区: {}", instance.workspace_root);
+    println!("  状态目录: {}", instance.state_root);
 }
 
 fn print_tool_list(surface: &KernelSurface) {

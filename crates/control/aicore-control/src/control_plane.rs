@@ -15,6 +15,7 @@ pub struct MainInstanceSummary {
     pub id: String,
     pub kind: String,
     pub workspace_root: String,
+    pub state_root: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,9 +61,7 @@ impl ControlPlane {
     pub fn main_instance_summary(&self) -> MainInstanceSummary {
         let instance = self
             .instance_registry
-            .list()
-            .iter()
-            .find(|item| item.id == aicore_foundation::InstanceId::global_main())
+            .global_main()
             .expect("global-main must exist in the default control-plane registry");
 
         MainInstanceSummary {
@@ -72,6 +71,7 @@ impl ControlPlane {
                 aicore_contracts::InstanceKind::Workspace => "workspace".to_string(),
             },
             workspace_root: instance.workspace_root.display().to_string(),
+            state_root: instance.state_root.display().to_string(),
         }
     }
 
@@ -150,5 +150,6 @@ mod tests {
         assert_eq!(summary.id, "global-main");
         assert_eq!(summary.kind, "global_main");
         assert!(!summary.workspace_root.is_empty());
+        assert!(!summary.state_root.is_empty());
     }
 }

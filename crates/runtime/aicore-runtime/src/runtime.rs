@@ -16,6 +16,21 @@ pub enum ConversationStatus {
     Idle,
     Running,
     Queued,
+    Interrupted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InterruptMode {
+    Queue,
+    AppendContext,
+    SoftInterrupt,
+    HardInterrupt,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnState {
+    pub active_turn_id: Option<String>,
+    pub queue_len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,11 +144,22 @@ impl InstanceRuntime {
         self.queue_len = 0;
         self.conversation_status = ConversationStatus::Idle;
     }
+
+    pub fn interrupt(&mut self, _mode: InterruptMode) {
+        self.conversation_status = ConversationStatus::Interrupted;
+    }
+
+    pub fn turn_state(&self) -> TurnState {
+        TurnState {
+            active_turn_id: None,
+            queue_len: self.queue_len,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ConversationStatus, InstanceRuntime, RuntimeStatus};
+    use super::{ConversationStatus, InstanceRuntime, InterruptMode, RuntimeStatus};
     use crate::{
         gateway::{GatewaySource, TransportEnvelope},
         ledger::{LedgerEventKind, LedgerRole},
@@ -182,6 +208,7 @@ mod tests {
     fn exposes_queue_and_interrupt_skeleton() {
         let mut runtime = InstanceRuntime::new("global-main", "conv_main");
         assert_eq!(runtime.queue_len(), 0);
+        assert_eq!(runtime.turn_state().active_turn_id, None);
         assert_eq!(
             runtime.summary().conversation_status,
             ConversationStatus::Idle
@@ -189,9 +216,16 @@ mod tests {
 
         runtime.queue_message();
         assert_eq!(runtime.queue_len(), 1);
+        assert_eq!(runtime.turn_state().queue_len, 1);
         assert_eq!(
             runtime.summary().conversation_status,
             ConversationStatus::Queued
+        );
+
+        runtime.interrupt(InterruptMode::SoftInterrupt);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            ConversationStatus::Interrupted
         );
 
         runtime.clear_queue();

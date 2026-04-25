@@ -12,6 +12,8 @@ pub enum AicoreError {
     PermissionDenied(String),
 }
 
+pub type AicoreResult<T> = Result<T, AicoreError>;
+
 impl Display for AicoreError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {

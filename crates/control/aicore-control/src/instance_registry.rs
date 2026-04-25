@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use aicore_contracts::{
     InstanceKind, InstanceRecord, LifecycleState, RegistrationRecord, RegistryKind,
 };
-use aicore_foundation::{AicoreError, AicoreLayout, InstanceId};
+use aicore_foundation::{AicoreError, AicoreLayout, AicoreResult, InstanceId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstanceRegistry {
@@ -17,7 +17,7 @@ impl InstanceRegistry {
         }
     }
 
-    pub fn register(&mut self, instance: InstanceRecord) -> Result<(), AicoreError> {
+    pub fn register(&mut self, instance: InstanceRecord) -> AicoreResult<()> {
         if instance.id == InstanceId::global_main() && instance.kind != InstanceKind::GlobalMain {
             return Err(AicoreError::InvalidState(
                 "global-main must use InstanceKind::GlobalMain".to_string(),
@@ -60,7 +60,7 @@ impl InstanceRegistry {
             .collect()
     }
 
-    pub fn get(&self, id: &InstanceId) -> Result<&InstanceRecord, AicoreError> {
+    pub fn get(&self, id: &InstanceId) -> AicoreResult<&InstanceRecord> {
         self.instances
             .iter()
             .find(|instance| &instance.id == id)
@@ -94,10 +94,12 @@ pub fn workspace_instance(
     id: &str,
     workspace_root: impl Into<PathBuf>,
     layout: &AicoreLayout,
-) -> Result<InstanceRecord, String> {
-    let id = InstanceId::new(id).map_err(|error| error.to_string())?;
+) -> AicoreResult<InstanceRecord> {
+    let id = InstanceId::new(id)?;
     if id == InstanceId::global_main() {
-        return Err("workspace instance cannot use global-main id".to_string());
+        return Err(AicoreError::InvalidState(
+            "workspace instance cannot use global-main id".to_string(),
+        ));
     }
 
     let workspace_root = workspace_root.into();
@@ -113,9 +115,13 @@ pub fn workspace_instance(
 
 pub fn default_instance_registry() -> InstanceRegistry {
     let layout = AicoreLayout::from_system_home();
+    default_instance_registry_with_layout(&layout)
+}
+
+pub fn default_instance_registry_with_layout(layout: &AicoreLayout) -> InstanceRegistry {
     let mut registry = InstanceRegistry::new();
     registry
-        .register(global_main_instance(&layout))
+        .register(global_main_instance(layout))
         .expect("default instance registry should contain global-main");
     registry
 }
@@ -125,9 +131,12 @@ mod tests {
     use std::path::PathBuf;
 
     use aicore_contracts::InstanceKind;
-    use aicore_foundation::AicoreLayout;
+    use aicore_foundation::{AicoreError, AicoreLayout};
 
-    use super::{default_instance_registry, global_main_instance, workspace_instance};
+    use super::{
+        default_instance_registry, default_instance_registry_with_layout, global_main_instance,
+        workspace_instance,
+    };
 
     #[test]
     fn contains_global_main_by_default() {
@@ -168,7 +177,10 @@ mod tests {
         let error = workspace_instance("global-main", "/workspace/fake", &layout)
             .expect_err("global-main impersonation should fail");
 
-        assert_eq!(error, "workspace instance cannot use global-main id");
+        assert_eq!(
+            error,
+            AicoreError::InvalidState("workspace instance cannot use global-main id".to_string())
+        );
     }
 
     #[test]
@@ -208,5 +220,17 @@ mod tests {
             "global-main"
         );
         assert_eq!(registry.workspaces().len(), 1);
+    }
+
+    #[test]
+    fn builds_default_registry_from_explicit_layout() {
+        let layout = AicoreLayout::new("/home/custom");
+        let registry = default_instance_registry_with_layout(&layout);
+        let main = registry
+            .global_main()
+            .expect("global-main must exist in explicit layout registry");
+
+        assert_eq!(main.workspace_root, PathBuf::from("/home/custom"));
+        assert_eq!(main.state_root, PathBuf::from("/home/custom/.aicore/main"));
     }
 }
