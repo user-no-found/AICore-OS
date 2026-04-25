@@ -5,6 +5,7 @@ pub enum Workflow {
     Core,
     AppAicore,
     AppCli,
+    AppTui,
 }
 
 impl Workflow {
@@ -15,6 +16,7 @@ impl Workflow {
             "core" => Some(Self::Core),
             "app-aicore" => Some(Self::AppAicore),
             "app-cli" => Some(Self::AppCli),
+            "app-tui" => Some(Self::AppTui),
             _ => None,
         }
     }
@@ -26,6 +28,7 @@ impl Workflow {
             Self::Core => "底层与内核层",
             Self::AppAicore => "应用层 aicore",
             Self::AppCli => "应用层 aicore-cli",
+            Self::AppTui => "应用层 aicore-tui",
         }
     }
 
@@ -46,6 +49,7 @@ impl Workflow {
             Self::Core => &[],
             Self::AppAicore => &["aicore"],
             Self::AppCli => &["aicore-cli"],
+            Self::AppTui => &["aicore-tui"],
         }
     }
 }
@@ -72,5 +76,15 @@ mod tests {
     #[test]
     fn app_cli_workflow_maps_to_aicore_cli_package() {
         assert_eq!(Workflow::AppCli.crates(), &["aicore-cli"]);
+    }
+
+    #[test]
+    fn parses_app_tui_workflow() {
+        assert_eq!(Workflow::parse("app-tui"), Some(Workflow::AppTui));
+    }
+
+    #[test]
+    fn app_tui_workflow_maps_to_aicore_tui_package() {
+        assert_eq!(Workflow::AppTui.crates(), &["aicore-tui"]);
     }
 }

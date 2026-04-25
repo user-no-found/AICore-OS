@@ -16,9 +16,11 @@ pub fn run(workflow: Workflow) -> Result<(), String> {
             println!("{} workflow 执行完成。", workflow.label_zh());
             Ok(())
         }
-        Workflow::Foundation | Workflow::Kernel | Workflow::AppAicore | Workflow::AppCli => {
-            run_single(&repo_root, workflow)
-        }
+        Workflow::Foundation
+        | Workflow::Kernel
+        | Workflow::AppAicore
+        | Workflow::AppCli
+        | Workflow::AppTui => run_single(&repo_root, workflow),
     }
 }
 
@@ -88,6 +90,7 @@ fn target_dir_for(repo_root: &Path, workflow: Workflow) -> PathBuf {
         Workflow::Core => unreachable!("core should run foundation + kernel separately"),
         Workflow::AppAicore => repo_root.join("target/apps/aicore"),
         Workflow::AppCli => repo_root.join("target/apps/aicore-cli"),
+        Workflow::AppTui => repo_root.join("target/apps/aicore-tui"),
     }
 }
 
@@ -155,6 +158,7 @@ fn render_install_manifest(workflow: Workflow, target_dir: &Path) -> String {
             Workflow::Core => unreachable!("core should not render install manifest"),
             Workflow::AppAicore => "app-aicore",
             Workflow::AppCli => "app-cli",
+            Workflow::AppTui => "app-tui",
         },
         target_dir_escaped,
         packages
@@ -202,6 +206,15 @@ mod tests {
         assert_eq!(
             target_dir_for(root, Workflow::AppCli),
             root.join("target/apps/aicore-cli")
+        );
+    }
+
+    #[test]
+    fn app_tui_workflow_uses_app_target_dir() {
+        let root = Path::new("/repo");
+        assert_eq!(
+            target_dir_for(root, Workflow::AppTui),
+            root.join("target/apps/aicore-tui")
         );
     }
 

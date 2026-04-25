@@ -63,8 +63,8 @@ fn print_instance_list() {
 }
 
 fn print_runtime_smoke() {
-    let mut runtime = default_runtime();
-    let ingress = runtime.handle_ingress(
+    let mut cli_runtime = default_runtime();
+    let cli_ingress = cli_runtime.handle_ingress(
         TransportEnvelope {
             source: GatewaySource::Cli,
             platform: None,
@@ -76,17 +76,75 @@ fn print_runtime_smoke() {
         "hello",
         InterruptMode::Queue,
     );
-    let routed = runtime.append_assistant_output("reply");
-    let first = routed
+    let cli_routed = cli_runtime.append_assistant_output("reply");
+    let cli_first = cli_routed
         .events
         .first()
         .expect("runtime smoke must have at least one output");
 
+    let mut external_runtime = default_runtime();
+    external_runtime.handle_ingress(
+        TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("feishu".to_string()),
+            target_id: Some("chat-1".to_string()),
+            sender_id: Some("user-1".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        },
+        "hello from external",
+        InterruptMode::Queue,
+    );
+    let external_routed = external_runtime.append_assistant_output("reply external");
+    let external_origin = external_routed
+        .events
+        .iter()
+        .find(|event| event.target == OutputTarget::Origin)
+        .expect("external origin smoke must include origin output");
+
+    let mut follow_runtime = default_runtime();
+    follow_runtime.follow_external(TransportEnvelope {
+        source: GatewaySource::External,
+        platform: Some("feishu".to_string()),
+        target_id: Some("chat-2".to_string()),
+        sender_id: Some("user-2".to_string()),
+        is_group: true,
+        mentioned_bot: true,
+    });
+    let follow_routed = follow_runtime.append_assistant_output("reply followed");
+    let followed_external = follow_routed
+        .events
+        .iter()
+        .find(|event| event.target == OutputTarget::FollowedExternal)
+        .expect("follow smoke must include followed external output");
+
     println!("Runtime Smoke：");
-    println!("接收决策：{:?}", ingress.decision);
-    println!("账本消息数：{}", runtime.summary().event_count);
-    println!("输出目标：{}", output_target_name(&first.target));
-    println!("投递身份：{}", delivery_identity_name(&first.identity));
+    println!("CLI 场景：");
+    println!("  接收决策：{:?}", cli_ingress.decision);
+    println!("  账本消息数：{}", cli_runtime.summary().event_count);
+    println!("  输出目标：{}", output_target_name(&cli_first.target));
+    println!(
+        "  投递身份：{}",
+        delivery_identity_name(&cli_first.identity)
+    );
+    println!("External Origin 场景：");
+    println!(
+        "  输出目标：{}",
+        output_target_name(&external_origin.target)
+    );
+    println!(
+        "  投递身份：{}",
+        delivery_identity_name(&external_origin.identity)
+    );
+    println!("Follow 场景：");
+    println!(
+        "  输出目标：{}",
+        output_target_name(&followed_external.target)
+    );
+    println!(
+        "  投递身份：{}",
+        delivery_identity_name(&followed_external.identity)
+    );
 }
 
 fn output_target_name(target: &OutputTarget) -> &'static str {
