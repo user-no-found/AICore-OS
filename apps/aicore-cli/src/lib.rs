@@ -6,6 +6,7 @@ use aicore_config::{
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
 use aicore_control::default_control_plane;
+use aicore_provider::{DummyProvider, ModelRequest, ProviderError, ProviderResolver};
 use aicore_runtime::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
     default_runtime,
@@ -46,6 +47,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "service" && action == "list" => {
             run_config_command(print_service_list)
         }
+        [group, action] if group == "provider" && action == "smoke" => {
+            run_config_command(print_provider_smoke)
+        }
         [group, _] if group == "config" => {
             eprintln!("未知 config 命令。");
             eprintln!("可用命令：config smoke | config path | config init | config validate");
@@ -54,7 +58,7 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke"
             );
             1
         }
@@ -363,6 +367,45 @@ fn print_service_list() -> Result<(), String> {
     Ok(())
 }
 
+fn print_provider_smoke() -> Result<(), String> {
+    let store = real_config_store()?;
+    let auth_pool = load_real_auth_pool(&store)?;
+    let runtime_config = store
+        .load_instance_runtime("global-main")
+        .map_err(map_runtime_load_error)?;
+
+    let resolved =
+        ProviderResolver::resolve_primary(&auth_pool, &runtime_config).map_err(provider_error)?;
+    let request = ModelRequest {
+        instance_id: runtime_config.instance_id.clone(),
+        conversation_id: "main".to_string(),
+        prompt: "provider smoke".to_string(),
+        resolved_model: resolved.clone(),
+    };
+    let response = DummyProvider::generate(&request);
+
+    let mut runtime = default_runtime();
+    let outputs = runtime.append_assistant_output(&response.content);
+    let runtime_output_ok = outputs
+        .events
+        .iter()
+        .any(|event| event.content == response.content);
+
+    if !runtime_output_ok {
+        return Err("runtime 未收到 provider 输出".to_string());
+    }
+
+    println!("Provider Smoke：");
+    println!("- 实例：{}", runtime_config.instance_id);
+    println!("- auth_ref：{}", resolved.auth_ref.as_str());
+    println!("- model：{}", resolved.model);
+    println!("- provider：dummy");
+    println!("- provider response：通过");
+    println!("- runtime output：通过");
+
+    Ok(())
+}
+
 fn output_target_name(target: &OutputTarget) -> &'static str {
     match target {
         OutputTarget::Origin => "origin",
@@ -581,6 +624,12 @@ fn config_error(error: aicore_config::ConfigError) -> String {
         aicore_config::ConfigError::Validation(message) => {
             format!("配置校验错误：{message}")
         }
+    }
+}
+
+fn provider_error(error: ProviderError) -> String {
+    match error {
+        ProviderError::Resolve(message) => format!("provider 解析错误：{message}"),
     }
 }
 

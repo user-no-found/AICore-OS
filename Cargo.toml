@@ -11,6 +11,7 @@ members = [
   "crates/control/aicore-control",
   "crates/evolution/aicore-evolution",
   "crates/memory/aicore-memory",
+  "crates/provider/aicore-provider",
   "crates/runtime/aicore-runtime",
   "crates/surface/aicore-surface",
   "crates/skills/aicore-skills",
@@ -33,6 +34,7 @@ aicore-control = { path = "crates/control/aicore-control" }
 aicore-evolution = { path = "crates/evolution/aicore-evolution" }
 aicore-foundation = { path = "crates/foundation/aicore-foundation" }
 aicore-memory = { path = "crates/memory/aicore-memory" }
+aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-runtime = { path = "crates/runtime/aicore-runtime" }
 aicore-surface = { path = "crates/surface/aicore-surface" }
 aicore-skills = { path = "crates/skills/aicore-skills" }

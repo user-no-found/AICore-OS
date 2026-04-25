@@ -22,6 +22,7 @@ dependencies = [
  "aicore-config",
  "aicore-contracts",
  "aicore-control",
+ "aicore-provider",
  "aicore-runtime",
 ]
 
@@ -60,6 +61,14 @@ version = "0.1.0"
 [[package]]
 name = "aicore-memory"
 version = "0.1.0"
+
+[[package]]
+name = "aicore-provider"
+version = "0.1.0"
+dependencies = [
+ "aicore-auth",
+ "aicore-config",
+]
 
 [[package]]
 name = "aicore-runtime"

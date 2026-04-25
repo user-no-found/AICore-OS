@@ -194,6 +194,66 @@ fn service_list_fails_when_services_missing() {
 }
 
 #[test]
+fn provider_smoke_reads_real_config_root() {
+    let root = temp_root("provider-smoke-real-root");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Provider Smoke："));
+    assert!(stdout.contains("实例：global-main"));
+    assert!(stdout.contains("auth_ref：auth.openrouter.main"));
+    assert!(stdout.contains("model：openai/gpt-5"));
+    assert!(stdout.contains("provider：dummy"));
+    assert!(stdout.contains("provider response：通过"));
+    assert!(stdout.contains("runtime output：通过"));
+}
+
+#[test]
+fn provider_smoke_fails_when_auth_missing() {
+    let root = temp_root("provider-smoke-missing-auth");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.openrouter.main"
+primary_model = "openai/gpt-5"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少认证池配置，请先运行 config init。"));
+}
+
+#[test]
+fn provider_smoke_fails_when_runtime_missing() {
+    let root = temp_root("provider-smoke-missing-runtime");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(root.join("auth.toml"), "").expect("auth.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少 global-main runtime 配置，请先运行 config init 或配置模型。"));
+}
+
+#[test]
 fn renders_config_path_command() {
     let root = temp_root("config-path");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
