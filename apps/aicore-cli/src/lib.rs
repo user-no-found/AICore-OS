@@ -63,8 +63,14 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "memory" && action == "proposals" => {
             run_memory_command(print_memory_proposals)
         }
+        [group, action] if group == "memory" && action == "wiki" => {
+            run_memory_command(print_memory_wiki_index)
+        }
         [group, action, content] if group == "memory" && action == "remember" => {
             run_memory_command_with_arg(content, print_memory_remember)
+        }
+        [group, action, page] if group == "memory" && action == "wiki" => {
+            run_memory_command_with_arg(page, print_memory_wiki_page)
         }
         [group, action, query, rest @ ..] if group == "memory" && action == "search" => {
             run_memory_search_command(query, rest)
@@ -83,14 +89,14 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, _] if group == "memory" => {
             eprintln!("未知 memory 命令。");
             eprintln!(
-                "可用命令：memory status | memory audit | memory proposals | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory proposals | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -537,6 +543,30 @@ fn print_memory_proposals() -> Result<(), String> {
     Ok(())
 }
 
+fn print_memory_wiki_index() -> Result<(), String> {
+    print_memory_wiki_page("index")
+}
+
+fn print_memory_wiki_page(page: &str) -> Result<(), String> {
+    let paths = real_memory_paths()?;
+    let (page_name, page_path) = resolve_memory_wiki_page(&paths, page)?;
+
+    if !page_path.exists() {
+        return Err("缺少 Wiki Projection，请先写入记忆或重建 projection。".to_string());
+    }
+
+    let content = fs::read_to_string(&page_path)
+        .map_err(|error| format!("无法读取 Wiki Projection {}: {error}", page_path.display()))?;
+
+    println!("记忆 Wiki Projection：");
+    println!("- page: {page_name}");
+    println!("- path: {}", page_path.display());
+    println!();
+    print!("{content}");
+
+    Ok(())
+}
+
 fn print_memory_remember(content: &str) -> Result<(), String> {
     let mut kernel = real_memory_kernel()?;
     let memory_id = kernel
@@ -709,6 +739,25 @@ fn real_memory_paths() -> Result<MemoryPaths, String> {
             .join("global-main")
             .join("memory"),
     ))
+}
+
+fn resolve_memory_wiki_page(
+    paths: &MemoryPaths,
+    page: &str,
+) -> Result<(&'static str, PathBuf), String> {
+    if page.contains('/') || page.contains('\\') || page.contains("..") {
+        return Err("不允许读取任意 Wiki 路径。".to_string());
+    }
+
+    let normalized = page.trim_end_matches(".md");
+
+    match normalized {
+        "index" => Ok(("index", paths.wiki_index_md.clone())),
+        "core" => Ok(("core", paths.wiki_core_md.clone())),
+        "decisions" => Ok(("decisions", paths.wiki_decisions_md.clone())),
+        "status" => Ok(("status", paths.wiki_status_md.clone())),
+        _ => Err(format!("未知 Wiki 页面：{page}")),
+    }
 }
 
 fn resolve_real_config_root() -> Result<PathBuf, String> {

@@ -187,6 +187,150 @@ fn renders_config_smoke_command() {
 }
 
 #[test]
+fn memory_wiki_defaults_to_index() {
+    let root = temp_root("memory-wiki-index");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki index memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆 Wiki Projection："));
+    assert!(stdout.contains("- page: index"));
+    assert!(stdout.contains("# Memory Wiki"));
+    assert!(stdout.contains("[Core](core.md)"));
+}
+
+#[test]
+fn memory_wiki_reads_core_page() {
+    let root = temp_root("memory-wiki-core");
+    let memory_id = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki core memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki", "core"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("- page: core"));
+    assert!(stdout.contains("# Core Memories"));
+    assert!(stdout.contains(&memory_id));
+    assert!(stdout.contains("wiki core memory"));
+}
+
+#[test]
+fn memory_wiki_reads_decisions_page() {
+    let root = temp_root("memory-wiki-decisions");
+    let memory_id = seed_memory_record(
+        &root,
+        MemoryType::Decision,
+        MemoryPermanence::Standard,
+        "wiki decision memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki", "decisions"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("- page: decisions"));
+    assert!(stdout.contains("# Decisions"));
+    assert!(stdout.contains(&memory_id));
+}
+
+#[test]
+fn memory_wiki_reads_status_page() {
+    let root = temp_root("memory-wiki-status");
+    let memory_id = seed_memory_record(
+        &root,
+        MemoryType::Status,
+        MemoryPermanence::Standard,
+        "wiki status memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki", "status"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("- page: status"));
+    assert!(stdout.contains("# Status"));
+    assert!(stdout.contains(&memory_id));
+}
+
+#[test]
+fn memory_wiki_accepts_md_suffix() {
+    let root = temp_root("memory-wiki-md-suffix");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki suffix memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki", "core.md"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("- page: core"));
+}
+
+#[test]
+fn memory_wiki_rejects_unknown_page() {
+    let root = temp_root("memory-wiki-unknown");
+    let output = run_cli_with_config_root(&["memory", "wiki", "unknown"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("未知 Wiki 页面"));
+}
+
+#[test]
+fn memory_wiki_rejects_path_traversal() {
+    let root = temp_root("memory-wiki-traversal");
+    let output = run_cli_with_config_root(&["memory", "wiki", "../../secret"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("不允许读取任意 Wiki 路径"));
+}
+
+#[test]
+fn memory_wiki_reports_missing_projection() {
+    let root = temp_root("memory-wiki-missing");
+    let output = run_cli_with_config_root(&["memory", "wiki"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("缺少 Wiki Projection"));
+}
+
+#[test]
+fn memory_wiki_output_preserves_not_truth_source_notice() {
+    let root = temp_root("memory-wiki-not-truth");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki notice memory",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "wiki", "index"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("这是 generated projection"));
+    assert!(stdout.contains("不是事实来源"));
+    assert!(stdout.contains("不应手工编辑后期待反向同步"));
+}
+
+#[test]
 fn auth_list_reads_real_config_root() {
     let root = temp_root("auth-list-real-root");
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
