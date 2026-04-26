@@ -1,5 +1,10 @@
 use std::{fs, path::PathBuf, process::Command};
 
+use aicore_memory::{
+    MemoryAgentOutput, MemoryKernel, MemoryPaths, MemoryProposal, MemoryProposalStatus,
+    MemoryScope, MemorySource, MemoryType,
+};
+
 fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("aicore-cli-p46-tests-{name}"));
     if root.exists() {
@@ -14,6 +19,47 @@ fn run_cli_with_config_root(args: &[&str], root: &PathBuf) -> std::process::Outp
         .env("AICORE_CONFIG_ROOT", root)
         .output()
         .expect("aicore-cli should run")
+}
+
+fn memory_paths_for_root(root: &PathBuf) -> MemoryPaths {
+    MemoryPaths::new(root.join("instances").join("global-main").join("memory"))
+}
+
+fn seed_open_proposal(root: &PathBuf, memory_type: MemoryType, content: &str) -> String {
+    let mut kernel =
+        MemoryKernel::open(memory_paths_for_root(root)).expect("memory kernel should open");
+    kernel
+        .submit_agent_output(MemoryAgentOutput {
+            proposals: vec![MemoryProposal {
+                proposal_id: "agent_prop_seed".to_string(),
+                memory_type,
+                scope: MemoryScope::GlobalMain {
+                    instance_id: "global-main".to_string(),
+                },
+                source: MemorySource::RuleBasedAgent,
+                status: MemoryProposalStatus::Rejected,
+                content: content.to_string(),
+                content_language: if content.is_ascii() {
+                    "en".to_string()
+                } else {
+                    "zh-CN".to_string()
+                },
+                normalized_content: content.to_string(),
+                normalized_language: if content.is_ascii() {
+                    "en".to_string()
+                } else {
+                    "zh-CN".to_string()
+                },
+                localized_summary: content.to_string(),
+                created_at: "0".to_string(),
+            }],
+            corrections: Vec::new(),
+            archive_suggestions: Vec::new(),
+        })
+        .expect("agent output should be stored")
+        .into_iter()
+        .next()
+        .expect("proposal id should exist")
 }
 
 #[test]
@@ -442,6 +488,126 @@ fn memory_audit_reports_ok_for_valid_memory_store() {
     assert!(stdout.contains("Memory Audit："));
     assert!(stdout.contains("checked events: 1"));
     assert!(stdout.contains("status: ok"));
+}
+
+#[test]
+fn memory_proposals_empty_prints_friendly_message() {
+    let root = temp_root("memory-proposals-empty");
+    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("暂无待审阅记忆提案。"));
+}
+
+#[test]
+fn memory_proposals_lists_open_proposals() {
+    let root = temp_root("memory-proposals-list");
+    let proposal_id = seed_open_proposal(
+        &root,
+        MemoryType::Core,
+        "TUI 是类似 Codex 的终端 AI 编程界面",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Proposals："));
+    assert!(stdout.contains(&proposal_id));
+    assert!(stdout.contains("[core]"));
+    assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
+}
+
+#[test]
+fn memory_accept_proposal_creates_record() {
+    let root = temp_root("memory-accept-proposal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Core, "接受后成为记忆");
+
+    let output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已接受："));
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+    assert!(stdout.contains("memory: mem_"));
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "接受后"], &root);
+    assert!(search_output.status.success());
+    let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(search_stdout.contains("接受后成为记忆"));
+}
+
+#[test]
+fn memory_accept_proposal_removes_from_open_list() {
+    let root = temp_root("memory-accept-removes-open");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Status, "accept removes open");
+
+    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    assert!(accept_output.status.success());
+
+    let proposals_output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    assert!(proposals_output.status.success());
+    let stdout = String::from_utf8(proposals_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("暂无待审阅记忆提案。"));
+}
+
+#[test]
+fn memory_reject_proposal_does_not_create_record() {
+    let root = temp_root("memory-reject-proposal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Working, "拒绝后不生成记忆");
+
+    let output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已拒绝："));
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "拒绝后"], &root);
+    assert!(search_output.status.success());
+    let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(search_stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn memory_reject_proposal_removes_from_open_list() {
+    let root = temp_root("memory-reject-removes-open");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Core, "reject removes open");
+
+    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    assert!(reject_output.status.success());
+
+    let proposals_output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    assert!(proposals_output.status.success());
+    let stdout = String::from_utf8(proposals_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("暂无待审阅记忆提案。"));
+}
+
+#[test]
+fn memory_accept_unknown_proposal_fails() {
+    let root = temp_root("memory-accept-unknown");
+    let output = run_cli_with_config_root(&["memory", "accept", "prop_missing"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("unknown proposal_id: prop_missing"));
+}
+
+#[test]
+fn memory_reject_unknown_proposal_fails() {
+    let root = temp_root("memory-reject-unknown");
+    let output = run_cli_with_config_root(&["memory", "reject", "prop_missing"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("unknown proposal_id: prop_missing"));
 }
 
 #[test]

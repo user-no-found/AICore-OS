@@ -60,11 +60,20 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "memory" && action == "audit" => {
             run_memory_command(print_memory_audit)
         }
+        [group, action] if group == "memory" && action == "proposals" => {
+            run_memory_command(print_memory_proposals)
+        }
         [group, action, content] if group == "memory" && action == "remember" => {
             run_memory_command_with_arg(content, print_memory_remember)
         }
         [group, action, query] if group == "memory" && action == "search" => {
             run_memory_command_with_arg(query, print_memory_search)
+        }
+        [group, action, proposal_id] if group == "memory" && action == "accept" => {
+            run_memory_command_with_arg(proposal_id, print_memory_accept)
+        }
+        [group, action, proposal_id] if group == "memory" && action == "reject" => {
+            run_memory_command_with_arg(proposal_id, print_memory_reject)
         }
         [group, _] if group == "config" => {
             eprintln!("未知 config 命令。");
@@ -74,14 +83,14 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, _] if group == "memory" => {
             eprintln!("未知 memory 命令。");
             eprintln!(
-                "可用命令：memory status | memory audit | memory remember <内容> | memory search <关键词>"
+                "可用命令：memory status | memory audit | memory proposals | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory remember <内容> | memory search <关键词>"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory proposals | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -488,6 +497,35 @@ fn print_memory_audit() -> Result<(), String> {
     Ok(())
 }
 
+fn print_memory_proposals() -> Result<(), String> {
+    let kernel = real_memory_kernel()?;
+    let proposals = kernel.list_open_proposals();
+
+    if proposals.is_empty() {
+        println!("暂无待审阅记忆提案。");
+        return Ok(());
+    }
+
+    println!("Memory Proposals：");
+    for proposal in proposals {
+        let display_text = if !proposal.localized_summary.is_empty() {
+            proposal.localized_summary
+        } else if !proposal.content.is_empty() {
+            proposal.content
+        } else {
+            proposal.normalized_content
+        };
+        println!(
+            "- {} [{}] {}",
+            proposal.proposal_id,
+            memory_type_name(&proposal.memory_type),
+            display_text
+        );
+    }
+
+    Ok(())
+}
+
 fn print_memory_remember(content: &str) -> Result<(), String> {
     let mut kernel = real_memory_kernel()?;
     let memory_id = kernel
@@ -506,6 +544,31 @@ fn print_memory_remember(content: &str) -> Result<(), String> {
     println!("- id: {memory_id}");
     println!("- type: core");
     println!("- status: active");
+
+    Ok(())
+}
+
+fn print_memory_accept(proposal_id: &str) -> Result<(), String> {
+    let mut kernel = real_memory_kernel()?;
+    let memory_id = kernel
+        .accept_proposal(proposal_id, "user", Some("cli accept"))
+        .map_err(memory_error)?;
+
+    println!("记忆提案已接受：");
+    println!("- proposal: {proposal_id}");
+    println!("- memory: {memory_id}");
+
+    Ok(())
+}
+
+fn print_memory_reject(proposal_id: &str) -> Result<(), String> {
+    let mut kernel = real_memory_kernel()?;
+    kernel
+        .reject_proposal(proposal_id, "user", Some("cli reject"))
+        .map_err(memory_error)?;
+
+    println!("记忆提案已拒绝：");
+    println!("- proposal: {proposal_id}");
 
     Ok(())
 }
