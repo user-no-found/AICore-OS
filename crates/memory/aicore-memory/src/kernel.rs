@@ -710,6 +710,25 @@ impl MemoryKernel {
         fs::read_to_string(&self.paths.status_md).map_err(|error| MemoryError(error.to_string()))
     }
 
+    pub fn wiki_index_markdown(&self) -> Result<String, MemoryError> {
+        fs::read_to_string(&self.paths.wiki_index_md)
+            .map_err(|error| MemoryError(error.to_string()))
+    }
+
+    pub fn wiki_core_markdown(&self) -> Result<String, MemoryError> {
+        fs::read_to_string(&self.paths.wiki_core_md).map_err(|error| MemoryError(error.to_string()))
+    }
+
+    pub fn wiki_decisions_markdown(&self) -> Result<String, MemoryError> {
+        fs::read_to_string(&self.paths.wiki_decisions_md)
+            .map_err(|error| MemoryError(error.to_string()))
+    }
+
+    pub fn wiki_status_markdown(&self) -> Result<String, MemoryError> {
+        fs::read_to_string(&self.paths.wiki_status_md)
+            .map_err(|error| MemoryError(error.to_string()))
+    }
+
     pub fn set_projection_failure_for_tests(&mut self, should_fail: bool) {
         self.projection_should_fail_for_tests = should_fail;
     }
@@ -804,16 +823,21 @@ impl MemoryKernel {
     }
 
     fn rebuild_projections_after_commit(&mut self) -> Result<(), MemoryError> {
+        let rebuilt_at = now_string();
         match rebuild_projections(
             &self.paths.core_md,
             &self.paths.status_md,
             &self.paths.permanent_md,
             &self.paths.decisions_md,
+            &self.paths.wiki_index_md,
+            &self.paths.wiki_core_md,
+            &self.paths.wiki_decisions_md,
+            &self.paths.wiki_status_md,
             &self.records,
+            &rebuilt_at,
             self.projection_should_fail_for_tests,
         ) {
             Ok(_) => {
-                let rebuilt_at = now_string();
                 self.projection_state = ProjectionState {
                     stale: false,
                     warning: None,

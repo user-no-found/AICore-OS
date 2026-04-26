@@ -1239,6 +1239,249 @@ mod tests {
     }
 
     #[test]
+    fn wiki_projection_creates_expected_files() {
+        let paths = temp_paths("wiki-files");
+        let wiki_index = paths.wiki_index_md.clone();
+        let wiki_core = paths.wiki_core_md.clone();
+        let wiki_decisions = paths.wiki_decisions_md.clone();
+        let wiki_status = paths.wiki_status_md.clone();
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "wiki core".to_string(),
+                localized_summary: "wiki core".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        assert!(wiki_index.exists());
+        assert!(wiki_core.exists());
+        assert!(wiki_decisions.exists());
+        assert!(wiki_status.exists());
+    }
+
+    #[test]
+    fn wiki_projection_index_links_pages() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-index")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "index page".to_string(),
+                localized_summary: "index page".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let index = kernel
+            .wiki_index_markdown()
+            .expect("wiki index should be readable");
+        assert!(index.contains("[Core](core.md)"));
+        assert!(index.contains("[Decisions](decisions.md)"));
+        assert!(index.contains("[Status](status.md)"));
+    }
+
+    #[test]
+    fn wiki_projection_includes_active_core_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-core")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Permanent,
+                scope: global_scope(),
+                content: "核心 wiki 记录".to_string(),
+                localized_summary: "核心 wiki 记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let wiki = kernel.wiki_core_markdown().expect("wiki core should exist");
+        assert!(wiki.contains("核心 wiki 记录"));
+    }
+
+    #[test]
+    fn wiki_projection_includes_active_decision_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-decisions")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Decision,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "决策 wiki 记录".to_string(),
+                localized_summary: "决策 wiki 记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let wiki = kernel
+            .wiki_decisions_markdown()
+            .expect("wiki decisions should exist");
+        assert!(wiki.contains("决策 wiki 记录"));
+    }
+
+    #[test]
+    fn wiki_projection_includes_active_status_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-status")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Status,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "阶段状态记录".to_string(),
+                localized_summary: "阶段状态记录".to_string(),
+                state_key: Some("stage".to_string()),
+                current_state: Some("P6.4.2".to_string()),
+            })
+            .expect("remember should succeed");
+
+        let wiki = kernel
+            .wiki_status_markdown()
+            .expect("wiki status should exist");
+        assert!(wiki.contains("阶段状态记录"));
+    }
+
+    #[test]
+    fn wiki_projection_excludes_archived_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-archived")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "不应进入 wiki 的归档记录".to_string(),
+                localized_summary: "不应进入 wiki 的归档记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel.archive(&memory_id).expect("archive should succeed");
+
+        let wiki = kernel.wiki_core_markdown().expect("wiki core should exist");
+        assert!(!wiki.contains("不应进入 wiki 的归档记录"));
+    }
+
+    #[test]
+    fn wiki_projection_excludes_superseded_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-superseded")).expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧 wiki 记录".to_string(),
+                localized_summary: "旧 wiki 记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .correct_by_user(&old_id, "新 wiki 记录")
+            .expect("correct should succeed");
+
+        let wiki = kernel.wiki_core_markdown().expect("wiki core should exist");
+        assert!(!wiki.contains("旧 wiki 记录"));
+        assert!(wiki.contains("新 wiki 记录"));
+    }
+
+    #[test]
+    fn wiki_projection_includes_record_metadata() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-metadata")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Decision,
+                permanence: MemoryPermanence::Permanent,
+                scope: global_scope(),
+                content: "带元数据的 wiki 记录".to_string(),
+                localized_summary: "带元数据的 wiki 记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let wiki = kernel
+            .wiki_decisions_markdown()
+            .expect("wiki decisions should exist");
+        assert!(wiki.contains(&format!("memory_id: {memory_id}")));
+        assert!(wiki.contains("memory_type: decision"));
+        assert!(wiki.contains("source: user_explicit"));
+        assert!(wiki.contains("updated_at:"));
+        assert!(wiki.contains("permanence: permanent"));
+    }
+
+    #[test]
+    fn wiki_projection_declares_not_truth_source() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("wiki-disclaimer")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "wiki disclaimer".to_string(),
+                localized_summary: "wiki disclaimer".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let index = kernel
+            .wiki_index_markdown()
+            .expect("wiki index should be readable");
+        assert!(index.contains("这是 generated projection"));
+        assert!(index.contains("不是事实来源"));
+        assert!(index.contains("memory.db / MemoryRecord / Memory Event Ledger"));
+        assert!(index.contains("不应手工编辑后期待反向同步"));
+    }
+
+    #[test]
+    fn wiki_projection_failure_marks_stale_not_rollback_db() {
+        let paths = temp_paths("wiki-projection-failure");
+        let wiki_index = paths.wiki_index_md.clone();
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+        kernel.set_projection_failure_for_tests(true);
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "wiki 投影失败".to_string(),
+                localized_summary: "wiki 投影失败".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should still succeed");
+
+        assert_eq!(kernel.records().len(), 1);
+        assert!(kernel.projection_state().stale);
+        assert!(!wiki_index.exists());
+    }
+
+    #[test]
     fn memory_pack_respects_token_budget() {
         let mut kernel =
             MemoryKernel::open(temp_paths("memory-pack")).expect("memory kernel should open");
