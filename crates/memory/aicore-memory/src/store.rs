@@ -639,6 +639,7 @@ fn memory_source_name(value: &MemorySource) -> &'static str {
         MemorySource::UserExplicit => "user_explicit",
         MemorySource::UserCorrection => "user_correction",
         MemorySource::AssistantSummary => "assistant_summary",
+        MemorySource::RuleBasedAgent => "rule_based_agent",
     }
 }
 
@@ -694,6 +695,7 @@ fn parse_memory_source(value: &str) -> Result<MemorySource, MemoryError> {
         "user_explicit" => Ok(MemorySource::UserExplicit),
         "user_correction" => Ok(MemorySource::UserCorrection),
         "assistant_summary" => Ok(MemorySource::AssistantSummary),
+        "rule_based_agent" => Ok(MemorySource::RuleBasedAgent),
         _ => Err(MemoryError(format!("unknown memory_source: {value}"))),
     }
 }

@@ -1,3 +1,4 @@
+mod agent;
 mod ids;
 mod kernel;
 mod lock;
@@ -8,6 +9,7 @@ mod search;
 mod store;
 mod types;
 
+pub use agent::RuleBasedMemoryAgent;
 pub use ids::{MemoryEventId, MemoryId, MemoryProposalId, MemorySnapshotRev};
 pub use kernel::{
     MemoryKernel, build_core_projection_for_tests, build_decisions_projection_for_tests,
@@ -17,9 +19,10 @@ pub use paths::MemoryPaths;
 pub use safety::blocks_secret;
 pub use search::build_memory_pack_for_tests;
 pub use types::{
-    MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence,
-    MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus,
-    MemoryType, ProjectionState, RememberInput, SearchQuery,
+    MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind,
+    MemoryPermanence, MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryRequestedOutput,
+    MemoryScope, MemorySource, MemoryStatus, MemoryTrigger, MemoryType, MemoryWorkBatch,
+    ProjectionState, RememberInput, SearchQuery,
 };
 
 #[cfg(test)]
@@ -27,8 +30,9 @@ mod tests {
     use std::{collections::HashSet, env, fs, thread};
 
     use crate::{
-        MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
-        MemoryStatus, MemoryType, RememberInput, SearchQuery, blocks_secret,
+        MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryProposalStatus,
+        MemoryRequestedOutput, MemoryScope, MemorySource, MemoryStatus, MemoryTrigger, MemoryType,
+        MemoryWorkBatch, RememberInput, RuleBasedMemoryAgent, SearchQuery, blocks_secret,
         build_core_projection_for_tests, build_decisions_projection_for_tests,
         build_memory_pack_for_tests, build_permanent_projection_for_tests,
         build_status_projection_for_tests,
@@ -55,6 +59,19 @@ mod tests {
             format!("pid=999999\ncreated_at={created_at}\noperation={operation}\n"),
         )
         .expect("lock file should be writable");
+    }
+
+    fn work_batch(trigger: MemoryTrigger, excerpts: Vec<&str>) -> MemoryWorkBatch {
+        MemoryWorkBatch {
+            instance_id: "global-main".to_string(),
+            scope: global_scope(),
+            trigger,
+            recent_events_summary: String::new(),
+            raw_excerpts: excerpts.into_iter().map(ToString::to_string).collect(),
+            existing_memory_hits: Vec::new(),
+            token_budget: 1024,
+            requested_outputs: vec![MemoryRequestedOutput::Proposals],
+        }
     }
 
     #[test]
@@ -1277,5 +1294,115 @@ mod tests {
         let report = kernel.verify_ledger_consistency();
         assert!(report.ok);
         assert_eq!(report.checked_events, 6);
+    }
+
+    #[test]
+    fn rule_based_agent_extracts_remember_proposal() {
+        let output = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::ExplicitRemember,
+            vec!["记住：TUI 是类似 Codex 的终端 AI 编程界面"],
+        ));
+
+        assert_eq!(output.proposals.len(), 1);
+        assert_eq!(output.proposals[0].memory_type, MemoryType::Core);
+        assert_eq!(
+            output.proposals[0].content,
+            "TUI 是类似 Codex 的终端 AI 编程界面"
+        );
+    }
+
+    #[test]
+    fn rule_based_agent_extracts_stage_status_proposal() {
+        let output = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::StageCompleted,
+            vec!["已完成 P6.2.4 Memory Lock / Single Writer Guard"],
+        ));
+
+        assert_eq!(output.proposals.len(), 1);
+        assert_eq!(output.proposals[0].memory_type, MemoryType::Status);
+        assert!(
+            output.proposals[0]
+                .content
+                .contains("已完成 P6.2.4 Memory Lock / Single Writer Guard")
+        );
+    }
+
+    #[test]
+    fn rule_based_agent_outputs_proposals_only() {
+        let output = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::Correction,
+            vec!["纠正：上一条记忆不准确"],
+        ));
+
+        assert!(!output.proposals.is_empty());
+        assert!(output.corrections.is_empty());
+        assert!(output.archive_suggestions.is_empty());
+    }
+
+    #[test]
+    fn memory_agent_does_not_create_records() {
+        let kernel =
+            MemoryKernel::open(temp_paths("agent-no-records")).expect("memory kernel should open");
+        let before = kernel.records().len();
+
+        let _ = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::ExplicitRemember,
+            vec!["记住：不要直接写 record"],
+        ));
+
+        assert_eq!(kernel.records().len(), before);
+    }
+
+    #[test]
+    fn memory_agent_does_not_accept_proposals() {
+        let output = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::ExplicitRemember,
+            vec!["记住：proposal 不能自动 accept"],
+        ));
+
+        assert!(
+            output
+                .proposals
+                .iter()
+                .all(|proposal| proposal.status == MemoryProposalStatus::Open)
+        );
+    }
+
+    #[test]
+    fn proposal_dedupe_merges_same_content() {
+        let output = RuleBasedMemoryAgent::analyze(&work_batch(
+            MemoryTrigger::ExplicitRemember,
+            vec!["记住：统一术语", "记住：统一术语"],
+        ));
+
+        assert_eq!(output.proposals.len(), 1);
+    }
+
+    #[test]
+    fn proposal_dedupe_keeps_different_memory_types() {
+        let output = RuleBasedMemoryAgent::analyze(&MemoryWorkBatch {
+            instance_id: "global-main".to_string(),
+            scope: global_scope(),
+            trigger: MemoryTrigger::SessionClosed,
+            recent_events_summary: String::new(),
+            raw_excerpts: vec!["记住：统一术语".to_string(), "已完成 P6.2".to_string()],
+            existing_memory_hits: Vec::new(),
+            token_budget: 1024,
+            requested_outputs: vec![MemoryRequestedOutput::Proposals],
+        });
+
+        assert_eq!(output.proposals.len(), 2);
+        assert!(
+            output
+                .proposals
+                .iter()
+                .any(|proposal| proposal.memory_type == MemoryType::Core)
+        );
+        assert!(
+            output
+                .proposals
+                .iter()
+                .any(|proposal| proposal.memory_type == MemoryType::Status)
+        );
     }
 }

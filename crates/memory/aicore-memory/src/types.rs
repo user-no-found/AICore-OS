@@ -39,6 +39,7 @@ pub enum MemorySource {
     UserExplicit,
     UserCorrection,
     AssistantSummary,
+    RuleBasedAgent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,6 +144,42 @@ pub struct RememberInput {
 pub struct SearchQuery {
     pub text: String,
     pub scope: Option<MemoryScope>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryTrigger {
+    ExplicitRemember,
+    Correction,
+    StageCompleted,
+    ToolIncident,
+    Compression,
+    SessionClosed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryRequestedOutput {
+    Proposals,
+    Corrections,
+    ArchiveSuggestions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryWorkBatch {
+    pub instance_id: String,
+    pub scope: MemoryScope,
+    pub trigger: MemoryTrigger,
+    pub recent_events_summary: String,
+    pub raw_excerpts: Vec<String>,
+    pub existing_memory_hits: Vec<MemoryRecord>,
+    pub token_budget: usize,
+    pub requested_outputs: Vec<MemoryRequestedOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryAgentOutput {
+    pub proposals: Vec<MemoryProposal>,
+    pub corrections: Vec<String>,
+    pub archive_suggestions: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
