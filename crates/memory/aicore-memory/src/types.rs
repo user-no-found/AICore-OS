@@ -59,6 +59,7 @@ pub enum MemoryEventKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryRecord {
     pub memory_id: MemoryId,
+    pub record_version: i64,
     pub memory_type: MemoryType,
     pub status: MemoryStatus,
     pub permanence: MemoryPermanence,

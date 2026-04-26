@@ -71,6 +71,7 @@ impl MemoryKernel {
 
         let record = MemoryRecord {
             memory_id: memory_id.clone(),
+            record_version: 1,
             memory_type: input.memory_type,
             status: MemoryStatus::Active,
             permanence: input.permanence,
@@ -152,6 +153,22 @@ impl MemoryKernel {
         old_memory_id: &str,
         new_content: &str,
     ) -> Result<MemoryId, MemoryError> {
+        let expected_version = self
+            .records
+            .iter()
+            .find(|record| record.memory_id == old_memory_id)
+            .map(|record| record.record_version)
+            .ok_or_else(|| MemoryError(format!("unknown memory_id: {old_memory_id}")))?;
+
+        self.correct_by_user_with_version(old_memory_id, expected_version, new_content)
+    }
+
+    pub fn correct_by_user_with_version(
+        &mut self,
+        old_memory_id: &str,
+        expected_version: i64,
+        new_content: &str,
+    ) -> Result<MemoryId, MemoryError> {
         let old_record = self
             .records
             .iter()
@@ -164,6 +181,7 @@ impl MemoryKernel {
         let content_language = infer_language(new_content).to_string();
         let record = MemoryRecord {
             memory_id: new_memory_id.clone(),
+            record_version: 1,
             memory_type: old_record.memory_type,
             status: MemoryStatus::Active,
             permanence: old_record.permanence,
@@ -194,7 +212,14 @@ impl MemoryKernel {
         };
 
         block_on(async {
-            store::supersede_record(&self.paths.db_path, old_memory_id, &record, &event).await
+            store::supersede_record(
+                &self.paths.db_path,
+                old_memory_id,
+                expected_version,
+                &record,
+                &event,
+            )
+            .await
         })?;
         self.refresh_cache()?;
         self.rebuild_projections_after_commit()?;
@@ -203,12 +228,48 @@ impl MemoryKernel {
     }
 
     pub fn archive(&mut self, memory_id: &str) -> Result<(), MemoryError> {
-        self.update_status(memory_id, MemoryStatus::Archived, MemoryEventKind::Archived)
+        let expected_version = self
+            .records
+            .iter()
+            .find(|record| record.memory_id == memory_id)
+            .map(|record| record.record_version)
+            .ok_or_else(|| MemoryError(format!("unknown memory_id: {memory_id}")))?;
+
+        self.archive_with_version(memory_id, expected_version)
+    }
+
+    pub fn archive_with_version(
+        &mut self,
+        memory_id: &str,
+        expected_version: i64,
+    ) -> Result<(), MemoryError> {
+        self.update_status(
+            memory_id,
+            expected_version,
+            MemoryStatus::Archived,
+            MemoryEventKind::Archived,
+        )
     }
 
     pub fn forget(&mut self, memory_id: &str) -> Result<(), MemoryError> {
+        let expected_version = self
+            .records
+            .iter()
+            .find(|record| record.memory_id == memory_id)
+            .map(|record| record.record_version)
+            .ok_or_else(|| MemoryError(format!("unknown memory_id: {memory_id}")))?;
+
+        self.forget_with_version(memory_id, expected_version)
+    }
+
+    pub fn forget_with_version(
+        &mut self,
+        memory_id: &str,
+        expected_version: i64,
+    ) -> Result<(), MemoryError> {
         self.update_status(
             memory_id,
+            expected_version,
             MemoryStatus::Forgotten,
             MemoryEventKind::Forgotten,
         )
@@ -293,6 +354,7 @@ impl MemoryKernel {
     fn update_status(
         &mut self,
         memory_id: &str,
+        expected_version: i64,
         status: MemoryStatus,
         event_kind: MemoryEventKind,
     ) -> Result<(), MemoryError> {
@@ -316,7 +378,14 @@ impl MemoryKernel {
         };
 
         block_on(async {
-            store::update_record_status(&self.paths.db_path, memory_id, status, &event).await
+            store::update_record_status(
+                &self.paths.db_path,
+                memory_id,
+                expected_version,
+                status,
+                &event,
+            )
+            .await
         })?;
         self.refresh_cache()?;
         self.rebuild_projections_after_commit()

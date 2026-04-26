@@ -33,6 +33,7 @@ pub async fn init_schema(db_path: &Path) -> Result<(), MemoryError> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS memory_records (
             memory_id TEXT PRIMARY KEY,
+            record_version INTEGER NOT NULL,
             memory_type TEXT NOT NULL,
             status TEXT NOT NULL,
             permanence TEXT NOT NULL,
@@ -157,12 +158,13 @@ pub async fn insert_record_and_event(
 
     sqlx::query(
         "INSERT INTO memory_records (
-            memory_id, memory_type, status, permanence, scope_kind, instance_id, workspace_root,
+            memory_id, record_version, memory_type, status, permanence, scope_kind, instance_id, workspace_root,
             content, content_language, normalized_content, normalized_language, localized_summary,
             source, evidence_json, state_key, state_version, current_state, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&record.memory_id)
+    .bind(record.record_version)
     .bind(memory_type_name(&record.memory_type))
     .bind(memory_status_name(&record.status))
     .bind(memory_permanence_name(&record.permanence))
@@ -247,6 +249,7 @@ pub async fn insert_proposal_and_event(
 pub async fn supersede_record(
     db_path: &Path,
     old_memory_id: &str,
+    expected_version: i64,
     new_record: &MemoryRecord,
     event: &MemoryEvent,
 ) -> Result<(), MemoryError> {
@@ -256,22 +259,34 @@ pub async fn supersede_record(
         .await
         .map_err(|error| MemoryError(error.to_string()))?;
 
-    sqlx::query("UPDATE memory_records SET status = ?, updated_at = ? WHERE memory_id = ?")
-        .bind(memory_status_name(&MemoryStatus::Superseded))
-        .bind(&new_record.updated_at)
-        .bind(old_memory_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| MemoryError(error.to_string()))?;
+    let update = sqlx::query(
+        "UPDATE memory_records
+         SET status = ?, updated_at = ?, record_version = record_version + 1
+         WHERE memory_id = ? AND record_version = ?",
+    )
+    .bind(memory_status_name(&MemoryStatus::Superseded))
+    .bind(&new_record.updated_at)
+    .bind(old_memory_id)
+    .bind(expected_version)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    if update.rows_affected() == 0 {
+        return Err(MemoryError(format!(
+            "stale memory version: {old_memory_id}"
+        )));
+    }
 
     sqlx::query(
         "INSERT INTO memory_records (
-            memory_id, memory_type, status, permanence, scope_kind, instance_id, workspace_root,
+            memory_id, record_version, memory_type, status, permanence, scope_kind, instance_id, workspace_root,
             content, content_language, normalized_content, normalized_language, localized_summary,
             source, evidence_json, state_key, state_version, current_state, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&new_record.memory_id)
+    .bind(new_record.record_version)
     .bind(memory_type_name(&new_record.memory_type))
     .bind(memory_status_name(&new_record.status))
     .bind(memory_permanence_name(&new_record.permanence))
@@ -313,6 +328,7 @@ pub async fn supersede_record(
 pub async fn update_record_status(
     db_path: &Path,
     memory_id: &str,
+    expected_version: i64,
     status: MemoryStatus,
     event: &MemoryEvent,
 ) -> Result<(), MemoryError> {
@@ -322,13 +338,22 @@ pub async fn update_record_status(
         .await
         .map_err(|error| MemoryError(error.to_string()))?;
 
-    sqlx::query("UPDATE memory_records SET status = ?, updated_at = ? WHERE memory_id = ?")
-        .bind(memory_status_name(&status))
-        .bind(&event.created_at)
-        .bind(memory_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| MemoryError(error.to_string()))?;
+    let update = sqlx::query(
+        "UPDATE memory_records
+         SET status = ?, updated_at = ?, record_version = record_version + 1
+         WHERE memory_id = ? AND record_version = ?",
+    )
+    .bind(memory_status_name(&status))
+    .bind(&event.created_at)
+    .bind(memory_id)
+    .bind(expected_version)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    if update.rows_affected() == 0 {
+        return Err(MemoryError(format!("stale memory version: {memory_id}")));
+    }
 
     insert_event_tx(&mut tx, event).await?;
     tx.commit()
@@ -461,6 +486,7 @@ fn row_to_scope(row: &sqlx::sqlite::SqliteRow) -> Result<MemoryScope, MemoryErro
 fn row_to_record(row: sqlx::sqlite::SqliteRow) -> Result<MemoryRecord, MemoryError> {
     Ok(MemoryRecord {
         memory_id: row.get("memory_id"),
+        record_version: row.get("record_version"),
         memory_type: parse_memory_type(&row.get::<String, _>("memory_type"))?,
         status: parse_memory_status(&row.get::<String, _>("status"))?,
         permanence: parse_memory_permanence(&row.get::<String, _>("permanence"))?,

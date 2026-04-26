@@ -81,6 +81,26 @@ mod tests {
     }
 
     #[test]
+    fn remember_initializes_record_version() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("remember-version")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "初始版本".to_string(),
+                localized_summary: "初始版本".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        assert_eq!(kernel.records()[0].record_version, 1);
+    }
+
+    #[test]
     fn remember_writes_accepted_memory_event() {
         let mut kernel =
             MemoryKernel::open(temp_paths("remember-event")).expect("memory kernel should open");
@@ -211,6 +231,30 @@ mod tests {
     }
 
     #[test]
+    fn correct_rejects_stale_expected_version() {
+        let mut kernel = MemoryKernel::open(temp_paths("correct-stale-version"))
+            .expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let error = kernel
+            .correct_by_user_with_version(&old_id, 0, "新记忆")
+            .expect_err("stale version should be rejected");
+
+        assert!(error.0.contains("stale memory version"));
+    }
+
+    #[test]
     fn correction_edge_points_from_new_memory_to_old_memory() {
         let mut kernel =
             MemoryKernel::open(temp_paths("correct-edge")).expect("memory kernel should open");
@@ -271,6 +315,146 @@ mod tests {
         assert_eq!(new_record.content_language, "zh-CN");
         assert_eq!(new_record.normalized_content, "新的中文纠正");
         assert_eq!(new_record.normalized_language, "zh-CN");
+    }
+
+    #[test]
+    fn archive_rejects_stale_expected_version() {
+        let mut kernel = MemoryKernel::open(temp_paths("archive-stale-version"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待归档记忆".to_string(),
+                localized_summary: "待归档记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let error = kernel
+            .archive_with_version(&memory_id, 0)
+            .expect_err("stale version should be rejected");
+
+        assert!(error.0.contains("stale memory version"));
+    }
+
+    #[test]
+    fn forget_rejects_stale_expected_version() {
+        let mut kernel = MemoryKernel::open(temp_paths("forget-stale-version"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待遗忘记忆".to_string(),
+                localized_summary: "待遗忘记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let error = kernel
+            .forget_with_version(&memory_id, 0)
+            .expect_err("stale version should be rejected");
+
+        assert!(error.0.contains("stale memory version"));
+    }
+
+    #[test]
+    fn archive_increments_record_version() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("archive-version")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待归档版本".to_string(),
+                localized_summary: "待归档版本".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        kernel
+            .archive_with_version(&memory_id, 1)
+            .expect("archive should succeed");
+
+        let record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == memory_id)
+            .expect("record should exist");
+
+        assert_eq!(record.record_version, 2);
+        assert_eq!(record.status, MemoryStatus::Archived);
+    }
+
+    #[test]
+    fn correct_creates_new_record_with_version_1() {
+        let mut kernel = MemoryKernel::open(temp_paths("correct-new-version"))
+            .expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let new_id = kernel
+            .correct_by_user_with_version(&old_id, 1, "新记忆")
+            .expect("correct should succeed");
+
+        let new_record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == new_id)
+            .expect("new record should exist");
+
+        assert_eq!(new_record.record_version, 1);
+    }
+
+    #[test]
+    fn superseded_old_record_version_increments() {
+        let mut kernel = MemoryKernel::open(temp_paths("correct-old-version"))
+            .expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        kernel
+            .correct_by_user_with_version(&old_id, 1, "新记忆")
+            .expect("correct should succeed");
+
+        let old_record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == old_id)
+            .expect("old record should exist");
+
+        assert_eq!(old_record.record_version, 2);
+        assert_eq!(old_record.status, MemoryStatus::Superseded);
     }
 
     #[test]
