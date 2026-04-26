@@ -1,6 +1,8 @@
 use std::{env, fs, path::PathBuf};
 
-use aicore_agent::{AgentSessionRunner, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
+use aicore_agent::{
+    AgentSessionRunner, AgentSessionStopReason, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner,
+};
 use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
@@ -104,7 +106,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, _] if group == "agent" => {
             eprintln!("未知 agent 命令。");
-            eprintln!("可用命令：agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容>");
+            eprintln!(
+                "可用命令：agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容>"
+            );
             1
         }
         _ => {
@@ -682,25 +686,54 @@ fn print_agent_session_smoke(first: &str, second: &str) -> Result<(), String> {
     )
     .map_err(|error| error.0)?;
 
+    let surface = session.surface();
+
     println!("Agent Session：通过");
-    println!("- conversation：{}", session.surface.conversation_id);
-    println!("- turns：{}", session.surface.turn_count);
+    println!("- conversation：{}", surface.conversation_id);
+    println!("- turns：{}", surface.turn_count);
+    println!(
+        "- completed all inputs：{}",
+        bool_status_name(surface.completed_all_inputs)
+    );
+    println!(
+        "- stop reason：{}",
+        surface
+            .stop_reason
+            .as_ref()
+            .map(agent_session_stop_reason_name)
+            .unwrap_or("<none>")
+    );
     println!(
         "- latest outcome：{}",
-        session
-            .surface
+        surface
             .latest_turn
             .as_ref()
             .map(|turn| agent_turn_outcome_name(&turn.outcome))
             .unwrap_or("<none>")
     );
-    println!("- event count：{}", session.surface.event_count);
-    println!("- queue len：{}", session.surface.queue_len);
-    for (index, turn) in session.surface.turns.iter().enumerate() {
+    println!("- conversation status：{}", surface.conversation_status);
+    println!("- event count：{}", surface.event_count);
+    println!("- queue len：{}", surface.queue_len);
+    for (index, turn) in surface.turns.iter().enumerate() {
         println!(
             "- turn {} outcome：{}",
             index + 1,
             agent_turn_outcome_name(&turn.outcome)
+        );
+        println!(
+            "  provider invoked: {}",
+            bool_status_name(turn.provider_invoked)
+        );
+        println!(
+            "  assistant output present: {}",
+            bool_status_name(turn.assistant_output_present)
+        );
+        println!(
+            "  failure stage: {}",
+            turn.failure_stage
+                .as_ref()
+                .map(agent_turn_failure_stage_name)
+                .unwrap_or("<none>")
         );
     }
 
@@ -721,6 +754,15 @@ fn agent_turn_failure_stage_name(stage: &aicore_agent::AgentTurnFailureStage) ->
     match stage {
         aicore_agent::AgentTurnFailureStage::ProviderResolve => "provider_resolve",
         aicore_agent::AgentTurnFailureStage::RuntimeAppend => "runtime_append",
+    }
+}
+
+fn agent_session_stop_reason_name(reason: &AgentSessionStopReason) -> &'static str {
+    match reason {
+        AgentSessionStopReason::Failed => "failed",
+        AgentSessionStopReason::Queued => "queued",
+        AgentSessionStopReason::AppendedContext => "appended_context",
+        AgentSessionStopReason::Interrupted => "interrupted",
     }
 }
 

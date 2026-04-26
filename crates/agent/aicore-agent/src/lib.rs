@@ -81,12 +81,14 @@ pub struct AgentSessionSurface {
     pub event_count: usize,
     pub queue_len: usize,
     pub conversation_status: String,
+    pub completed_all_inputs: bool,
+    pub stop_reason: Option<AgentSessionStopReason>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSessionOutput {
-    pub surface: AgentSessionSurface,
-    pub turn_outputs: Vec<AgentTurnOutput>,
+    surface: AgentSessionSurface,
+    turn_outputs: Vec<AgentTurnOutput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +124,21 @@ pub struct AgentTurnRunner;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSessionRunner;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentSessionContinuationPolicy {
+    ContinueAll,
+    StopOnFailed,
+    StopOnNonCompleted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentSessionStopReason {
+    Failed,
+    Queued,
+    AppendedContext,
+    Interrupted,
+}
+
 impl AgentTurnOutput {
     pub fn to_surface_entry(&self) -> TurnSurfaceEntry {
         TurnSurfaceEntry {
@@ -152,6 +169,16 @@ impl AgentTurnOutput {
     }
 }
 
+impl AgentSessionOutput {
+    pub fn surface(&self) -> &AgentSessionSurface {
+        &self.surface
+    }
+
+    pub fn debug_turn_outputs(&self) -> &[AgentTurnOutput] {
+        &self.turn_outputs
+    }
+}
+
 impl AgentSessionRunner {
     pub fn run(
         runtime: &mut InstanceRuntime,
@@ -160,20 +187,48 @@ impl AgentSessionRunner {
         runtime_config: &InstanceRuntimeConfig,
         inputs: Vec<AgentTurnInput>,
     ) -> Result<AgentSessionOutput, AgentTurnError> {
+        Self::run_with_policy(
+            runtime,
+            memory_kernel,
+            auth_pool,
+            runtime_config,
+            inputs,
+            AgentSessionContinuationPolicy::ContinueAll,
+        )
+    }
+
+    pub fn run_with_policy(
+        runtime: &mut InstanceRuntime,
+        memory_kernel: &MemoryKernel,
+        auth_pool: &GlobalAuthPool,
+        runtime_config: &InstanceRuntimeConfig,
+        inputs: Vec<AgentTurnInput>,
+        policy: AgentSessionContinuationPolicy,
+    ) -> Result<AgentSessionOutput, AgentTurnError> {
         let mut turn_outputs = Vec::new();
+        let total_inputs = inputs.len();
+        let mut completed_all_inputs = true;
+        let mut stop_reason = None;
 
         for input in inputs {
-            turn_outputs.push(AgentTurnRunner::run(
-                runtime,
-                memory_kernel,
-                auth_pool,
-                runtime_config,
-                input,
-            )?);
+            let output =
+                AgentTurnRunner::run(runtime, memory_kernel, auth_pool, runtime_config, input)?;
+            let outcome = output.outcome.clone();
+            turn_outputs.push(output);
+            if let Some(reason) = session_stop_reason(&policy, &outcome) {
+                completed_all_inputs = turn_outputs.len() == total_inputs;
+                stop_reason = Some(reason);
+                break;
+            }
         }
 
         Ok(AgentSessionOutput {
-            surface: session_surface_from_outputs(runtime, &turn_outputs),
+            surface: session_surface_from_outputs(
+                runtime,
+                &turn_outputs,
+                completed_all_inputs,
+                stop_reason,
+            ),
             turn_outputs,
         })
     }
@@ -417,6 +472,8 @@ fn failed_output(
 fn session_surface_from_outputs(
     runtime: &InstanceRuntime,
     turn_outputs: &[AgentTurnOutput],
+    completed_all_inputs: bool,
+    stop_reason: Option<AgentSessionStopReason>,
 ) -> AgentSessionSurface {
     let runtime_summary = runtime.summary();
     let turns = turn_outputs
@@ -432,6 +489,28 @@ fn session_surface_from_outputs(
         queue_len: runtime.turn_state().queue_len,
         conversation_status: conversation_status_name(&runtime_summary.conversation_status)
             .to_string(),
+        completed_all_inputs,
+        stop_reason,
+    }
+}
+
+fn session_stop_reason(
+    policy: &AgentSessionContinuationPolicy,
+    outcome: &AgentTurnOutcome,
+) -> Option<AgentSessionStopReason> {
+    match policy {
+        AgentSessionContinuationPolicy::ContinueAll => None,
+        AgentSessionContinuationPolicy::StopOnFailed => match outcome {
+            AgentTurnOutcome::Failed => Some(AgentSessionStopReason::Failed),
+            _ => None,
+        },
+        AgentSessionContinuationPolicy::StopOnNonCompleted => match outcome {
+            AgentTurnOutcome::Completed => None,
+            AgentTurnOutcome::Failed => Some(AgentSessionStopReason::Failed),
+            AgentTurnOutcome::Queued => Some(AgentSessionStopReason::Queued),
+            AgentTurnOutcome::AppendedContext => Some(AgentSessionStopReason::AppendedContext),
+            AgentTurnOutcome::Interrupted => Some(AgentSessionStopReason::Interrupted),
+        },
     }
 }
 
@@ -495,8 +574,8 @@ mod tests {
     use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
 
     use super::{
-        AgentSessionRunner, AgentTurnFailureStage, AgentTurnInput, AgentTurnOutcome,
-        AgentTurnRunner,
+        AgentSessionContinuationPolicy, AgentSessionRunner, AgentSessionStopReason,
+        AgentTurnFailureStage, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner,
     };
 
     fn temp_paths(name: &str) -> MemoryPaths {
@@ -1881,8 +1960,16 @@ mod tests {
 
         assert_eq!(session.surface.turn_count, 2);
         assert_eq!(session.surface.turns.len(), 2);
-        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Completed);
-        assert_eq!(session.surface.turns[1].outcome, AgentTurnOutcome::Completed);
+        assert_eq!(
+            session.surface.turns[0].outcome,
+            AgentTurnOutcome::Completed
+        );
+        assert_eq!(
+            session.surface.turns[1].outcome,
+            AgentTurnOutcome::Completed
+        );
+        assert!(session.surface.completed_all_inputs);
+        assert_eq!(session.surface.stop_reason, None);
     }
 
     #[test]
@@ -1975,8 +2062,55 @@ mod tests {
         .expect("session should succeed");
 
         assert_eq!(
-            session.surface.latest_turn.as_ref().expect("latest turn").turn_id,
+            session
+                .surface
+                .latest_turn
+                .as_ref()
+                .expect("latest turn")
+                .turn_id,
             session.turn_outputs[1].active_turn_id
+        );
+    }
+
+    #[test]
+    fn agent_session_surface_is_public_read_contract() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-public-contract"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 2);
+        assert_eq!(session.surface().turns.len(), 2);
+    }
+
+    #[test]
+    fn agent_session_output_turn_outputs_are_internal_debug_result() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-debug-result"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.debug_turn_outputs().len(), 2);
+        assert!(
+            session.debug_turn_outputs()[0]
+                .debug
+                .as_ref()
+                .and_then(|debug| debug.prompt.as_ref())
+                .is_some()
         );
     }
 
@@ -1997,6 +2131,32 @@ mod tests {
         let debug_text = format!("{:?}", session.surface);
         assert!(!debug_text.contains("SYSTEM:"));
         assert!(!debug_text.contains("CURRENT USER REQUEST:"));
+    }
+
+    #[test]
+    fn agent_session_surface_does_not_expose_debug_prompt_even_when_requested() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-no-debug-prompt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert!(
+            session.debug_turn_outputs()[0]
+                .debug
+                .as_ref()
+                .and_then(|debug| debug.prompt.as_ref())
+                .is_some()
+        );
+        let public_text = format!("{:?}", session.surface());
+        assert!(!public_text.contains("SYSTEM:"));
+        assert!(!public_text.contains("CURRENT USER REQUEST:"));
     }
 
     #[test]
@@ -2026,6 +2186,225 @@ mod tests {
 
         let debug_text = format!("{:?}", session.surface);
         assert!(!debug_text.contains("session raw memory"));
+    }
+
+    #[test]
+    fn agent_session_default_policy_continues_all_inputs() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-default-policy"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            vec![base_input("failed one"), base_input("failed two")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 2);
+        assert!(session.surface().completed_all_inputs);
+        assert_eq!(session.surface().stop_reason, None);
+    }
+
+    #[test]
+    fn agent_session_continue_all_records_failed_then_next_turn() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-continue-all"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run_with_policy(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            vec![base_input("failed one"), base_input("failed two")],
+            AgentSessionContinuationPolicy::ContinueAll,
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 2);
+        assert_eq!(session.surface().turns[0].outcome, AgentTurnOutcome::Failed);
+        assert_eq!(session.surface().turns[1].outcome, AgentTurnOutcome::Failed);
+    }
+
+    #[test]
+    fn agent_session_stop_on_failed_stops_after_failure() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-stop-on-failed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run_with_policy(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            vec![base_input("failed one"), base_input("failed two")],
+            AgentSessionContinuationPolicy::StopOnFailed,
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 1);
+        assert!(!session.surface().completed_all_inputs);
+        assert_eq!(
+            session.surface().stop_reason,
+            Some(AgentSessionStopReason::Failed)
+        );
+    }
+
+    #[test]
+    fn agent_session_stop_on_non_completed_stops_on_queued() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-stop-on-queued"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+        let session = AgentSessionRunner::run_with_policy(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("queued"), base_input("should not run")],
+            AgentSessionContinuationPolicy::StopOnNonCompleted,
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 1);
+        assert_eq!(session.surface().turns[0].outcome, AgentTurnOutcome::Queued);
+        assert!(!session.surface().completed_all_inputs);
+        assert_eq!(
+            session.surface().stop_reason,
+            Some(AgentSessionStopReason::Queued)
+        );
+    }
+
+    #[test]
+    fn agent_session_stop_on_non_completed_stops_on_interrupted() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-stop-on-interrupted"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+        let session = AgentSessionRunner::run_with_policy(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![
+                {
+                    let mut input = base_input("interrupt");
+                    input.interrupt_mode = InterruptMode::SoftInterrupt;
+                    input
+                },
+                base_input("should not run"),
+            ],
+            AgentSessionContinuationPolicy::StopOnNonCompleted,
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, 1);
+        assert_eq!(
+            session.surface().turns[0].outcome,
+            AgentTurnOutcome::Interrupted
+        );
+        assert!(!session.surface().completed_all_inputs);
+        assert_eq!(
+            session.surface().stop_reason,
+            Some(AgentSessionStopReason::Interrupted)
+        );
+    }
+
+    #[test]
+    fn agent_session_surface_reports_completed_all_inputs() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-completed-all"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert!(session.surface().completed_all_inputs);
+    }
+
+    #[test]
+    fn agent_session_surface_reports_stop_reason() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-stop-reason"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run_with_policy(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            vec![base_input("failed"), base_input("next")],
+            AgentSessionContinuationPolicy::StopOnFailed,
+        )
+        .expect("session should succeed");
+
+        assert_eq!(
+            session.surface().stop_reason,
+            Some(AgentSessionStopReason::Failed)
+        );
+    }
+
+    #[test]
+    fn agent_session_surface_turn_count_matches_recorded_turns() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-turn-count-match"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turn_count, session.surface().turns.len());
+    }
+
+    #[test]
+    fn agent_session_surface_latest_turn_matches_last_recorded_turn() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-latest-match"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(
+            session.surface().latest_turn,
+            session.surface().turns.last().cloned()
+        );
     }
 
     #[test]
@@ -2104,7 +2483,10 @@ mod tests {
         )
         .expect("session should succeed");
 
-        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Interrupted);
+        assert_eq!(
+            session.surface.turns[0].outcome,
+            AgentTurnOutcome::Interrupted
+        );
     }
 
     #[test]
@@ -2128,14 +2510,11 @@ mod tests {
             &memory,
             &auth_pool(),
             &runtime_config(),
-            vec![
-                base_input("first"),
-                {
-                    let mut input = base_input("second");
-                    input.memory_query = Some("background memory".to_string());
-                    input
-                },
-            ],
+            vec![base_input("first"), {
+                let mut input = base_input("second");
+                input.memory_query = Some("background memory".to_string());
+                input
+            }],
         )
         .expect("session should succeed");
 

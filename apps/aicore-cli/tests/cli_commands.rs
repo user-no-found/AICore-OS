@@ -560,8 +560,14 @@ fn cli_agent_session_smoke_outputs_chinese_summary() {
     assert!(stdout.contains("Agent Session：通过"));
     assert!(stdout.contains("conversation："));
     assert!(stdout.contains("turns：2"));
+    assert!(stdout.contains("completed all inputs：yes"));
+    assert!(stdout.contains("stop reason：<none>"));
     assert!(stdout.contains("latest outcome：completed"));
+    assert!(stdout.contains("conversation status：idle"));
     assert!(stdout.contains("turn 1 outcome：completed"));
+    assert!(stdout.contains("provider invoked: yes"));
+    assert!(stdout.contains("assistant output present: yes"));
+    assert!(stdout.contains("failure stage: <none>"));
     assert!(stdout.contains("turn 2 outcome：completed"));
 }
 
@@ -578,6 +584,32 @@ fn cli_agent_session_smoke_does_not_print_prompt() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(!stdout.contains("SYSTEM:"));
+    assert!(!stdout.contains("CURRENT USER REQUEST:"));
+}
+
+#[test]
+fn cli_agent_session_summary_consumes_public_surface() {
+    let root = temp_root("agent-session-public-surface");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "session raw memory should stay internal",
+    );
+
+    let output = run_cli_with_config_root(
+        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Agent Session：通过"));
+    assert!(stdout.contains("assistant output present: yes"));
+    assert!(!stdout.contains("session raw memory should stay internal"));
     assert!(!stdout.contains("SYSTEM:"));
     assert!(!stdout.contains("CURRENT USER REQUEST:"));
 }
