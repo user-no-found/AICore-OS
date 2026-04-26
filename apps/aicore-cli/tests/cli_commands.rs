@@ -2,7 +2,8 @@ use std::{fs, path::PathBuf, process::Command};
 
 use aicore_memory::{
     MemoryAgentOutput, MemoryKernel, MemoryPaths, MemoryProposal, MemoryProposalStatus,
-    MemoryScope, MemorySource, MemoryType,
+    MemoryRequestedOutput, MemoryScope, MemorySource, MemoryTrigger, MemoryType, MemoryWorkBatch,
+    RuleBasedMemoryAgent,
 };
 
 fn temp_root(name: &str) -> PathBuf {
@@ -56,6 +57,34 @@ fn seed_open_proposal(root: &PathBuf, memory_type: MemoryType, content: &str) ->
             corrections: Vec::new(),
             archive_suggestions: Vec::new(),
         })
+        .expect("agent output should be stored")
+        .into_iter()
+        .next()
+        .expect("proposal id should exist")
+}
+
+fn global_scope() -> MemoryScope {
+    MemoryScope::GlobalMain {
+        instance_id: "global-main".to_string(),
+    }
+}
+
+fn seed_rule_based_proposal(root: &PathBuf, trigger: MemoryTrigger, excerpt: &str) -> String {
+    let output = RuleBasedMemoryAgent::analyze(&MemoryWorkBatch {
+        instance_id: "global-main".to_string(),
+        scope: global_scope(),
+        trigger,
+        recent_events_summary: String::new(),
+        raw_excerpts: vec![excerpt.to_string()],
+        existing_memory_hits: Vec::new(),
+        token_budget: 1024,
+        requested_outputs: vec![MemoryRequestedOutput::Proposals],
+    });
+
+    let mut kernel =
+        MemoryKernel::open(memory_paths_for_root(root)).expect("memory kernel should open");
+    kernel
+        .submit_agent_output(output)
         .expect("agent output should be stored")
         .into_iter()
         .next()
@@ -608,6 +637,115 @@ fn memory_reject_unknown_proposal_fails() {
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
     assert!(stderr.contains("unknown proposal_id: prop_missing"));
+}
+
+#[test]
+fn rule_based_agent_output_can_be_submitted_and_listed_by_cli() {
+    let root = temp_root("rule-agent-cli-list");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：TUI 是类似 Codex 的终端 AI 编程界面",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Proposals："));
+    assert!(stdout.contains(&proposal_id));
+    assert!(stdout.contains("[core]"));
+    assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
+}
+
+#[test]
+fn accepted_rule_based_proposal_becomes_searchable_memory() {
+    let root = temp_root("rule-agent-cli-accept-search");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：终端界面优先中文，命令保持英文",
+    );
+
+    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    assert!(accept_output.status.success());
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "终端界面"], &root);
+    assert!(search_output.status.success());
+    let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("终端界面优先中文，命令保持英文"));
+}
+
+#[test]
+fn rejected_rule_based_proposal_does_not_create_searchable_memory() {
+    let root = temp_root("rule-agent-cli-reject-search");
+    let proposal_id =
+        seed_rule_based_proposal(&root, MemoryTrigger::Correction, "你看错了，这不是长期记忆");
+
+    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    assert!(reject_output.status.success());
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "长期记忆"], &root);
+    assert!(search_output.status.success());
+    let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn proposal_pipeline_preserves_localized_summary() {
+    let root = temp_root("rule-agent-localized-summary");
+    let _proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：用户更喜欢 CLI 而不是 Web",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("用户更喜欢 CLI 而不是 Web"));
+}
+
+#[test]
+fn proposal_pipeline_writes_proposed_and_accepted_events() {
+    let root = temp_root("rule-agent-events-accept");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::StageCompleted,
+        "已完成 P6.3.4 CLI Proposal Review Smoke",
+    );
+
+    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    assert!(accept_output.status.success());
+
+    let kernel =
+        MemoryKernel::open(memory_paths_for_root(&root)).expect("memory kernel should open");
+    assert!(kernel.events().iter().any(|event| {
+        event.event_kind == aicore_memory::MemoryEventKind::Proposed
+            && event.proposal_id.as_deref() == Some(proposal_id.as_str())
+    }));
+    assert!(kernel.events().iter().any(|event| {
+        event.event_kind == aicore_memory::MemoryEventKind::Accepted
+            && event.proposal_id.as_deref() == Some(proposal_id.as_str())
+    }));
+}
+
+#[test]
+fn proposal_pipeline_reject_writes_rejected_event() {
+    let root = temp_root("rule-agent-events-reject");
+    let proposal_id =
+        seed_rule_based_proposal(&root, MemoryTrigger::Correction, "纠正：上一条描述不准确");
+
+    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    assert!(reject_output.status.success());
+
+    let kernel =
+        MemoryKernel::open(memory_paths_for_root(&root)).expect("memory kernel should open");
+    assert!(kernel.events().iter().any(|event| {
+        event.event_kind == aicore_memory::MemoryEventKind::Rejected
+            && event.proposal_id.as_deref() == Some(proposal_id.as_str())
+    }));
 }
 
 #[test]
