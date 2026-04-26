@@ -52,7 +52,11 @@ pub fn build_status_projection(records: &[MemoryRecord]) -> String {
         record.status == MemoryStatus::Active && record.memory_type == MemoryType::Status
     }) {
         if let Some(state) = &record.current_state {
-            output.push_str(&format!("- {}: {}\n", record.state_key.as_deref().unwrap_or("state"), state));
+            output.push_str(&format!(
+                "- {}: {}\n",
+                record.state_key.as_deref().unwrap_or("state"),
+                state
+            ));
         }
     }
 

@@ -148,7 +148,10 @@ pub async fn insert_record_and_event(
     event: &MemoryEvent,
 ) -> Result<(), MemoryError> {
     let mut conn = connect(db_path).await?;
-    let mut tx = conn.begin().await.map_err(|error| MemoryError(error.to_string()))?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
 
     sqlx::query(
         "INSERT INTO memory_records (
@@ -181,7 +184,9 @@ pub async fn insert_record_and_event(
     .map_err(|error| MemoryError(error.to_string()))?;
 
     insert_event_tx(&mut tx, event).await?;
-    tx.commit().await.map_err(|error| MemoryError(error.to_string()))
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
 }
 
 pub async fn insert_proposal(db_path: &Path, proposal: &MemoryProposal) -> Result<(), MemoryError> {
@@ -230,7 +235,10 @@ pub async fn supersede_record(
     event: &MemoryEvent,
 ) -> Result<(), MemoryError> {
     let mut conn = connect(db_path).await?;
-    let mut tx = conn.begin().await.map_err(|error| MemoryError(error.to_string()))?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
 
     sqlx::query("UPDATE memory_records SET status = ?, updated_at = ? WHERE memory_id = ?")
         .bind(memory_status_name(&MemoryStatus::Superseded))
@@ -270,16 +278,20 @@ pub async fn supersede_record(
     .await
     .map_err(|error| MemoryError(error.to_string()))?;
 
-    sqlx::query("INSERT INTO memory_edges (from_memory_id, to_memory_id, relation) VALUES (?, ?, ?)")
-        .bind(old_memory_id)
-        .bind(&new_record.memory_id)
-        .bind("supersedes")
-        .execute(&mut *tx)
-        .await
-        .map_err(|error| MemoryError(error.to_string()))?;
+    sqlx::query(
+        "INSERT INTO memory_edges (from_memory_id, to_memory_id, relation) VALUES (?, ?, ?)",
+    )
+    .bind(old_memory_id)
+    .bind(&new_record.memory_id)
+    .bind("supersedes")
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
 
     insert_event_tx(&mut tx, event).await?;
-    tx.commit().await.map_err(|error| MemoryError(error.to_string()))
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
 }
 
 pub async fn update_record_status(
@@ -289,7 +301,10 @@ pub async fn update_record_status(
     event: &MemoryEvent,
 ) -> Result<(), MemoryError> {
     let mut conn = connect(db_path).await?;
-    let mut tx = conn.begin().await.map_err(|error| MemoryError(error.to_string()))?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
 
     sqlx::query("UPDATE memory_records SET status = ?, updated_at = ? WHERE memory_id = ?")
         .bind(memory_status_name(&status))
@@ -300,7 +315,9 @@ pub async fn update_record_status(
         .map_err(|error| MemoryError(error.to_string()))?;
 
     insert_event_tx(&mut tx, event).await?;
-    tx.commit().await.map_err(|error| MemoryError(error.to_string()))
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
 }
 
 async fn insert_event_tx(
@@ -333,36 +350,31 @@ async fn insert_event_tx(
 
 pub async fn load_records(db_path: &Path) -> Result<Vec<MemoryRecord>, MemoryError> {
     let mut conn = connect(db_path).await?;
-    let rows = sqlx::query(
-        "SELECT * FROM memory_records ORDER BY created_at ASC, memory_id ASC",
-    )
-    .fetch_all(&mut conn)
-    .await
-    .map_err(|error| MemoryError(error.to_string()))?;
+    let rows = sqlx::query("SELECT * FROM memory_records ORDER BY created_at ASC, memory_id ASC")
+        .fetch_all(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
 
     rows.into_iter().map(row_to_record).collect()
 }
 
 pub async fn load_proposals(db_path: &Path) -> Result<Vec<MemoryProposal>, MemoryError> {
     let mut conn = connect(db_path).await?;
-    let rows = sqlx::query(
-        "SELECT * FROM memory_proposals ORDER BY created_at ASC, proposal_id ASC",
-    )
-    .fetch_all(&mut conn)
-    .await
-    .map_err(|error| MemoryError(error.to_string()))?;
+    let rows =
+        sqlx::query("SELECT * FROM memory_proposals ORDER BY created_at ASC, proposal_id ASC")
+            .fetch_all(&mut conn)
+            .await
+            .map_err(|error| MemoryError(error.to_string()))?;
 
     rows.into_iter().map(row_to_proposal).collect()
 }
 
 pub async fn load_events(db_path: &Path) -> Result<Vec<MemoryEvent>, MemoryError> {
     let mut conn = connect(db_path).await?;
-    let rows = sqlx::query(
-        "SELECT * FROM memory_events ORDER BY created_at ASC, event_id ASC",
-    )
-    .fetch_all(&mut conn)
-    .await
-    .map_err(|error| MemoryError(error.to_string()))?;
+    let rows = sqlx::query("SELECT * FROM memory_events ORDER BY created_at ASC, event_id ASC")
+        .fetch_all(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
 
     rows.into_iter().map(row_to_event).collect()
 }

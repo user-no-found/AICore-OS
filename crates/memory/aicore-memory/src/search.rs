@@ -16,14 +16,23 @@ pub fn filter_records(records: &[MemoryRecord], query: &SearchQuery) -> Vec<Memo
         })
         .filter(|record| {
             record.content.to_ascii_lowercase().contains(&needle)
-                || record.normalized_content.to_ascii_lowercase().contains(&needle)
-                || record.localized_summary.to_ascii_lowercase().contains(&needle)
+                || record
+                    .normalized_content
+                    .to_ascii_lowercase()
+                    .contains(&needle)
+                || record
+                    .localized_summary
+                    .to_ascii_lowercase()
+                    .contains(&needle)
         })
         .cloned()
         .collect()
 }
 
-pub fn build_memory_pack_for_tests(records: &[MemoryRecord], token_budget: usize) -> Vec<MemoryRecord> {
+pub fn build_memory_pack_for_tests(
+    records: &[MemoryRecord],
+    token_budget: usize,
+) -> Vec<MemoryRecord> {
     let mut candidates: Vec<MemoryRecord> = records
         .iter()
         .filter(|record| record.status == MemoryStatus::Active)

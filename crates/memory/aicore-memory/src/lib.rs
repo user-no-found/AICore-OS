@@ -26,8 +26,8 @@ mod tests {
     use std::{env, fs};
 
     use crate::{
-        MemoryEventKind, MemoryKernel, MemoryPermanence, MemoryScope, MemorySource, MemoryStatus,
-        MemoryType, MemoryPaths, RememberInput, SearchQuery, blocks_secret,
+        MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
+        MemoryStatus, MemoryType, RememberInput, SearchQuery, blocks_secret,
         build_core_projection_for_tests, build_memory_pack_for_tests,
         build_status_projection_for_tests,
     };
@@ -61,8 +61,8 @@ mod tests {
 
     #[test]
     fn user_explicit_remember_creates_active_record_immediately() {
-        let mut kernel = MemoryKernel::open(temp_paths("remember-active"))
-            .expect("memory kernel should open");
+        let mut kernel =
+            MemoryKernel::open(temp_paths("remember-active")).expect("memory kernel should open");
 
         kernel
             .remember_user_explicit(RememberInput {
@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn correction_by_user_supersedes_old_memory() {
-        let mut kernel = MemoryKernel::open(temp_paths("correct"))
-            .expect("memory kernel should open");
+        let mut kernel =
+            MemoryKernel::open(temp_paths("correct")).expect("memory kernel should open");
 
         let old_id = kernel
             .remember_user_explicit(RememberInput {
@@ -138,14 +138,19 @@ mod tests {
 
         assert_ne!(old_id, new_id);
         assert_eq!(kernel.records().len(), 2);
-        assert!(kernel
-            .records()
-            .iter()
-            .any(|record| record.memory_id == old_id && record.status == MemoryStatus::Superseded));
-        assert!(kernel
-            .records()
-            .iter()
-            .any(|record| record.memory_id == new_id && record.status == MemoryStatus::Active));
+        assert!(
+            kernel
+                .records()
+                .iter()
+                .any(|record| record.memory_id == old_id
+                    && record.status == MemoryStatus::Superseded)
+        );
+        assert!(
+            kernel
+                .records()
+                .iter()
+                .any(|record| record.memory_id == new_id && record.status == MemoryStatus::Active)
+        );
     }
 
     #[test]
@@ -250,8 +255,8 @@ mod tests {
 
     #[test]
     fn projection_rebuild_failure_marks_stale_not_rollback_db() {
-        let mut kernel = MemoryKernel::open(temp_paths("projection-stale"))
-            .expect("memory kernel should open");
+        let mut kernel =
+            MemoryKernel::open(temp_paths("projection-stale")).expect("memory kernel should open");
         kernel.set_projection_failure_for_tests(true);
 
         kernel
@@ -360,8 +365,8 @@ mod tests {
 
     #[test]
     fn stage_status_is_not_current_instruction() {
-        let mut kernel =
-            MemoryKernel::open(temp_paths("status-not-instruction")).expect("memory kernel should open");
+        let mut kernel = MemoryKernel::open(temp_paths("status-not-instruction"))
+            .expect("memory kernel should open");
 
         kernel
             .remember_user_explicit(RememberInput {
@@ -394,6 +399,8 @@ mod tests {
     #[test]
     fn safety_scan_blocks_secret_but_not_technical_discussion() {
         assert!(blocks_secret("api_key=sk-test-secret"));
-        assert!(!blocks_secret("这里讨论 api_key 命名规范和 secret storage 设计"));
+        assert!(!blocks_secret(
+            "这里讨论 api_key 命名规范和 secret storage 设计"
+        ));
     }
 }

@@ -32,7 +32,8 @@ pub struct MemoryKernel {
 impl MemoryKernel {
     pub fn open(paths: MemoryPaths) -> Result<Self, MemoryError> {
         fs::create_dir_all(&paths.root).map_err(|error| MemoryError(error.to_string()))?;
-        fs::create_dir_all(&paths.projections_dir).map_err(|error| MemoryError(error.to_string()))?;
+        fs::create_dir_all(&paths.projections_dir)
+            .map_err(|error| MemoryError(error.to_string()))?;
 
         block_on(async { store::init_schema(&paths.db_path).await })?;
 
@@ -56,7 +57,10 @@ impl MemoryKernel {
         block_on(async { store::table_names(&self.paths.db_path).await })
     }
 
-    pub fn remember_user_explicit(&mut self, input: RememberInput) -> Result<MemoryId, MemoryError> {
+    pub fn remember_user_explicit(
+        &mut self,
+        input: RememberInput,
+    ) -> Result<MemoryId, MemoryError> {
         let timestamp = now_string();
         let memory_id = next_id("mem");
         let event_id = next_id("evt");
@@ -94,7 +98,9 @@ impl MemoryKernel {
             created_at: timestamp,
         };
 
-        block_on(async { store::insert_record_and_event(&self.paths.db_path, &record, &event).await })?;
+        block_on(async {
+            store::insert_record_and_event(&self.paths.db_path, &record, &event).await
+        })?;
         self.refresh_cache()?;
         self.rebuild_projections_after_commit()?;
 
@@ -182,7 +188,11 @@ impl MemoryKernel {
     }
 
     pub fn forget(&mut self, memory_id: &str) -> Result<(), MemoryError> {
-        self.update_status(memory_id, MemoryStatus::Forgotten, MemoryEventKind::Forgotten)
+        self.update_status(
+            memory_id,
+            MemoryStatus::Forgotten,
+            MemoryEventKind::Forgotten,
+        )
     }
 
     pub fn search(&self, query: SearchQuery) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -281,7 +291,9 @@ impl MemoryKernel {
             created_at: now_string(),
         };
 
-        block_on(async { store::update_record_status(&self.paths.db_path, memory_id, status, &event).await })?;
+        block_on(async {
+            store::update_record_status(&self.paths.db_path, memory_id, status, &event).await
+        })?;
         self.refresh_cache()?;
         self.rebuild_projections_after_commit()
     }

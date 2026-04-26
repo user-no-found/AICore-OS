@@ -14,15 +14,15 @@ pub struct ToolSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryProposalTypeView {
     Core,
-    Permanent,
     Working,
+    Status,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemorySummary {
     pub id: String,
     pub memory_type: MemoryProposalTypeView,
-    pub normalized_memory: String,
+    pub display_text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,13 +84,19 @@ pub fn build_kernel_surface(
         memories: memories
             .iter()
             .map(|memory| MemorySummary {
-                id: memory.id.clone(),
+                id: memory.proposal_id.clone(),
                 memory_type: match memory.memory_type {
                     MemoryType::Core => MemoryProposalTypeView::Core,
-                    MemoryType::Permanent { .. } => MemoryProposalTypeView::Permanent,
                     MemoryType::Working => MemoryProposalTypeView::Working,
+                    MemoryType::Status => MemoryProposalTypeView::Status,
                 },
-                normalized_memory: memory.normalized_memory.clone(),
+                display_text: if !memory.localized_summary.is_empty() {
+                    memory.localized_summary.clone()
+                } else if !memory.content.is_empty() {
+                    memory.content.clone()
+                } else {
+                    memory.normalized_content.clone()
+                },
             })
             .collect(),
         skills: skills
@@ -140,7 +146,11 @@ pub fn default_kernel_surface() -> KernelSurface {
 
 #[cfg(test)]
 mod tests {
-    use super::default_kernel_surface;
+    use aicore_memory::{
+        MemoryProposal, MemoryProposalStatus, MemoryScope, MemorySource, MemoryType,
+    };
+
+    use super::{MemoryProposalTypeView, build_kernel_surface, default_kernel_surface};
 
     #[test]
     fn exposes_default_kernel_surface_summary() {
@@ -149,5 +159,61 @@ mod tests {
         assert_eq!(surface.memories.len(), 1);
         assert_eq!(surface.skills.len(), 2);
         assert_eq!(surface.evolution_proposals.len(), 2);
+    }
+
+    #[test]
+    fn memory_summary_prefers_localized_summary_then_content_then_normalized_content() {
+        let memories = vec![
+            MemoryProposal {
+                proposal_id: "prop_1".to_string(),
+                memory_type: MemoryType::Status,
+                scope: MemoryScope::GlobalMain {
+                    instance_id: "global-main".to_string(),
+                },
+                source: MemorySource::AssistantSummary,
+                status: MemoryProposalStatus::Open,
+                content: "raw content".to_string(),
+                normalized_content: "normalized content".to_string(),
+                localized_summary: "显示摘要".to_string(),
+                created_at: "1".to_string(),
+            },
+            MemoryProposal {
+                proposal_id: "prop_2".to_string(),
+                memory_type: MemoryType::Core,
+                scope: MemoryScope::GlobalMain {
+                    instance_id: "global-main".to_string(),
+                },
+                source: MemorySource::AssistantSummary,
+                status: MemoryProposalStatus::Open,
+                content: "只剩 content".to_string(),
+                normalized_content: "normalized content".to_string(),
+                localized_summary: String::new(),
+                created_at: "2".to_string(),
+            },
+            MemoryProposal {
+                proposal_id: "prop_3".to_string(),
+                memory_type: MemoryType::Working,
+                scope: MemoryScope::GlobalMain {
+                    instance_id: "global-main".to_string(),
+                },
+                source: MemorySource::AssistantSummary,
+                status: MemoryProposalStatus::Open,
+                content: String::new(),
+                normalized_content: "only normalized".to_string(),
+                localized_summary: String::new(),
+                created_at: "3".to_string(),
+            },
+        ];
+
+        let surface = build_kernel_surface(&[], &memories, &[], &[]);
+
+        assert_eq!(surface.memories[0].id, "prop_1");
+        assert_eq!(
+            surface.memories[0].memory_type,
+            MemoryProposalTypeView::Status
+        );
+        assert_eq!(surface.memories[0].display_text, "显示摘要");
+        assert_eq!(surface.memories[1].display_text, "只剩 content");
+        assert_eq!(surface.memories[2].display_text, "only normalized");
     }
 }

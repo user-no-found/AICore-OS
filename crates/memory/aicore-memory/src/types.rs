@@ -2,7 +2,9 @@ use crate::ids::{MemoryEventId, MemoryId, MemoryProposalId, MemorySnapshotRev};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryScope {
-    GlobalMain { instance_id: String },
+    GlobalMain {
+        instance_id: String,
+    },
     Workspace {
         instance_id: String,
         workspace_root: String,
