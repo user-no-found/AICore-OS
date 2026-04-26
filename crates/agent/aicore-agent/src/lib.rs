@@ -1435,6 +1435,43 @@ mod tests {
     }
 
     #[test]
+    fn conversation_surface_includes_appended_context_turn() {
+        let memory = MemoryKernel::open(temp_paths("surface-appended-context-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("append context");
+                input.interrupt_mode = InterruptMode::AppendContext;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::AppendedContext);
+        assert!(!output.provider_invoked);
+        assert_eq!(output.assistant_output, None);
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(
+            surface.latest_turn.outcome,
+            AgentTurnOutcome::AppendedContext
+        );
+    }
+
+    #[test]
     fn conversation_surface_does_not_expose_prompt() {
         let memory =
             MemoryKernel::open(temp_paths("surface-no-prompt")).expect("memory kernel should open");
@@ -1701,6 +1738,36 @@ mod tests {
 
         let entry = output.to_surface_entry();
         assert_eq!(entry.outcome, AgentTurnOutcome::Interrupted);
+    }
+
+    #[test]
+    fn agent_turn_appended_context_can_be_converted_to_surface_entry() {
+        let memory = MemoryKernel::open(temp_paths("surface-entry-appended-context"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("append context entry");
+                input.interrupt_mode = InterruptMode::AppendContext;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        let entry = output.to_surface_entry();
+        assert_eq!(entry.outcome, AgentTurnOutcome::AppendedContext);
     }
 
     #[test]

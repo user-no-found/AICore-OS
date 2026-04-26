@@ -554,51 +554,52 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
         },
     )
     .map_err(|error| error.0)?;
+    let surface = result.to_conversation_surface();
+    let turn = &surface.latest_turn;
 
     if matches!(result.outcome, AgentTurnOutcome::Failed) {
-        let stage = result
+        let stage = turn
             .failure_stage
             .as_ref()
             .map(agent_turn_failure_stage_name)
             .unwrap_or("unknown");
-        let message = result.error_message.as_deref().unwrap_or("未知错误");
+        let message = turn.error_message.as_deref().unwrap_or("未知错误");
         return Err(format!("Agent Turn 失败：阶段={stage}，错误={message}"));
     }
 
     println!("Agent Loop：通过");
     println!("- 实例：{}", runtime_config.instance_id);
-    println!("- outcome：{}", agent_turn_outcome_name(&result.outcome));
-    println!("- memory pack：{} 条", result.memory_count);
+    println!("- outcome：{}", agent_turn_outcome_name(&turn.outcome));
+    println!("- memory pack：{} 条", turn.memory_count);
     println!("- prompt builder：通过");
-    println!("- ingress source：{}", result.accepted_source);
+    println!("- ingress source：{}", turn.accepted_source);
     println!(
         "- provider invoked：{}",
-        bool_status_name(result.provider_invoked)
+        bool_status_name(turn.provider_invoked)
     );
     println!(
         "- provider：{}",
-        result.provider_kind.as_deref().unwrap_or("<none>")
+        turn.provider_kind.as_deref().unwrap_or("<none>")
     );
     println!(
         "- provider name：{}",
-        result.provider_name.as_deref().unwrap_or("<none>")
+        turn.provider_name.as_deref().unwrap_or("<none>")
     );
     println!(
-        "- assistant output generated：{}",
-        bool_status_name(result.assistant_output_generated)
+        "- assistant output present：{}",
+        bool_status_name(turn.assistant_output_present)
     );
     println!(
         "- failure stage：{}",
-        result
-            .failure_stage
+        turn.failure_stage
             .as_ref()
             .map(agent_turn_failure_stage_name)
             .unwrap_or("<none>")
     );
     println!("- runtime output：已追加");
-    println!("- conversation：{}", result.conversation_id);
-    println!("- event count：{}", result.event_count);
-    println!("- queue len：{}", result.queue_len);
+    println!("- conversation：{}", surface.conversation_id);
+    println!("- event count：{}", turn.event_count);
+    println!("- queue len：{}", turn.queue_len);
 
     Ok(())
 }
