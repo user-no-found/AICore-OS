@@ -17,7 +17,7 @@ pub use kernel::{
 };
 pub use paths::MemoryPaths;
 pub use safety::blocks_secret;
-pub use search::build_memory_pack_for_tests;
+pub use search::{build_memory_pack, build_memory_pack_for_tests};
 pub use types::{
     MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind,
     MemoryPermanence, MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryRequestedOutput,

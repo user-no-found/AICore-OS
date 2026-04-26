@@ -14,7 +14,7 @@ use crate::{
         build_core_projection, build_decisions_projection, build_permanent_projection,
         build_status_projection, rebuild_projections,
     },
-    search::{filter_records, filter_records_by_ids},
+    search::{build_memory_pack, filter_records, filter_records_by_ids},
     store,
     types::{
         MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent,
@@ -370,6 +370,14 @@ impl MemoryKernel {
             }
             _ => filter_records(&self.records, &query),
         })
+    }
+
+    pub fn build_memory_context_pack(
+        &self,
+        query: SearchQuery,
+        token_budget: usize,
+    ) -> Vec<MemoryRecord> {
+        build_memory_pack(&self.records, &query, token_budget)
     }
 
     pub fn list_open_proposals(&self) -> Vec<MemoryProposal> {

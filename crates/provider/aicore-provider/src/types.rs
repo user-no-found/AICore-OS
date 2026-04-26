@@ -1,4 +1,5 @@
 use aicore_auth::AuthRef;
+use aicore_memory::MemoryRecord;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderKind {
@@ -25,6 +26,20 @@ pub struct ModelRequest {
     pub conversation_id: String,
     pub prompt: String,
     pub resolved_model: ResolvedModel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptBuildInput {
+    pub instance_id: String,
+    pub system_rules: String,
+    pub relevant_memory: Vec<MemoryRecord>,
+    pub user_request: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromptBuildResult {
+    pub prompt: String,
+    pub memory_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

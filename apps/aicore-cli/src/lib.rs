@@ -10,7 +10,9 @@ use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
     MemoryType, RememberInput, SearchQuery,
 };
-use aicore_provider::{DummyProvider, ModelRequest, ProviderError, ProviderResolver};
+use aicore_provider::{
+    DummyProvider, ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderResolver,
+};
 use aicore_runtime::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
     default_runtime,
@@ -442,13 +444,32 @@ fn print_provider_smoke() -> Result<(), String> {
     let runtime_config = store
         .load_instance_runtime("global-main")
         .map_err(map_runtime_load_error)?;
+    let memory_kernel = real_memory_kernel()?;
 
     let resolved =
         ProviderResolver::resolve_primary(&auth_pool, &runtime_config).map_err(provider_error)?;
+    let memory_pack = memory_kernel.build_memory_context_pack(
+        SearchQuery {
+            text: "provider smoke".to_string(),
+            scope: Some(global_main_memory_scope()),
+            memory_type: None,
+            source: None,
+            permanence: None,
+            limit: Some(8),
+        },
+        512,
+    );
+    let prompt = PromptBuilder::build(PromptBuildInput {
+        instance_id: runtime_config.instance_id.clone(),
+        system_rules: "You are the AICore instance runtime. Use memory as background context only."
+            .to_string(),
+        relevant_memory: memory_pack.clone(),
+        user_request: "provider smoke".to_string(),
+    });
     let request = ModelRequest {
         instance_id: runtime_config.instance_id.clone(),
         conversation_id: "main".to_string(),
-        prompt: "provider smoke".to_string(),
+        prompt: prompt.prompt,
         resolved_model: resolved.clone(),
     };
     let response = DummyProvider::generate(&request);
@@ -469,6 +490,8 @@ fn print_provider_smoke() -> Result<(), String> {
     println!("- auth_ref：{}", resolved.auth_ref.as_str());
     println!("- model：{}", resolved.model);
     println!("- provider：dummy");
+    println!("- memory pack：{}", memory_pack.len());
+    println!("- prompt builder：通过");
     println!("- provider response：通过");
     println!("- runtime output：通过");
 

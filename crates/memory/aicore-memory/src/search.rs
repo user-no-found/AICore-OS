@@ -30,21 +30,12 @@ pub fn filter_records_by_ids(
     results
 }
 
-pub fn build_memory_pack_for_tests(
+pub fn build_memory_pack(
     records: &[MemoryRecord],
+    query: &SearchQuery,
     token_budget: usize,
 ) -> Vec<MemoryRecord> {
-    let candidates = filter_records(
-        records,
-        &SearchQuery {
-            text: String::new(),
-            scope: None,
-            memory_type: None,
-            source: None,
-            permanence: None,
-            limit: None,
-        },
-    );
+    let candidates = filter_records(records, query);
 
     let mut used = 0usize;
     let mut packed = Vec::new();
@@ -61,6 +52,24 @@ pub fn build_memory_pack_for_tests(
     }
 
     packed
+}
+
+pub fn build_memory_pack_for_tests(
+    records: &[MemoryRecord],
+    token_budget: usize,
+) -> Vec<MemoryRecord> {
+    build_memory_pack(
+        records,
+        &SearchQuery {
+            text: String::new(),
+            scope: None,
+            memory_type: None,
+            source: None,
+            permanence: None,
+            limit: None,
+        },
+        token_budget,
+    )
 }
 
 fn estimate_tokens(record: &MemoryRecord) -> usize {
