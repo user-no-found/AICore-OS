@@ -7,8 +7,8 @@ use aicore_config::{
 };
 use aicore_control::default_control_plane;
 use aicore_memory::{
-    MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType,
-    RememberInput, SearchQuery,
+    MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
+    MemoryType, RememberInput, SearchQuery,
 };
 use aicore_provider::{DummyProvider, ModelRequest, ProviderError, ProviderResolver};
 use aicore_runtime::{
@@ -66,8 +66,8 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action, content] if group == "memory" && action == "remember" => {
             run_memory_command_with_arg(content, print_memory_remember)
         }
-        [group, action, query] if group == "memory" && action == "search" => {
-            run_memory_command_with_arg(query, print_memory_search)
+        [group, action, query, rest @ ..] if group == "memory" && action == "search" => {
+            run_memory_search_command(query, rest)
         }
         [group, action, proposal_id] if group == "memory" && action == "accept" => {
             run_memory_command_with_arg(proposal_id, print_memory_accept)
@@ -240,6 +240,17 @@ fn run_memory_command(command: fn() -> Result<(), String>) -> i32 {
 
 fn run_memory_command_with_arg(arg: &str, command: fn(&str) -> Result<(), String>) -> i32 {
     match command(arg) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("记忆命令失败：{error}");
+            1
+        }
+    }
+}
+
+fn run_memory_search_command(query: &str, args: &[String]) -> i32 {
+    match parse_memory_search_options(args).and_then(|options| print_memory_search(query, options))
+    {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("记忆命令失败：{error}");
@@ -573,16 +584,16 @@ fn print_memory_reject(proposal_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn print_memory_search(query: &str) -> Result<(), String> {
+fn print_memory_search(query: &str, options: MemorySearchOptions) -> Result<(), String> {
     let kernel = real_memory_kernel()?;
     let results = kernel
         .search(SearchQuery {
             text: query.to_string(),
             scope: Some(global_main_memory_scope()),
-            memory_type: None,
-            source: None,
-            permanence: None,
-            limit: None,
+            memory_type: options.memory_type,
+            source: options.source,
+            permanence: options.permanence,
+            limit: options.limit,
         })
         .map_err(memory_error)?;
 
@@ -598,6 +609,13 @@ fn print_memory_search(query: &str) -> Result<(), String> {
                 memory_type_name(&record.memory_type),
                 record.content
             );
+            println!("  source: {}", memory_source_name(&record.source));
+            println!(
+                "  permanence: {}",
+                memory_permanence_name(&record.permanence)
+            );
+            println!("  score: {}", result.score);
+            println!("  matched: {}", result.matched_fields.join(","));
         }
     }
 
@@ -928,9 +946,110 @@ fn memory_type_name(memory_type: &MemoryType) -> &'static str {
     }
 }
 
+fn memory_source_name(source: &MemorySource) -> &'static str {
+    match source {
+        MemorySource::UserExplicit => "user_explicit",
+        MemorySource::UserCorrection => "user_correction",
+        MemorySource::AssistantSummary => "assistant_summary",
+        MemorySource::RuleBasedAgent => "rule_based_agent",
+    }
+}
+
+fn memory_permanence_name(permanence: &MemoryPermanence) -> &'static str {
+    match permanence {
+        MemoryPermanence::Standard => "standard",
+        MemoryPermanence::Permanent => "permanent",
+    }
+}
+
 fn global_main_memory_scope() -> MemoryScope {
     MemoryScope::GlobalMain {
         instance_id: "global-main".to_string(),
+    }
+}
+
+#[derive(Debug, Default)]
+struct MemorySearchOptions {
+    memory_type: Option<MemoryType>,
+    source: Option<MemorySource>,
+    permanence: Option<MemoryPermanence>,
+    limit: Option<usize>,
+}
+
+fn parse_memory_search_options(args: &[String]) -> Result<MemorySearchOptions, String> {
+    let mut options = MemorySearchOptions::default();
+    let mut index = 0usize;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--type" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "缺少 --type 参数值。".to_string())?;
+                options.memory_type = Some(parse_memory_type_filter(value)?);
+                index += 2;
+            }
+            "--source" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "缺少 --source 参数值。".to_string())?;
+                options.source = Some(parse_memory_source_filter(value)?);
+                index += 2;
+            }
+            "--permanence" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "缺少 --permanence 参数值。".to_string())?;
+                options.permanence = Some(parse_memory_permanence_filter(value)?);
+                index += 2;
+            }
+            "--limit" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "缺少 --limit 参数值。".to_string())?;
+                let parsed = value
+                    .parse::<usize>()
+                    .map_err(|_| "--limit 必须是正整数。".to_string())?;
+                if parsed == 0 {
+                    return Err("--limit 必须是正整数。".to_string());
+                }
+                options.limit = Some(parsed);
+                index += 2;
+            }
+            other => {
+                return Err(format!("未知参数：{other}"));
+            }
+        }
+    }
+
+    Ok(options)
+}
+
+fn parse_memory_type_filter(value: &str) -> Result<MemoryType, String> {
+    match value {
+        "core" => Ok(MemoryType::Core),
+        "working" => Ok(MemoryType::Working),
+        "status" => Ok(MemoryType::Status),
+        "decision" => Ok(MemoryType::Decision),
+        _ => Err(format!("无效的 --type：{value}")),
+    }
+}
+
+fn parse_memory_source_filter(value: &str) -> Result<MemorySource, String> {
+    match value {
+        "user_explicit" => Ok(MemorySource::UserExplicit),
+        "user_correction" => Ok(MemorySource::UserCorrection),
+        "assistant_summary" => Ok(MemorySource::AssistantSummary),
+        "rule_based_agent" => Ok(MemorySource::RuleBasedAgent),
+        _ => Err(format!("无效的 --source：{value}")),
+    }
+}
+
+fn parse_memory_permanence_filter(value: &str) -> Result<MemoryPermanence, String> {
+    match value {
+        "standard" => Ok(MemoryPermanence::Standard),
+        "permanent" => Ok(MemoryPermanence::Permanent),
+        _ => Err(format!("无效的 --permanence：{value}")),
     }
 }
 

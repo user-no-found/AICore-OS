@@ -1,9 +1,9 @@
 use std::{fs, path::PathBuf, process::Command};
 
 use aicore_memory::{
-    MemoryAgentOutput, MemoryKernel, MemoryPaths, MemoryProposal, MemoryProposalStatus,
-    MemoryRequestedOutput, MemoryScope, MemorySource, MemoryTrigger, MemoryType, MemoryWorkBatch,
-    RuleBasedMemoryAgent,
+    MemoryAgentOutput, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryProposal,
+    MemoryProposalStatus, MemoryRequestedOutput, MemoryScope, MemorySource, MemoryTrigger,
+    MemoryType, MemoryWorkBatch, RememberInput, RuleBasedMemoryAgent,
 };
 
 fn temp_root(name: &str) -> PathBuf {
@@ -89,6 +89,27 @@ fn seed_rule_based_proposal(root: &PathBuf, trigger: MemoryTrigger, excerpt: &st
         .into_iter()
         .next()
         .expect("proposal id should exist")
+}
+
+fn seed_memory_record(
+    root: &PathBuf,
+    memory_type: MemoryType,
+    permanence: MemoryPermanence,
+    content: &str,
+) -> String {
+    let mut kernel =
+        MemoryKernel::open(memory_paths_for_root(root)).expect("memory kernel should open");
+    kernel
+        .remember_user_explicit(RememberInput {
+            memory_type,
+            permanence,
+            scope: global_scope(),
+            content: content.to_string(),
+            localized_summary: content.to_string(),
+            state_key: None,
+            current_state: None,
+        })
+        .expect("remember should succeed")
 }
 
 #[test]
@@ -398,6 +419,194 @@ fn memory_search_uses_real_config_root() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn memory_search_accepts_type_filter() {
+    let root = temp_root("memory-search-type-filter");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "type filter shared",
+    );
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Decision,
+        MemoryPermanence::Standard,
+        "type filter shared",
+    );
+
+    let output =
+        run_cli_with_config_root(&["memory", "search", "type", "--type", "decision"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("[decision]"));
+    assert!(!stdout.contains("[core]"));
+}
+
+#[test]
+fn memory_search_accepts_source_filter() {
+    let root = temp_root("memory-search-source-filter");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：source filter shared",
+    );
+    let _ = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+
+    let output = run_cli_with_config_root(
+        &["memory", "search", "source", "--source", "rule_based_agent"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("source: rule_based_agent"));
+}
+
+#[test]
+fn memory_search_accepts_permanence_filter() {
+    let root = temp_root("memory-search-permanence-filter");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "permanence shared",
+    );
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Permanent,
+        "permanence shared",
+    );
+
+    let output = run_cli_with_config_root(
+        &["memory", "search", "permanence", "--permanence", "standard"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("permanence: standard"));
+    assert!(!stdout.contains("permanence: permanent"));
+}
+
+#[test]
+fn memory_search_accepts_limit() {
+    let root = temp_root("memory-search-limit");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "limit shared a",
+    );
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Decision,
+        MemoryPermanence::Standard,
+        "limit shared b",
+    );
+
+    let output = run_cli_with_config_root(&["memory", "search", "limit", "--limit", "1"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let count = stdout.matches("- mem_").count();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn memory_search_rejects_unknown_type() {
+    let root = temp_root("memory-search-bad-type");
+    let output = run_cli_with_config_root(&["memory", "search", "x", "--type", "unknown"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("无效的 --type"));
+}
+
+#[test]
+fn memory_search_rejects_unknown_source() {
+    let root = temp_root("memory-search-bad-source");
+    let output = run_cli_with_config_root(&["memory", "search", "x", "--source", "unknown"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("无效的 --source"));
+}
+
+#[test]
+fn memory_search_rejects_unknown_permanence() {
+    let root = temp_root("memory-search-bad-permanence");
+    let output =
+        run_cli_with_config_root(&["memory", "search", "x", "--permanence", "unknown"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("无效的 --permanence"));
+}
+
+#[test]
+fn memory_search_rejects_invalid_limit() {
+    let root = temp_root("memory-search-bad-limit");
+    let output = run_cli_with_config_root(&["memory", "search", "x", "--limit", "0"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("--limit 必须是正整数"));
+}
+
+#[test]
+fn memory_search_default_behavior_still_works() {
+    let root = temp_root("memory-search-default-compatible");
+    let remember_output =
+        run_cli_with_config_root(&["memory", "remember", "default behavior memory"], &root);
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "search", "default"], &root);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("default behavior memory"));
+}
+
+#[test]
+fn memory_search_output_includes_score_and_matched_fields() {
+    let root = temp_root("memory-search-score-fields");
+    let remember_output =
+        run_cli_with_config_root(&["memory", "remember", "score fields memory"], &root);
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "search", "score"], &root);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("score:"));
+    assert!(stdout.contains("matched:"));
+    assert!(stdout.contains("source:"));
+    assert!(stdout.contains("permanence:"));
+}
+
+#[test]
+fn memory_search_filters_do_not_return_archived_records() {
+    let root = temp_root("memory-search-archived-filter");
+    let remember_output =
+        run_cli_with_config_root(&["memory", "remember", "archived filter memory"], &root);
+    assert!(remember_output.status.success());
+
+    let kernel =
+        MemoryKernel::open(memory_paths_for_root(&root)).expect("memory kernel should open");
+    let memory_id = kernel.records()[0].memory_id.clone();
+    drop(kernel);
+
+    let mut kernel =
+        MemoryKernel::open(memory_paths_for_root(&root)).expect("memory kernel should reopen");
+    kernel.archive(&memory_id).expect("archive should succeed");
+
+    let output = run_cli_with_config_root(&["memory", "search", "archived"], &root);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("无匹配记忆"));
 }
 
