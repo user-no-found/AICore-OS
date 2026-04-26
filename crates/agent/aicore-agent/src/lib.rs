@@ -5,7 +5,8 @@ use aicore_provider::{
     DummyProvider, ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderResolver,
 };
 use aicore_runtime::{
-    GatewaySource, IngressResult, InstanceRuntime, InterruptMode, TransportEnvelope,
+    ConversationStatus, GatewaySource, IngressResult, InstanceRuntime, InterruptMode,
+    TransportEnvelope, TurnStatus,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,18 +32,32 @@ pub struct AgentTurnDebug {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentTurnOutcome {
+    Completed,
+    Queued,
+    AppendedContext,
+    Interrupted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnOutput {
-    pub assistant_output: String,
+    pub assistant_output: Option<String>,
     pub memory_count: usize,
-    pub provider_name: String,
-    pub provider_kind: String,
+    pub provider_name: Option<String>,
+    pub provider_kind: Option<String>,
     pub prompt_builder_ok: bool,
     pub runtime_output_ok: bool,
+    pub provider_invoked: bool,
+    pub assistant_output_generated: bool,
+    pub outcome: AgentTurnOutcome,
     pub accepted_source: String,
     pub ingress_decision: String,
     pub conversation_id: String,
     pub active_turn_id: Option<String>,
+    pub active_turn_status: Option<String>,
+    pub conversation_status: String,
     pub event_count: usize,
+    pub queue_len: usize,
     pub debug: Option<AgentTurnDebug>,
 }
 
@@ -65,6 +80,35 @@ impl AgentTurnRunner {
             &input.user_input,
             input.interrupt_mode,
         );
+        match ingress.decision {
+            aicore_runtime::InterruptDecision::StartTurn => {}
+            aicore_runtime::InterruptDecision::Queue => {
+                return Ok(non_generated_output(
+                    runtime,
+                    &ingress,
+                    AgentTurnOutcome::Queued,
+                    input.include_debug_prompt,
+                ));
+            }
+            aicore_runtime::InterruptDecision::AppendContext => {
+                return Ok(non_generated_output(
+                    runtime,
+                    &ingress,
+                    AgentTurnOutcome::AppendedContext,
+                    input.include_debug_prompt,
+                ));
+            }
+            aicore_runtime::InterruptDecision::SoftInterrupt
+            | aicore_runtime::InterruptDecision::HardInterrupt => {
+                return Ok(non_generated_output(
+                    runtime,
+                    &ingress,
+                    AgentTurnOutcome::Interrupted,
+                    input.include_debug_prompt,
+                ));
+            }
+        }
+
         let memory_query = input
             .memory_query
             .clone()
@@ -122,20 +166,75 @@ impl AgentTurnRunner {
                 .collect(),
         };
 
+        runtime.complete_turn();
+        let turn_state = runtime.turn_state();
+        let runtime_summary = runtime.summary();
+
         Ok(AgentTurnOutput {
-            assistant_output: response.content,
+            assistant_output: Some(response.content),
             memory_count: memory_pack.len(),
-            provider_name: resolved.provider,
-            provider_kind: provider_kind_name(&resolved.kind).to_string(),
+            provider_name: Some(resolved.provider),
+            provider_kind: Some(provider_kind_name(&resolved.kind).to_string()),
             prompt_builder_ok: true,
             runtime_output_ok,
+            provider_invoked: true,
+            assistant_output_generated: true,
+            outcome: AgentTurnOutcome::Completed,
             accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
             ingress_decision: ingress_decision_name(&ingress).to_string(),
-            conversation_id: runtime.summary().conversation_id,
+            conversation_id: runtime_summary.conversation_id,
             active_turn_id: ingress.active_turn_id,
-            event_count: runtime.summary().event_count,
+            active_turn_status: turn_state
+                .active_turn_status
+                .as_ref()
+                .map(turn_status_name)
+                .map(ToString::to_string),
+            conversation_status: conversation_status_name(&runtime_summary.conversation_status)
+                .to_string(),
+            event_count: runtime_summary.event_count,
+            queue_len: turn_state.queue_len,
             debug: Some(debug),
         })
+    }
+}
+
+fn non_generated_output(
+    runtime: &InstanceRuntime,
+    ingress: &IngressResult,
+    outcome: AgentTurnOutcome,
+    include_debug_prompt: bool,
+) -> AgentTurnOutput {
+    let turn_state = runtime.turn_state();
+    let runtime_summary = runtime.summary();
+    AgentTurnOutput {
+        assistant_output: None,
+        memory_count: 0,
+        provider_name: None,
+        provider_kind: None,
+        prompt_builder_ok: false,
+        runtime_output_ok: false,
+        provider_invoked: false,
+        assistant_output_generated: false,
+        outcome,
+        accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
+        ingress_decision: ingress_decision_name(ingress).to_string(),
+        conversation_id: runtime_summary.conversation_id,
+        active_turn_id: ingress.active_turn_id.clone(),
+        active_turn_status: turn_state
+            .active_turn_status
+            .as_ref()
+            .map(turn_status_name)
+            .map(ToString::to_string),
+        conversation_status: conversation_status_name(&runtime_summary.conversation_status)
+            .to_string(),
+        event_count: runtime_summary.event_count,
+        queue_len: turn_state.queue_len,
+        debug: Some(AgentTurnDebug {
+            prompt: include_debug_prompt.then(String::new),
+            prompt_length: 0,
+            prompt_sections: Vec::new(),
+            memory_ids: Vec::new(),
+        }),
     }
 }
 
@@ -155,6 +254,24 @@ fn gateway_source_name(source: &GatewaySource) -> &'static str {
         GatewaySource::Tui => "tui",
         GatewaySource::Web => "web",
         GatewaySource::External => "external",
+    }
+}
+
+fn turn_status_name(status: &TurnStatus) -> &'static str {
+    match status {
+        TurnStatus::Running => "running",
+        TurnStatus::Completed => "completed",
+        TurnStatus::Interrupted => "interrupted",
+        TurnStatus::CancelRequested => "cancel_requested",
+    }
+}
+
+fn conversation_status_name(status: &ConversationStatus) -> &'static str {
+    match status {
+        ConversationStatus::Idle => "idle",
+        ConversationStatus::Running => "running",
+        ConversationStatus::Queued => "queued",
+        ConversationStatus::Interrupted => "interrupted",
     }
 }
 
@@ -180,7 +297,7 @@ mod tests {
     use aicore_runtime::default_runtime;
     use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
 
-    use super::{AgentTurnInput, AgentTurnRunner};
+    use super::{AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
 
     fn temp_paths(name: &str) -> MemoryPaths {
         let root = env::temp_dir().join(format!("aicore-agent-tests-{name}"));
@@ -423,9 +540,15 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert_eq!(output.provider_name, "openrouter");
-        assert_eq!(output.provider_kind, "dummy");
-        assert!(output.assistant_output.contains("dummy provider response"));
+        assert_eq!(output.provider_name.as_deref(), Some("openrouter"));
+        assert_eq!(output.provider_kind.as_deref(), Some("dummy"));
+        assert!(
+            output
+                .assistant_output
+                .as_deref()
+                .expect("assistant output should exist")
+                .contains("dummy provider response")
+        );
     }
 
     #[test]
@@ -442,9 +565,12 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
+        assert_eq!(output.outcome, AgentTurnOutcome::Completed);
         assert!(output.runtime_output_ok);
         assert!(output.event_count >= 2);
         assert!(output.active_turn_id.is_some());
+        assert_eq!(output.conversation_status, "idle");
+        assert_eq!(output.active_turn_status, None);
     }
 
     #[test]
@@ -609,6 +735,289 @@ mod tests {
         .expect("agent turn should succeed");
 
         assert_eq!(output.accepted_source, "tui");
+    }
+
+    #[test]
+    fn agent_turn_start_turn_invokes_provider_and_appends_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-start-turn-provider"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("start turn"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Completed);
+        assert!(output.provider_invoked);
+        assert!(output.assistant_output_generated);
+        assert!(output.assistant_output.is_some());
+    }
+
+    #[test]
+    fn agent_turn_start_turn_completes_turn() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-completes-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("complete turn"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Completed);
+        assert_eq!(runtime.turn_state().active_turn_id, None);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            aicore_runtime::ConversationStatus::Idle
+        );
+    }
+
+    #[test]
+    fn agent_turn_queue_decision_does_not_invoke_provider() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-queue-no-provider"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued input"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Queued);
+        assert!(!output.provider_invoked);
+        assert!(!output.assistant_output_generated);
+        assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_queue_decision_does_not_append_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-queue-no-append"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+        let initial_event_count = runtime.summary().event_count;
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued input"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.event_count, runtime.summary().event_count);
+        assert_eq!(runtime.summary().event_count, initial_event_count);
+    }
+
+    #[test]
+    fn agent_turn_queue_result_reports_queue_len() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-queue-len"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued input"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Queued);
+        assert!(output.queue_len >= 1);
+    }
+
+    #[test]
+    fn agent_turn_soft_interrupt_does_not_invoke_provider() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-soft-interrupt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("soft interrupt");
+                input.interrupt_mode = InterruptMode::SoftInterrupt;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Interrupted);
+        assert_eq!(output.ingress_decision, "soft_interrupt");
+        assert!(!output.provider_invoked);
+    }
+
+    #[test]
+    fn agent_turn_hard_interrupt_does_not_invoke_provider() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-hard-interrupt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("hard interrupt");
+                input.interrupt_mode = InterruptMode::HardInterrupt;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Interrupted);
+        assert_eq!(output.ingress_decision, "hard_interrupt");
+        assert!(!output.provider_invoked);
+    }
+
+    #[test]
+    fn agent_turn_interrupt_result_reports_decision() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-interrupt-decision"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("soft interrupt");
+                input.interrupt_mode = InterruptMode::SoftInterrupt;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        assert_eq!(output.ingress_decision, "soft_interrupt");
+        assert_eq!(output.active_turn_status.as_deref(), Some("interrupted"));
+        assert_eq!(output.conversation_status, "interrupted");
+    }
+
+    #[test]
+    fn agent_turn_completed_result_contains_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-completed-output"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("completed output"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Completed);
+        assert!(output.assistant_output.is_some());
+    }
+
+    #[test]
+    fn agent_turn_non_generated_result_has_no_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-no-generated-output"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued input"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_ne!(output.outcome, AgentTurnOutcome::Completed);
+        assert_eq!(output.assistant_output, None);
     }
 
     #[test]

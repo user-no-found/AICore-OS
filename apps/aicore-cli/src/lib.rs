@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use aicore_agent::{AgentTurnInput, AgentTurnRunner};
+use aicore_agent::{AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
 use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
@@ -557,15 +557,31 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
 
     println!("Agent Loop：通过");
     println!("- 实例：{}", runtime_config.instance_id);
+    println!("- outcome：{}", agent_turn_outcome_name(&result.outcome));
     println!("- memory pack：{} 条", result.memory_count);
     println!("- prompt builder：通过");
     println!("- ingress source：{}", result.accepted_source);
-    println!("- provider：{}", result.provider_kind);
-    println!("- provider name：{}", result.provider_name);
+    println!(
+        "- provider：{}",
+        result.provider_kind.as_deref().unwrap_or("<none>")
+    );
+    println!(
+        "- provider name：{}",
+        result.provider_name.as_deref().unwrap_or("<none>")
+    );
     println!("- runtime output：已追加");
     println!("- conversation：{}", result.conversation_id);
 
     Ok(())
+}
+
+fn agent_turn_outcome_name(outcome: &AgentTurnOutcome) -> &'static str {
+    match outcome {
+        AgentTurnOutcome::Completed => "completed",
+        AgentTurnOutcome::Queued => "queued",
+        AgentTurnOutcome::AppendedContext => "appended_context",
+        AgentTurnOutcome::Interrupted => "interrupted",
+    }
 }
 
 fn print_memory_status() -> Result<(), String> {

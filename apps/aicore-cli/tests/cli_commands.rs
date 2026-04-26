@@ -497,6 +497,7 @@ fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("memory pack："));
     assert!(stdout.contains("prompt builder：通过"));
+    assert!(stdout.contains("outcome：completed"));
     assert!(stdout.contains("ingress source：cli"));
     assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("provider name：openrouter"));
