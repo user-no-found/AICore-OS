@@ -4,6 +4,7 @@ use std::path::PathBuf;
 pub struct MemoryPaths {
     pub root: PathBuf,
     pub db_path: PathBuf,
+    pub lock_path: PathBuf,
     pub projections_dir: PathBuf,
     pub core_md: PathBuf,
     pub status_md: PathBuf,
@@ -18,6 +19,7 @@ impl MemoryPaths {
 
         Self {
             db_path: root.join("memory.db"),
+            lock_path: root.join("memory.lock"),
             core_md: projections_dir.join("CORE.md"),
             status_md: projections_dir.join("STATUS.md"),
             permanent_md: projections_dir.join("PERMANENT.md"),

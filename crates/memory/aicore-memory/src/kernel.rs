@@ -8,6 +8,7 @@ use tokio::runtime::Builder;
 
 use crate::{
     ids::{MemoryId, MemoryProposalId},
+    lock::MemoryWriteGuard,
     paths::MemoryPaths,
     projection::{
         build_core_projection, build_decisions_projection, build_permanent_projection,
@@ -31,6 +32,7 @@ pub struct MemoryKernel {
     edges: Vec<MemoryEdge>,
     projection_state: ProjectionState,
     projection_should_fail_for_tests: bool,
+    write_should_fail_for_tests: bool,
 }
 
 impl MemoryKernel {
@@ -53,6 +55,7 @@ impl MemoryKernel {
                 last_rebuild_at: None,
             },
             projection_should_fail_for_tests: false,
+            write_should_fail_for_tests: false,
         };
 
         kernel.refresh_cache()?;
@@ -67,6 +70,8 @@ impl MemoryKernel {
         &mut self,
         input: RememberInput,
     ) -> Result<MemoryId, MemoryError> {
+        let _guard = self.acquire_write_guard("remember_user_explicit")?;
+        self.maybe_fail_write_for_tests()?;
         let timestamp = now_string();
         let memory_id = next_id("mem");
         let event_id = next_id("evt");
@@ -120,6 +125,8 @@ impl MemoryKernel {
         scope: MemoryScope,
         content: &str,
     ) -> Result<MemoryProposalId, MemoryError> {
+        let _guard = self.acquire_write_guard("submit_assistant_summary")?;
+        self.maybe_fail_write_for_tests()?;
         let proposal = MemoryProposal {
             proposal_id: next_id("prop"),
             memory_type: MemoryType::Working,
@@ -173,6 +180,8 @@ impl MemoryKernel {
         expected_version: i64,
         new_content: &str,
     ) -> Result<MemoryId, MemoryError> {
+        let _guard = self.acquire_write_guard("correct_by_user_with_version")?;
+        self.maybe_fail_write_for_tests()?;
         let old_record = self
             .records
             .iter()
@@ -247,6 +256,8 @@ impl MemoryKernel {
         memory_id: &str,
         expected_version: i64,
     ) -> Result<(), MemoryError> {
+        let _guard = self.acquire_write_guard("archive_with_version")?;
+        self.maybe_fail_write_for_tests()?;
         self.update_status(
             memory_id,
             expected_version,
@@ -271,6 +282,8 @@ impl MemoryKernel {
         memory_id: &str,
         expected_version: i64,
     ) -> Result<(), MemoryError> {
+        let _guard = self.acquire_write_guard("forget_with_version")?;
+        self.maybe_fail_write_for_tests()?;
         self.update_status(
             memory_id,
             expected_version,
@@ -484,6 +497,11 @@ impl MemoryKernel {
     }
 
     #[cfg(test)]
+    pub fn set_write_failure_for_tests(&mut self, should_fail: bool) {
+        self.write_should_fail_for_tests = should_fail;
+    }
+
+    #[cfg(test)]
     pub fn delete_record_for_tests(&mut self, memory_id: &str) -> Result<(), MemoryError> {
         block_on(async { store::delete_record_for_tests(&self.paths.db_path, memory_id).await })?;
         self.refresh_cache()
@@ -535,6 +553,18 @@ impl MemoryKernel {
         self.edges = block_on(async { store::load_edges(&self.paths.db_path).await })?;
         self.projection_state =
             block_on(async { store::load_projection_state(&self.paths.db_path).await })?;
+        Ok(())
+    }
+
+    fn acquire_write_guard(&self, operation: &str) -> Result<MemoryWriteGuard, MemoryError> {
+        MemoryWriteGuard::acquire(&self.paths.lock_path, operation)
+    }
+
+    fn maybe_fail_write_for_tests(&self) -> Result<(), MemoryError> {
+        if self.write_should_fail_for_tests {
+            return Err(MemoryError("write failure injected for tests".to_string()));
+        }
+
         Ok(())
     }
 

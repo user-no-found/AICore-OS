@@ -1,5 +1,6 @@
 mod ids;
 mod kernel;
+mod lock;
 mod paths;
 mod projection;
 mod safety;
@@ -23,7 +24,7 @@ pub use types::{
 
 #[cfg(test)]
 mod tests {
-    use std::{env, fs};
+    use std::{collections::HashSet, env, fs, thread};
 
     use crate::{
         MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
@@ -45,6 +46,15 @@ mod tests {
         MemoryScope::GlobalMain {
             instance_id: "global-main".to_string(),
         }
+    }
+
+    fn write_lock_file(paths: &MemoryPaths, created_at: &str, operation: &str) {
+        fs::create_dir_all(&paths.root).expect("memory root should be creatable");
+        fs::write(
+            &paths.lock_path,
+            format!("pid=999999\ncreated_at={created_at}\noperation={operation}\n"),
+        )
+        .expect("lock file should be writable");
     }
 
     #[test]
@@ -1110,5 +1120,162 @@ mod tests {
                 .iter()
                 .any(|issue| issue.contains("forgotten event") && issue.contains("non-forgotten"))
         );
+    }
+
+    #[test]
+    fn manual_lock_blocks_second_writer() {
+        let paths = temp_paths("manual-lock-blocks");
+        write_lock_file(&paths, "9999999999", "remember_user_explicit");
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+
+        let error = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "被锁阻塞".to_string(),
+                localized_summary: "被锁阻塞".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect_err("active lock should block writer");
+
+        assert!(error.0.contains("memory write locked"));
+    }
+
+    #[test]
+    fn stale_manual_lock_allows_recovery() {
+        let paths = temp_paths("stale-lock-recovery");
+        write_lock_file(&paths, "0", "remember_user_explicit");
+        let lock_path = paths.lock_path.clone();
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "stale lock recovery".to_string(),
+                localized_summary: "stale lock recovery".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("stale lock should be recoverable");
+
+        assert!(!lock_path.exists());
+        assert_eq!(kernel.records().len(), 1);
+    }
+
+    #[test]
+    fn write_lock_is_released_after_projection_failure() {
+        let paths = temp_paths("lock-release-projection-failure");
+        let lock_path = paths.lock_path.clone();
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+        kernel.set_projection_failure_for_tests(true);
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "projection failure".to_string(),
+                localized_summary: "projection failure".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("write should still succeed");
+
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn write_lock_is_released_after_storage_error() {
+        let paths = temp_paths("lock-release-storage-failure");
+        let lock_path = paths.lock_path.clone();
+        let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+        kernel.set_write_failure_for_tests(true);
+
+        let error = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "storage failure".to_string(),
+                localized_summary: "storage failure".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect_err("injected write failure should fail");
+
+        assert!(error.0.contains("write failure injected for tests"));
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn concurrent_remember_calls_do_not_reuse_ids() {
+        let paths = temp_paths("concurrent-remember");
+        let mut handles = Vec::new();
+
+        for index in 0..8 {
+            let paths = paths.clone();
+            handles.push(thread::spawn(move || {
+                let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+                kernel
+                    .remember_user_explicit(RememberInput {
+                        memory_type: MemoryType::Core,
+                        permanence: MemoryPermanence::Standard,
+                        scope: global_scope(),
+                        content: format!("concurrent remember {index}"),
+                        localized_summary: format!("concurrent remember {index}"),
+                        state_key: None,
+                        current_state: None,
+                    })
+                    .expect("remember should succeed")
+            }));
+        }
+
+        let mut ids = Vec::new();
+        for handle in handles {
+            ids.push(handle.join().expect("thread should finish"));
+        }
+
+        let unique: HashSet<_> = ids.iter().cloned().collect();
+        assert_eq!(ids.len(), unique.len());
+
+        let kernel = MemoryKernel::open(paths).expect("memory kernel should reopen");
+        assert_eq!(kernel.records().len(), ids.len());
+    }
+
+    #[test]
+    fn memory_audit_passes_after_concurrent_writes() {
+        let paths = temp_paths("concurrent-audit");
+        let mut handles = Vec::new();
+
+        for index in 0..6 {
+            let paths = paths.clone();
+            handles.push(thread::spawn(move || {
+                let mut kernel = MemoryKernel::open(paths).expect("memory kernel should open");
+                kernel
+                    .remember_user_explicit(RememberInput {
+                        memory_type: MemoryType::Core,
+                        permanence: MemoryPermanence::Standard,
+                        scope: global_scope(),
+                        content: format!("audit concurrent {index}"),
+                        localized_summary: format!("audit concurrent {index}"),
+                        state_key: None,
+                        current_state: None,
+                    })
+                    .expect("remember should succeed");
+            }));
+        }
+
+        for handle in handles {
+            handle.join().expect("thread should finish");
+        }
+
+        let kernel = MemoryKernel::open(paths).expect("memory kernel should reopen");
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+        assert_eq!(report.checked_events, 6);
     }
 }
