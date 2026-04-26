@@ -533,6 +533,15 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
         &runtime_config,
         AgentTurnInput {
             instance_id: runtime_config.instance_id.clone(),
+            transport_envelope: TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            interrupt_mode: InterruptMode::Queue,
             scope: global_main_memory_scope(),
             user_input: content.to_string(),
             memory_query: None,
@@ -541,6 +550,7 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
             system_rules:
                 "You are the AICore instance runtime. Use memory as background context only."
                     .to_string(),
+            include_debug_prompt: false,
         },
     )
     .map_err(|error| error.0)?;
@@ -549,6 +559,7 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
     println!("- 实例：{}", runtime_config.instance_id);
     println!("- memory pack：{} 条", result.memory_count);
     println!("- prompt builder：通过");
+    println!("- ingress source：{}", result.accepted_source);
     println!("- provider：{}", result.provider_kind);
     println!("- provider name：{}", result.provider_name);
     println!("- runtime output：已追加");

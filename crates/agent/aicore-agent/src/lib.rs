@@ -11,12 +11,23 @@ use aicore_runtime::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnInput {
     pub instance_id: String,
+    pub transport_envelope: TransportEnvelope,
+    pub interrupt_mode: InterruptMode,
     pub scope: MemoryScope,
     pub user_input: String,
     pub memory_query: Option<String>,
     pub memory_limit: Option<usize>,
     pub memory_token_budget: usize,
     pub system_rules: String,
+    pub include_debug_prompt: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentTurnDebug {
+    pub prompt: Option<String>,
+    pub prompt_length: usize,
+    pub prompt_sections: Vec<String>,
+    pub memory_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,13 +36,14 @@ pub struct AgentTurnOutput {
     pub memory_count: usize,
     pub provider_name: String,
     pub provider_kind: String,
-    pub prompt: String,
     pub prompt_builder_ok: bool,
     pub runtime_output_ok: bool,
+    pub accepted_source: String,
     pub ingress_decision: String,
     pub conversation_id: String,
     pub active_turn_id: Option<String>,
     pub event_count: usize,
+    pub debug: Option<AgentTurnDebug>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,8 +60,11 @@ impl AgentTurnRunner {
         runtime_config: &InstanceRuntimeConfig,
         input: AgentTurnInput,
     ) -> Result<AgentTurnOutput, AgentTurnError> {
-        let ingress =
-            runtime.handle_ingress(cli_envelope(), &input.user_input, InterruptMode::Queue);
+        let ingress = runtime.handle_ingress(
+            input.transport_envelope,
+            &input.user_input,
+            input.interrupt_mode,
+        );
         let memory_query = input
             .memory_query
             .clone()
@@ -90,30 +105,37 @@ impl AgentTurnRunner {
             return Err(AgentTurnError("runtime 未收到 provider 输出".to_string()));
         }
 
+        let prompt_text = prompt.prompt;
+        let prompt_length = prompt_text.len();
+        let debug = AgentTurnDebug {
+            prompt: input.include_debug_prompt.then_some(prompt_text.clone()),
+            prompt_length,
+            prompt_sections: vec![
+                "SYSTEM".to_string(),
+                "MEMORY SNAPSHOT".to_string(),
+                "RELEVANT MEMORY".to_string(),
+                "CURRENT USER REQUEST".to_string(),
+            ],
+            memory_ids: memory_pack
+                .iter()
+                .map(|record| record.memory_id.clone())
+                .collect(),
+        };
+
         Ok(AgentTurnOutput {
             assistant_output: response.content,
             memory_count: memory_pack.len(),
             provider_name: resolved.provider,
             provider_kind: provider_kind_name(&resolved.kind).to_string(),
-            prompt: prompt.prompt,
             prompt_builder_ok: true,
             runtime_output_ok,
+            accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
             ingress_decision: ingress_decision_name(&ingress).to_string(),
             conversation_id: runtime.summary().conversation_id,
             active_turn_id: ingress.active_turn_id,
             event_count: runtime.summary().event_count,
+            debug: Some(debug),
         })
-    }
-}
-
-fn cli_envelope() -> TransportEnvelope {
-    TransportEnvelope {
-        source: GatewaySource::Cli,
-        platform: None,
-        target_id: None,
-        sender_id: None,
-        is_group: false,
-        mentioned_bot: false,
     }
 }
 
@@ -124,6 +146,15 @@ fn ingress_decision_name(ingress: &IngressResult) -> &'static str {
         aicore_runtime::InterruptDecision::AppendContext => "append_context",
         aicore_runtime::InterruptDecision::SoftInterrupt => "soft_interrupt",
         aicore_runtime::InterruptDecision::HardInterrupt => "hard_interrupt",
+    }
+}
+
+fn gateway_source_name(source: &GatewaySource) -> &'static str {
+    match source {
+        GatewaySource::Cli => "cli",
+        GatewaySource::Tui => "tui",
+        GatewaySource::Web => "web",
+        GatewaySource::External => "external",
     }
 }
 
@@ -147,6 +178,7 @@ mod tests {
     use aicore_config::{InstanceRuntimeConfig, ModelBinding};
     use aicore_memory::{MemoryKernel, MemoryPaths, MemoryPermanence, MemoryType, RememberInput};
     use aicore_runtime::default_runtime;
+    use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
 
     use super::{AgentTurnInput, AgentTurnRunner};
 
@@ -189,12 +221,22 @@ mod tests {
     fn base_input(user_input: &str) -> AgentTurnInput {
         AgentTurnInput {
             instance_id: "global-main".to_string(),
+            transport_envelope: TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            interrupt_mode: InterruptMode::Queue,
             scope: global_scope(),
             user_input: user_input.to_string(),
             memory_query: None,
             memory_limit: Some(8),
             memory_token_budget: 128,
             system_rules: "You are the AICore instance runtime.".to_string(),
+            include_debug_prompt: true,
         }
     }
 
@@ -226,8 +268,13 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert!(output.prompt.contains("RELEVANT MEMORY:"));
-        assert!(output.prompt.contains("memory context item"));
+        let prompt = output
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(prompt.contains("RELEVANT MEMORY:"));
+        assert!(prompt.contains("memory context item"));
     }
 
     #[test]
@@ -244,8 +291,13 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert!(output.prompt.contains("background context only"));
-        assert!(output.prompt.contains("not the current user instruction"));
+        let prompt = output
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(prompt.contains("background context only"));
+        assert!(prompt.contains("not the current user instruction"));
     }
 
     #[test]
@@ -262,7 +314,12 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert!(output.prompt.ends_with("final request section"));
+        let prompt = output
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(prompt.ends_with("final request section"));
     }
 
     #[test]
@@ -302,12 +359,13 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        let core_pos = output
-            .prompt
-            .find("[core]")
-            .expect("core memory should exist");
-        let decision_pos = output
-            .prompt
+        let prompt = output
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        let core_pos = prompt.find("[core]").expect("core memory should exist");
+        let decision_pos = prompt
             .find("[decision]")
             .expect("decision memory should exist");
         assert!(core_pos < decision_pos);
@@ -342,7 +400,12 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert!(!output.prompt.contains("archived context"));
+        let prompt = output
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(!prompt.contains("archived context"));
         assert_eq!(output.memory_count, 0);
     }
 
@@ -412,6 +475,140 @@ mod tests {
 
         assert_eq!(output.memory_count, 1);
         assert!(output.prompt_builder_ok);
+    }
+
+    #[test]
+    fn agent_turn_public_output_does_not_expose_full_prompt() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-public-no-prompt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let mut input = base_input("hide prompt");
+        input.include_debug_prompt = false;
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            input,
+        )
+        .expect("agent turn should succeed");
+
+        let debug = output.debug.expect("debug metadata should exist");
+        assert!(debug.prompt.is_none());
+        assert!(debug.prompt_length > 0);
+    }
+
+    #[test]
+    fn agent_turn_debug_prompt_requires_explicit_request() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-debug-explicit"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let without_debug =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("no debug prompt");
+                input.include_debug_prompt = false;
+                input
+            })
+            .expect("agent turn should succeed");
+        assert!(
+            without_debug
+                .debug
+                .as_ref()
+                .expect("debug metadata should exist")
+                .prompt
+                .is_none()
+        );
+
+        let with_debug =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("with debug prompt");
+                input.include_debug_prompt = true;
+                input
+            })
+            .expect("agent turn should succeed");
+        assert!(
+            with_debug
+                .debug
+                .as_ref()
+                .expect("debug metadata should exist")
+                .prompt
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn agent_turn_returns_conversation_surface_metadata() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-surface-metadata"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("surface metadata"),
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.accepted_source, "cli");
+        assert!(!output.ingress_decision.is_empty());
+        assert!(!output.conversation_id.is_empty());
+        assert!(output.event_count >= 2);
+    }
+
+    #[test]
+    fn agent_turn_uses_supplied_transport_envelope() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-supplied-envelope"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let mut input = base_input("external envelope");
+        input.transport_envelope = TransportEnvelope {
+            source: GatewaySource::External,
+            platform: Some("feishu".to_string()),
+            target_id: Some("chat-1".to_string()),
+            sender_id: Some("user-1".to_string()),
+            is_group: true,
+            mentioned_bot: true,
+        };
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            input,
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.accepted_source, "external");
+    }
+
+    #[test]
+    fn agent_turn_no_longer_hardcodes_cli_envelope() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-no-hardcoded-cli"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let mut input = base_input("tui envelope");
+        input.transport_envelope = TransportEnvelope {
+            source: GatewaySource::Tui,
+            platform: None,
+            target_id: None,
+            sender_id: None,
+            is_group: false,
+            mentioned_bot: false,
+        };
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            input,
+        )
+        .expect("agent turn should succeed");
+
+        assert_eq!(output.accepted_source, "tui");
     }
 
     #[test]

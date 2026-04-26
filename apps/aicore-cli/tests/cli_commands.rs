@@ -497,9 +497,31 @@ fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("memory pack："));
     assert!(stdout.contains("prompt builder：通过"));
+    assert!(stdout.contains("ingress source：cli"));
     assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("provider name：openrouter"));
     assert!(stdout.contains("runtime output：已追加"));
+}
+
+#[test]
+fn cli_agent_smoke_does_not_print_prompt() {
+    let root = temp_root("agent-smoke-no-prompt");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "sensitive prompt context should stay internal",
+    );
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "please answer"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(!stdout.contains("SYSTEM:"));
+    assert!(!stdout.contains("CURRENT USER REQUEST:"));
+    assert!(!stdout.contains("sensitive prompt context should stay internal"));
 }
 
 #[test]
