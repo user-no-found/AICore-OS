@@ -6,6 +6,10 @@ use aicore_config::{
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
 use aicore_control::default_control_plane;
+use aicore_memory::{
+    MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType, RememberInput,
+    SearchQuery,
+};
 use aicore_provider::{DummyProvider, ModelRequest, ProviderError, ProviderResolver};
 use aicore_runtime::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
@@ -50,15 +54,29 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "provider" && action == "smoke" => {
             run_config_command(print_provider_smoke)
         }
+        [group, action] if group == "memory" && action == "status" => {
+            run_memory_command(print_memory_status)
+        }
+        [group, action, content] if group == "memory" && action == "remember" => {
+            run_memory_command_with_arg(content, print_memory_remember)
+        }
+        [group, action, query] if group == "memory" && action == "search" => {
+            run_memory_command_with_arg(query, print_memory_search)
+        }
         [group, _] if group == "config" => {
             eprintln!("未知 config 命令。");
             eprintln!("可用命令：config smoke | config path | config init | config validate");
             1
         }
+        [group, _] if group == "memory" => {
+            eprintln!("未知 memory 命令。");
+            eprintln!("可用命令：memory status | memory remember <内容> | memory search <关键词>");
+            1
+        }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory remember <内容> | memory search <关键词>"
             );
             1
         }
@@ -191,6 +209,26 @@ fn run_config_command(command: fn() -> Result<(), String>) -> i32 {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("配置命令失败：{error}");
+            1
+        }
+    }
+}
+
+fn run_memory_command(command: fn() -> Result<(), String>) -> i32 {
+    match command() {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("记忆命令失败：{error}");
+            1
+        }
+    }
+}
+
+fn run_memory_command_with_arg(arg: &str, command: fn(&str) -> Result<(), String>) -> i32 {
+    match command(arg) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("记忆命令失败：{error}");
             1
         }
     }
@@ -406,6 +444,67 @@ fn print_provider_smoke() -> Result<(), String> {
     Ok(())
 }
 
+fn print_memory_status() -> Result<(), String> {
+    let kernel = real_memory_kernel()?;
+
+    println!("Memory Status：");
+    println!("- instance: global-main");
+    println!("- records: {}", kernel.records().len());
+    println!("- proposals: {}", kernel.proposals().len());
+    println!("- events: {}", kernel.events().len());
+    println!("- projection stale: {}", kernel.projection_state().stale);
+
+    Ok(())
+}
+
+fn print_memory_remember(content: &str) -> Result<(), String> {
+    let mut kernel = real_memory_kernel()?;
+    let memory_id = kernel
+        .remember_user_explicit(RememberInput {
+            memory_type: MemoryType::Core,
+            permanence: MemoryPermanence::Standard,
+            scope: global_main_memory_scope(),
+            content: content.to_string(),
+            localized_summary: content.to_string(),
+            state_key: None,
+            current_state: None,
+        })
+        .map_err(memory_error)?;
+
+    println!("记忆已写入：");
+    println!("- id: {memory_id}");
+    println!("- type: core");
+    println!("- status: active");
+
+    Ok(())
+}
+
+fn print_memory_search(query: &str) -> Result<(), String> {
+    let kernel = real_memory_kernel()?;
+    let results = kernel
+        .search(SearchQuery {
+            text: query.to_string(),
+            scope: Some(global_main_memory_scope()),
+        })
+        .map_err(memory_error)?;
+
+    println!("记忆搜索：");
+    if results.is_empty() {
+        println!("- 无匹配记忆");
+    } else {
+        for record in results {
+            println!(
+                "- {} [{}] {}",
+                record.memory_id,
+                memory_type_name(&record.memory_type),
+                record.content
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn output_target_name(target: &OutputTarget) -> &'static str {
     match target {
         OutputTarget::Origin => "origin",
@@ -450,6 +549,10 @@ fn real_config_store() -> Result<ConfigStore, String> {
     Ok(ConfigStore::new(real_config_paths()?))
 }
 
+fn real_memory_kernel() -> Result<MemoryKernel, String> {
+    MemoryKernel::open(real_memory_paths()?).map_err(memory_error)
+}
+
 fn load_real_auth_pool(store: &ConfigStore) -> Result<GlobalAuthPool, String> {
     if !store.paths.auth_toml.exists() {
         return Err("缺少认证池配置，请先运行 config init。".to_string());
@@ -468,6 +571,15 @@ fn load_real_services(store: &ConfigStore) -> Result<GlobalServiceProfiles, Stri
 
 fn real_config_paths() -> Result<ConfigPaths, String> {
     Ok(ConfigPaths::new(resolve_real_config_root()?))
+}
+
+fn real_memory_paths() -> Result<MemoryPaths, String> {
+    Ok(MemoryPaths::new(
+        resolve_real_config_root()?
+            .join("instances")
+            .join("global-main")
+            .join("memory"),
+    ))
 }
 
 fn resolve_real_config_root() -> Result<PathBuf, String> {
@@ -627,6 +739,10 @@ fn config_error(error: aicore_config::ConfigError) -> String {
     }
 }
 
+fn memory_error(error: aicore_memory::MemoryError) -> String {
+    error.0
+}
+
 fn provider_error(error: ProviderError) -> String {
     match error {
         ProviderError::Resolve(message) => format!("provider 解析错误：{message}"),
@@ -689,6 +805,20 @@ fn service_mode_name(mode: &ServiceProfileMode) -> &'static str {
         ServiceProfileMode::InheritInstance => "inherit_instance",
         ServiceProfileMode::Explicit => "explicit",
         ServiceProfileMode::Disabled => "disabled",
+    }
+}
+
+fn memory_type_name(memory_type: &MemoryType) -> &'static str {
+    match memory_type {
+        MemoryType::Core => "core",
+        MemoryType::Working => "working",
+        MemoryType::Status => "status",
+    }
+}
+
+fn global_main_memory_scope() -> MemoryScope {
+    MemoryScope::GlobalMain {
+        instance_id: "global-main".to_string(),
     }
 }
 

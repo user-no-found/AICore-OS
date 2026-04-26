@@ -12,5 +12,6 @@ aicore-auth.workspace = true
 aicore-config.workspace = true
 aicore-control.workspace = true
 aicore-contracts.workspace = true
+aicore-memory.workspace = true
 aicore-provider.workspace = true
 aicore-runtime.workspace = true

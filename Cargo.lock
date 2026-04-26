@@ -22,6 +22,7 @@ dependencies = [
  "aicore-config",
  "aicore-contracts",
  "aicore-control",
+ "aicore-memory",
  "aicore-provider",
  "aicore-runtime",
 ]

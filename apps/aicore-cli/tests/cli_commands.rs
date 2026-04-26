@@ -254,6 +254,96 @@ fn provider_smoke_fails_when_runtime_missing() {
 }
 
 #[test]
+fn memory_status_command_succeeds() {
+    let root = temp_root("memory-status");
+    let output = run_cli_with_config_root(&["memory", "status"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Status："));
+    assert!(stdout.contains("instance: global-main"));
+    assert!(stdout.contains("records: 0"));
+    assert!(stdout.contains("proposals: 0"));
+    assert!(stdout.contains("events: 0"));
+    assert!(stdout.contains("projection stale: false"));
+}
+
+#[test]
+fn memory_remember_writes_active_record() {
+    let root = temp_root("memory-remember");
+    let output = run_cli_with_config_root(
+        &["memory", "remember", "TUI 是类似 Codex 的终端 AI 编程界面"],
+        &root,
+    );
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆已写入："));
+    assert!(stdout.contains("id: mem_"));
+    assert!(stdout.contains("type: core"));
+    assert!(stdout.contains("status: active"));
+}
+
+#[test]
+fn memory_search_returns_remembered_record() {
+    let root = temp_root("memory-search");
+    let remember_output = run_cli_with_config_root(
+        &["memory", "remember", "TUI 是类似 Codex 的终端 AI 编程界面"],
+        &root,
+    );
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "search", "TUI"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("mem_"));
+    assert!(stdout.contains("[core]"));
+    assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
+}
+
+#[test]
+fn memory_search_uses_real_config_root() {
+    let root_with_memory = temp_root("memory-search-root-a");
+    let other_root = temp_root("memory-search-root-b");
+
+    let remember_output = run_cli_with_config_root(
+        &["memory", "remember", "只写在 root a 的记忆"],
+        &root_with_memory,
+    );
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "search", "root a"], &other_root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn memory_remember_preserves_chinese_text() {
+    let root = temp_root("memory-remember-chinese");
+    let remember_output = run_cli_with_config_root(
+        &["memory", "remember", "记住：终端界面优先中文，命令保持英文"],
+        &root,
+    );
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "search", "终端界面"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记住：终端界面优先中文，命令保持英文"));
+}
+
+#[test]
 fn renders_config_path_command() {
     let root = temp_root("config-path");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
