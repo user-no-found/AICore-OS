@@ -161,6 +161,7 @@ impl MemoryKernel {
 
         let timestamp = now_string();
         let new_memory_id = next_id("mem");
+        let content_language = infer_language(new_content).to_string();
         let record = MemoryRecord {
             memory_id: new_memory_id.clone(),
             memory_type: old_record.memory_type,
@@ -168,9 +169,9 @@ impl MemoryKernel {
             permanence: old_record.permanence,
             scope: old_record.scope.clone(),
             content: new_content.to_string(),
-            content_language: old_record.content_language.clone(),
+            content_language: content_language.clone(),
             normalized_content: new_content.to_string(),
-            normalized_language: old_record.content_language.clone(),
+            normalized_language: content_language,
             localized_summary: new_content.to_string(),
             source: MemorySource::UserCorrection,
             evidence_json: "[]".to_string(),

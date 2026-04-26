@@ -242,6 +242,38 @@ mod tests {
     }
 
     #[test]
+    fn correction_reinfers_language_from_new_content() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("correct-language")).expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "English memory".to_string(),
+                localized_summary: "English memory".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let new_id = kernel
+            .correct_by_user(&old_id, "新的中文纠正")
+            .expect("correct should succeed");
+
+        let new_record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == new_id)
+            .expect("new record should exist");
+
+        assert_eq!(new_record.content_language, "zh-CN");
+        assert_eq!(new_record.normalized_content, "新的中文纠正");
+        assert_eq!(new_record.normalized_language, "zh-CN");
+    }
+
+    #[test]
     fn archived_permanent_memory_is_not_returned_by_default_search() {
         let mut kernel =
             MemoryKernel::open(temp_paths("archive-search")).expect("memory kernel should open");
