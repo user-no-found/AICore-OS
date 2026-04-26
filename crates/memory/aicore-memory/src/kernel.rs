@@ -17,9 +17,9 @@ use crate::{
     search::filter_records,
     store,
     types::{
-        MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryProposal,
-        MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType,
-        ProjectionState, RememberInput, SearchQuery,
+        MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent,
+        MemoryEventKind, MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryScope,
+        MemorySource, MemoryStatus, MemoryType, ProjectionState, RememberInput, SearchQuery,
     },
 };
 
@@ -157,6 +157,72 @@ impl MemoryKernel {
         })?;
         self.refresh_cache()?;
         Ok(proposal.proposal_id.clone())
+    }
+
+    pub fn submit_agent_output(
+        &mut self,
+        output: MemoryAgentOutput,
+    ) -> Result<Vec<MemoryProposalId>, MemoryError> {
+        if output.proposals.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let _guard = self.acquire_write_guard("submit_agent_output")?;
+        self.maybe_fail_write_for_tests()?;
+
+        let mut existing_open = self
+            .proposals
+            .iter()
+            .filter(|proposal| proposal.status == MemoryProposalStatus::Open)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut inserted_ids = Vec::new();
+
+        for incoming in output.proposals {
+            let already_exists = existing_open.iter().any(|proposal| {
+                proposal.scope == incoming.scope
+                    && proposal.memory_type == incoming.memory_type
+                    && proposal.normalized_content == incoming.normalized_content
+            });
+            if already_exists {
+                continue;
+            }
+
+            let timestamp = now_string();
+            let proposal = MemoryProposal {
+                proposal_id: next_id("prop"),
+                memory_type: incoming.memory_type,
+                scope: incoming.scope,
+                source: incoming.source,
+                status: MemoryProposalStatus::Open,
+                content: incoming.content,
+                content_language: incoming.content_language,
+                normalized_content: incoming.normalized_content,
+                normalized_language: incoming.normalized_language,
+                localized_summary: incoming.localized_summary,
+                created_at: timestamp.clone(),
+            };
+            let event = MemoryEvent {
+                event_id: next_id("evt"),
+                event_kind: MemoryEventKind::Proposed,
+                memory_id: None,
+                proposal_id: Some(proposal.proposal_id.clone()),
+                scope: proposal.scope.clone(),
+                actor: "memory-agent".to_string(),
+                reason: Some("agent proposal".to_string()),
+                evidence_json: "[]".to_string(),
+                created_at: timestamp,
+            };
+
+            block_on(async {
+                store::insert_proposal_and_event(&self.paths.db_path, &proposal, &event).await
+            })?;
+            inserted_ids.push(proposal.proposal_id.clone());
+            existing_open.push(proposal);
+        }
+
+        self.refresh_cache()?;
+        Ok(inserted_ids)
     }
 
     pub fn correct_by_user(

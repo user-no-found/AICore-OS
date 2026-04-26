@@ -30,12 +30,12 @@ mod tests {
     use std::{collections::HashSet, env, fs, thread};
 
     use crate::{
-        MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryProposalStatus,
-        MemoryRequestedOutput, MemoryScope, MemorySource, MemoryStatus, MemoryTrigger, MemoryType,
-        MemoryWorkBatch, RememberInput, RuleBasedMemoryAgent, SearchQuery, blocks_secret,
-        build_core_projection_for_tests, build_decisions_projection_for_tests,
-        build_memory_pack_for_tests, build_permanent_projection_for_tests,
-        build_status_projection_for_tests,
+        MemoryAgentOutput, MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence,
+        MemoryProposal, MemoryProposalStatus, MemoryRequestedOutput, MemoryScope, MemorySource,
+        MemoryStatus, MemoryTrigger, MemoryType, MemoryWorkBatch, RememberInput,
+        RuleBasedMemoryAgent, SearchQuery, blocks_secret, build_core_projection_for_tests,
+        build_decisions_projection_for_tests, build_memory_pack_for_tests,
+        build_permanent_projection_for_tests, build_status_projection_for_tests,
     };
 
     fn temp_paths(name: &str) -> MemoryPaths {
@@ -71,6 +71,30 @@ mod tests {
             existing_memory_hits: Vec::new(),
             token_budget: 1024,
             requested_outputs: vec![MemoryRequestedOutput::Proposals],
+        }
+    }
+
+    fn agent_proposal(memory_type: MemoryType, content: &str) -> MemoryProposal {
+        MemoryProposal {
+            proposal_id: format!("agent_prop_{content}"),
+            memory_type,
+            scope: global_scope(),
+            source: MemorySource::RuleBasedAgent,
+            status: MemoryProposalStatus::Rejected,
+            content: content.to_string(),
+            content_language: if content.is_ascii() {
+                "en".to_string()
+            } else {
+                "zh-CN".to_string()
+            },
+            normalized_content: content.to_string(),
+            normalized_language: if content.is_ascii() {
+                "en".to_string()
+            } else {
+                "zh-CN".to_string()
+            },
+            localized_summary: content.to_string(),
+            created_at: "0".to_string(),
         }
     }
 
@@ -1404,5 +1428,143 @@ mod tests {
                 .iter()
                 .any(|proposal| proposal.memory_type == MemoryType::Status)
         );
+    }
+
+    #[test]
+    fn submit_agent_output_stores_open_proposals() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("agent-intake-open")).expect("memory kernel should open");
+
+        let inserted = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "记住这个提案")],
+                corrections: vec!["ignored".to_string()],
+                archive_suggestions: vec!["ignored".to_string()],
+            })
+            .expect("agent output should be stored");
+
+        assert_eq!(inserted.len(), 1);
+        assert_eq!(kernel.proposals().len(), 1);
+        assert_eq!(kernel.proposals()[0].status, MemoryProposalStatus::Open);
+    }
+
+    #[test]
+    fn submit_agent_output_does_not_create_records() {
+        let mut kernel = MemoryKernel::open(temp_paths("agent-intake-no-records"))
+            .expect("memory kernel should open");
+
+        kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "不要创建 record")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+
+        assert!(kernel.records().is_empty());
+    }
+
+    #[test]
+    fn submit_agent_output_writes_proposed_events() {
+        let mut kernel = MemoryKernel::open(temp_paths("agent-intake-events"))
+            .expect("memory kernel should open");
+
+        let inserted = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Status, "已完成 P6.3.1")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+
+        assert_eq!(kernel.events().len(), 1);
+        assert_eq!(kernel.events()[0].event_kind, MemoryEventKind::Proposed);
+        assert_eq!(
+            kernel.events()[0].proposal_id.as_deref(),
+            Some(inserted[0].as_str())
+        );
+    }
+
+    #[test]
+    fn submit_agent_output_dedupes_existing_open_proposals() {
+        let mut kernel = MemoryKernel::open(temp_paths("agent-intake-dedupe"))
+            .expect("memory kernel should open");
+
+        let first = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "重复提案")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("first intake should succeed");
+        let second = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "重复提案")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("second intake should succeed");
+
+        assert_eq!(first.len(), 1);
+        assert!(second.is_empty());
+        assert_eq!(kernel.proposals().len(), 1);
+    }
+
+    #[test]
+    fn submit_agent_output_keeps_different_memory_types() {
+        let mut kernel = MemoryKernel::open(temp_paths("agent-intake-types"))
+            .expect("memory kernel should open");
+
+        let inserted = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![
+                    agent_proposal(MemoryType::Core, "同内容"),
+                    agent_proposal(MemoryType::Working, "同内容"),
+                ],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+
+        assert_eq!(inserted.len(), 2);
+        assert_eq!(kernel.proposals().len(), 2);
+    }
+
+    #[test]
+    fn submit_agent_output_preserves_language_fields() {
+        let mut kernel = MemoryKernel::open(temp_paths("agent-intake-language"))
+            .expect("memory kernel should open");
+
+        kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "中文提案")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+
+        let proposal = &kernel.proposals()[0];
+        assert_eq!(proposal.content_language, "zh-CN");
+        assert_eq!(proposal.normalized_content, "中文提案");
+        assert_eq!(proposal.normalized_language, "zh-CN");
+    }
+
+    #[test]
+    fn submit_agent_output_reassigns_stable_kernel_proposal_ids() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("agent-intake-id")).expect("memory kernel should open");
+
+        let inserted = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "重新分配 id")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+
+        assert_eq!(inserted.len(), 1);
+        assert_ne!(inserted[0], "agent_prop_重新分配 id");
+        assert!(inserted[0].starts_with("prop_"));
+        assert_eq!(kernel.proposals()[0].proposal_id, inserted[0]);
     }
 }
