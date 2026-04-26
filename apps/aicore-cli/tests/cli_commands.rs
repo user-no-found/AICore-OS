@@ -551,6 +551,47 @@ primary_model = "openai/gpt-5"
 }
 
 #[test]
+fn cli_agent_smoke_provider_resolve_failure_prints_chinese_error() {
+    let root = temp_root("agent-smoke-missing-auth");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("auth.toml"),
+        r#"# AICore OS auth pool
+
+[[auth]]
+auth_ref = "auth.someone.else"
+provider = "openrouter"
+kind = "api_key"
+secret_ref = "secret://auth.someone.else"
+capabilities = ["chat"]
+enabled = true
+"#,
+    )
+    .expect("auth.toml should be writable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.openrouter.main"
+primary_model = "openai/gpt-5"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "需要失败"], &root);
+
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("配置命令失败"));
+    assert!(stderr.contains("Agent Turn 失败"));
+    assert!(stderr.contains("provider_resolve"));
+}
+
+#[test]
 fn provider_smoke_fails_when_runtime_missing() {
     let root = temp_root("provider-smoke-missing-runtime");
     fs::create_dir_all(&root).expect("config root should be creatable");

@@ -37,6 +37,13 @@ pub enum AgentTurnOutcome {
     Queued,
     AppendedContext,
     Interrupted,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentTurnFailureStage {
+    ProviderResolve,
+    RuntimeAppend,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +57,8 @@ pub struct AgentTurnOutput {
     pub provider_invoked: bool,
     pub assistant_output_generated: bool,
     pub outcome: AgentTurnOutcome,
+    pub error_message: Option<String>,
+    pub failure_stage: Option<AgentTurnFailureStage>,
     pub accepted_source: String,
     pub ingress_decision: String,
     pub conversation_id: String,
@@ -87,7 +96,6 @@ impl AgentTurnRunner {
                     runtime,
                     &ingress,
                     AgentTurnOutcome::Queued,
-                    input.include_debug_prompt,
                 ));
             }
             aicore_runtime::InterruptDecision::AppendContext => {
@@ -95,7 +103,6 @@ impl AgentTurnRunner {
                     runtime,
                     &ingress,
                     AgentTurnOutcome::AppendedContext,
-                    input.include_debug_prompt,
                 ));
             }
             aicore_runtime::InterruptDecision::SoftInterrupt
@@ -104,7 +111,6 @@ impl AgentTurnRunner {
                     runtime,
                     &ingress,
                     AgentTurnOutcome::Interrupted,
-                    input.include_debug_prompt,
                 ));
             }
         }
@@ -130,25 +136,6 @@ impl AgentTurnRunner {
             relevant_memory: memory_pack.clone(),
             user_request: input.user_input,
         });
-        let resolved = ProviderResolver::resolve_primary(auth_pool, runtime_config)
-            .map_err(map_provider_error)?;
-        let request = ModelRequest {
-            instance_id: input.instance_id,
-            conversation_id: runtime.summary().conversation_id.clone(),
-            prompt: prompt.prompt.clone(),
-            resolved_model: resolved.clone(),
-        };
-        let response = DummyProvider::generate(&request);
-        let outputs = runtime.append_assistant_output(&response.content);
-        let runtime_output_ok = outputs
-            .events
-            .iter()
-            .any(|event| event.content == response.content);
-
-        if !runtime_output_ok {
-            return Err(AgentTurnError("runtime 未收到 provider 输出".to_string()));
-        }
-
         let prompt_text = prompt.prompt;
         let prompt_length = prompt_text.len();
         let debug = AgentTurnDebug {
@@ -165,6 +152,48 @@ impl AgentTurnRunner {
                 .map(|record| record.memory_id.clone())
                 .collect(),
         };
+        let resolved = match ProviderResolver::resolve_primary(auth_pool, runtime_config) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                runtime.complete_turn();
+                return Ok(failed_output(
+                    runtime,
+                    &ingress,
+                    AgentTurnFailureStage::ProviderResolve,
+                    provider_error_message(error),
+                    false,
+                    memory_pack.len(),
+                    true,
+                    Some(debug),
+                ));
+            }
+        };
+        let request = ModelRequest {
+            instance_id: input.instance_id,
+            conversation_id: runtime.summary().conversation_id.clone(),
+            prompt: prompt_text.clone(),
+            resolved_model: resolved.clone(),
+        };
+        let response = DummyProvider::generate(&request);
+        let outputs = runtime.append_assistant_output(&response.content);
+        let runtime_output_ok = outputs
+            .events
+            .iter()
+            .any(|event| event.content == response.content);
+
+        if !runtime_output_ok {
+            runtime.complete_turn();
+            return Ok(failed_output(
+                runtime,
+                &ingress,
+                AgentTurnFailureStage::RuntimeAppend,
+                "runtime 未收到 provider 输出".to_string(),
+                true,
+                memory_pack.len(),
+                true,
+                Some(debug),
+            ));
+        }
 
         runtime.complete_turn();
         let turn_state = runtime.turn_state();
@@ -180,6 +209,8 @@ impl AgentTurnRunner {
             provider_invoked: true,
             assistant_output_generated: true,
             outcome: AgentTurnOutcome::Completed,
+            error_message: None,
+            failure_stage: None,
             accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
             ingress_decision: ingress_decision_name(&ingress).to_string(),
             conversation_id: runtime_summary.conversation_id,
@@ -202,7 +233,6 @@ fn non_generated_output(
     runtime: &InstanceRuntime,
     ingress: &IngressResult,
     outcome: AgentTurnOutcome,
-    include_debug_prompt: bool,
 ) -> AgentTurnOutput {
     let turn_state = runtime.turn_state();
     let runtime_summary = runtime.summary();
@@ -216,6 +246,8 @@ fn non_generated_output(
         provider_invoked: false,
         assistant_output_generated: false,
         outcome,
+        error_message: None,
+        failure_stage: None,
         accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
         ingress_decision: ingress_decision_name(ingress).to_string(),
         conversation_id: runtime_summary.conversation_id,
@@ -230,11 +262,52 @@ fn non_generated_output(
         event_count: runtime_summary.event_count,
         queue_len: turn_state.queue_len,
         debug: Some(AgentTurnDebug {
-            prompt: include_debug_prompt.then(String::new),
+            prompt: None,
             prompt_length: 0,
             prompt_sections: Vec::new(),
             memory_ids: Vec::new(),
         }),
+    }
+}
+
+fn failed_output(
+    runtime: &InstanceRuntime,
+    ingress: &IngressResult,
+    failure_stage: AgentTurnFailureStage,
+    error_message: String,
+    provider_invoked: bool,
+    memory_count: usize,
+    prompt_builder_ok: bool,
+    debug: Option<AgentTurnDebug>,
+) -> AgentTurnOutput {
+    let turn_state = runtime.turn_state();
+    let runtime_summary = runtime.summary();
+    AgentTurnOutput {
+        assistant_output: None,
+        memory_count,
+        provider_name: None,
+        provider_kind: None,
+        prompt_builder_ok,
+        runtime_output_ok: false,
+        provider_invoked,
+        assistant_output_generated: false,
+        outcome: AgentTurnOutcome::Failed,
+        error_message: Some(error_message),
+        failure_stage: Some(failure_stage),
+        accepted_source: gateway_source_name(&ingress.accepted_source).to_string(),
+        ingress_decision: ingress_decision_name(ingress).to_string(),
+        conversation_id: runtime_summary.conversation_id,
+        active_turn_id: ingress.active_turn_id.clone(),
+        active_turn_status: turn_state
+            .active_turn_status
+            .as_ref()
+            .map(turn_status_name)
+            .map(ToString::to_string),
+        conversation_status: conversation_status_name(&runtime_summary.conversation_status)
+            .to_string(),
+        event_count: runtime_summary.event_count,
+        queue_len: turn_state.queue_len,
+        debug,
     }
 }
 
@@ -281,9 +354,9 @@ fn provider_kind_name(kind: &aicore_provider::ProviderKind) -> &'static str {
     }
 }
 
-fn map_provider_error(error: ProviderError) -> AgentTurnError {
+fn provider_error_message(error: ProviderError) -> String {
     match error {
-        ProviderError::Resolve(message) => AgentTurnError(message),
+        ProviderError::Resolve(message) => message,
     }
 }
 
@@ -297,7 +370,7 @@ mod tests {
     use aicore_runtime::default_runtime;
     use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
 
-    use super::{AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
+    use super::{AgentTurnFailureStage, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
 
     fn temp_paths(name: &str) -> MemoryPaths {
         let root = env::temp_dir().join(format!("aicore-agent-tests-{name}"));
@@ -329,6 +402,17 @@ mod tests {
             instance_id: "global-main".to_string(),
             primary: ModelBinding {
                 auth_ref: AuthRef::new("auth.openrouter.main"),
+                model: "openai/gpt-5".to_string(),
+            },
+            fallback: None,
+        }
+    }
+
+    fn runtime_config_missing_auth() -> InstanceRuntimeConfig {
+        InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.missing"),
                 model: "openai/gpt-5".to_string(),
             },
             fallback: None,
@@ -1018,6 +1102,174 @@ mod tests {
 
         assert_ne!(output.outcome, AgentTurnOutcome::Completed);
         assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_provider_resolve_failure_returns_failed_outcome() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-resolve-failed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(
+            output.failure_stage,
+            Some(AgentTurnFailureStage::ProviderResolve)
+        );
+    }
+
+    #[test]
+    fn agent_turn_provider_resolve_failure_does_not_invoke_provider() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-resolve-no-provider"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.provider_invoked, false);
+        assert_eq!(output.assistant_output_generated, false);
+    }
+
+    #[test]
+    fn agent_turn_provider_resolve_failure_does_not_append_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-resolve-no-append"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let initial_event_count = runtime.summary().event_count;
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.event_count, initial_event_count + 1);
+        assert_eq!(runtime.summary().event_count, initial_event_count + 1);
+    }
+
+    #[test]
+    fn agent_turn_provider_resolve_failure_does_not_leave_active_turn_running() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-resolve-no-running-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(runtime.turn_state().active_turn_id, None);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            aicore_runtime::ConversationStatus::Idle
+        );
+    }
+
+    #[test]
+    fn agent_turn_failed_result_has_no_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-failed-no-output"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_failed_result_reports_failure_stage() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-failure-stage"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("provider resolve failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(
+            output.failure_stage,
+            Some(AgentTurnFailureStage::ProviderResolve)
+        );
+        assert!(
+            output
+                .error_message
+                .as_deref()
+                .expect("failure message should exist")
+                .contains("auth")
+        );
+    }
+
+    #[test]
+    fn agent_turn_non_generated_debug_prompt_is_none() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-non-generated-no-debug-prompt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued input"),
+        )
+        .expect("agent turn should succeed");
+
+        assert!(
+            output
+                .debug
+                .as_ref()
+                .expect("debug metadata should exist")
+                .prompt
+                .is_none()
+        );
     }
 
     #[test]

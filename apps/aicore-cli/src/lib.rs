@@ -555,6 +555,16 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
     )
     .map_err(|error| error.0)?;
 
+    if matches!(result.outcome, AgentTurnOutcome::Failed) {
+        let stage = result
+            .failure_stage
+            .as_ref()
+            .map(agent_turn_failure_stage_name)
+            .unwrap_or("unknown");
+        let message = result.error_message.as_deref().unwrap_or("未知错误");
+        return Err(format!("Agent Turn 失败：阶段={stage}，错误={message}"));
+    }
+
     println!("Agent Loop：通过");
     println!("- 实例：{}", runtime_config.instance_id);
     println!("- outcome：{}", agent_turn_outcome_name(&result.outcome));
@@ -581,6 +591,14 @@ fn agent_turn_outcome_name(outcome: &AgentTurnOutcome) -> &'static str {
         AgentTurnOutcome::Queued => "queued",
         AgentTurnOutcome::AppendedContext => "appended_context",
         AgentTurnOutcome::Interrupted => "interrupted",
+        AgentTurnOutcome::Failed => "failed",
+    }
+}
+
+fn agent_turn_failure_stage_name(stage: &aicore_agent::AgentTurnFailureStage) -> &'static str {
+    match stage {
+        aicore_agent::AgentTurnFailureStage::ProviderResolve => "provider_resolve",
+        aicore_agent::AgentTurnFailureStage::RuntimeAppend => "runtime_append",
     }
 }
 
