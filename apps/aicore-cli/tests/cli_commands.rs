@@ -499,9 +499,14 @@ fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
     assert!(stdout.contains("prompt builder：通过"));
     assert!(stdout.contains("outcome：completed"));
     assert!(stdout.contains("ingress source：cli"));
+    assert!(stdout.contains("provider invoked：yes"));
     assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("provider name：openrouter"));
+    assert!(stdout.contains("assistant output generated：yes"));
+    assert!(stdout.contains("failure stage：<none>"));
     assert!(stdout.contains("runtime output：已追加"));
+    assert!(stdout.contains("event count："));
+    assert!(stdout.contains("queue len：0"));
 }
 
 #[test]

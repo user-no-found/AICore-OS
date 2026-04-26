@@ -572,6 +572,10 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
     println!("- prompt builder：通过");
     println!("- ingress source：{}", result.accepted_source);
     println!(
+        "- provider invoked：{}",
+        bool_status_name(result.provider_invoked)
+    );
+    println!(
         "- provider：{}",
         result.provider_kind.as_deref().unwrap_or("<none>")
     );
@@ -579,8 +583,22 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
         "- provider name：{}",
         result.provider_name.as_deref().unwrap_or("<none>")
     );
+    println!(
+        "- assistant output generated：{}",
+        bool_status_name(result.assistant_output_generated)
+    );
+    println!(
+        "- failure stage：{}",
+        result
+            .failure_stage
+            .as_ref()
+            .map(agent_turn_failure_stage_name)
+            .unwrap_or("<none>")
+    );
     println!("- runtime output：已追加");
     println!("- conversation：{}", result.conversation_id);
+    println!("- event count：{}", result.event_count);
+    println!("- queue len：{}", result.queue_len);
 
     Ok(())
 }
@@ -600,6 +618,10 @@ fn agent_turn_failure_stage_name(stage: &aicore_agent::AgentTurnFailureStage) ->
         aicore_agent::AgentTurnFailureStage::ProviderResolve => "provider_resolve",
         aicore_agent::AgentTurnFailureStage::RuntimeAppend => "runtime_append",
     }
+}
+
+fn bool_status_name(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn print_memory_status() -> Result<(), String> {

@@ -47,6 +47,32 @@ pub enum AgentTurnFailureStage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnSurfaceEntry {
+    pub conversation_id: String,
+    pub turn_id: Option<String>,
+    pub accepted_source: String,
+    pub ingress_decision: String,
+    pub outcome: AgentTurnOutcome,
+    pub conversation_status: String,
+    pub active_turn_status: Option<String>,
+    pub queue_len: usize,
+    pub event_count: usize,
+    pub memory_count: usize,
+    pub assistant_output_present: bool,
+    pub provider_invoked: bool,
+    pub provider_kind: Option<String>,
+    pub provider_name: Option<String>,
+    pub failure_stage: Option<AgentTurnFailureStage>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationSurface {
+    pub conversation_id: String,
+    pub latest_turn: TurnSurfaceEntry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnOutput {
     pub assistant_output: Option<String>,
     pub memory_count: usize,
@@ -75,6 +101,36 @@ pub struct AgentTurnError(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnRunner;
+
+impl AgentTurnOutput {
+    pub fn to_surface_entry(&self) -> TurnSurfaceEntry {
+        TurnSurfaceEntry {
+            conversation_id: self.conversation_id.clone(),
+            turn_id: self.active_turn_id.clone(),
+            accepted_source: self.accepted_source.clone(),
+            ingress_decision: self.ingress_decision.clone(),
+            outcome: self.outcome.clone(),
+            conversation_status: self.conversation_status.clone(),
+            active_turn_status: self.active_turn_status.clone(),
+            queue_len: self.queue_len,
+            event_count: self.event_count,
+            memory_count: self.memory_count,
+            assistant_output_present: self.assistant_output.is_some(),
+            provider_invoked: self.provider_invoked,
+            provider_kind: self.provider_kind.clone(),
+            provider_name: self.provider_name.clone(),
+            failure_stage: self.failure_stage.clone(),
+            error_message: self.error_message.clone(),
+        }
+    }
+
+    pub fn to_conversation_surface(&self) -> ConversationSurface {
+        ConversationSurface {
+            conversation_id: self.conversation_id.clone(),
+            latest_turn: self.to_surface_entry(),
+        }
+    }
+}
 
 impl AgentTurnRunner {
     pub fn run(
@@ -1270,6 +1326,381 @@ mod tests {
                 .prompt
                 .is_none()
         );
+    }
+
+    #[test]
+    fn conversation_surface_includes_completed_turn() {
+        let memory = MemoryKernel::open(temp_paths("surface-completed-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("completed surface"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.latest_turn.outcome, AgentTurnOutcome::Completed);
+        assert!(surface.latest_turn.assistant_output_present);
+    }
+
+    #[test]
+    fn conversation_surface_includes_failed_turn() {
+        let memory = MemoryKernel::open(temp_paths("surface-failed-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("failed surface"),
+        )
+        .expect("agent turn should return failed outcome");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.latest_turn.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(
+            surface.latest_turn.failure_stage,
+            Some(AgentTurnFailureStage::ProviderResolve)
+        );
+    }
+
+    #[test]
+    fn conversation_surface_includes_queued_turn() {
+        let memory = MemoryKernel::open(temp_paths("surface-queued-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued surface"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.latest_turn.outcome, AgentTurnOutcome::Queued);
+        assert!(!surface.latest_turn.assistant_output_present);
+    }
+
+    #[test]
+    fn conversation_surface_includes_interrupted_turn() {
+        let memory = MemoryKernel::open(temp_paths("surface-interrupted-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("interrupt surface");
+                input.interrupt_mode = InterruptMode::SoftInterrupt;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.latest_turn.outcome, AgentTurnOutcome::Interrupted);
+        assert_eq!(surface.latest_turn.ingress_decision, "soft_interrupt");
+    }
+
+    #[test]
+    fn conversation_surface_does_not_expose_prompt() {
+        let memory =
+            MemoryKernel::open(temp_paths("surface-no-prompt")).expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("no prompt surface"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        let debug_text = format!("{surface:?}");
+        assert!(!debug_text.contains("SYSTEM:"));
+        assert!(!debug_text.contains("CURRENT USER REQUEST:"));
+    }
+
+    #[test]
+    fn conversation_surface_does_not_expose_raw_memory() {
+        let paths = temp_paths("surface-no-raw-memory");
+        let mut memory = MemoryKernel::open(paths).expect("memory kernel should open");
+        memory
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "raw memory payload".to_string(),
+                localized_summary: "raw memory payload".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let mut runtime = default_runtime();
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("raw memory"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        let debug_text = format!("{surface:?}");
+        assert!(!debug_text.contains("raw memory payload"));
+    }
+
+    #[test]
+    fn conversation_surface_reports_failure_stage() {
+        let memory = MemoryKernel::open(temp_paths("surface-failure-stage"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("failure stage"),
+        )
+        .expect("agent turn should return failed outcome");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(
+            surface.latest_turn.failure_stage,
+            Some(AgentTurnFailureStage::ProviderResolve)
+        );
+    }
+
+    #[test]
+    fn conversation_surface_reports_provider_metadata_when_invoked() {
+        let memory = MemoryKernel::open(temp_paths("surface-provider-metadata"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("provider metadata"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert!(surface.latest_turn.provider_invoked);
+        assert_eq!(surface.latest_turn.provider_kind.as_deref(), Some("dummy"));
+        assert_eq!(
+            surface.latest_turn.provider_name.as_deref(),
+            Some("openrouter")
+        );
+    }
+
+    #[test]
+    fn conversation_surface_reports_no_provider_when_not_invoked() {
+        let memory = MemoryKernel::open(temp_paths("surface-no-provider"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued surface"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert!(!surface.latest_turn.provider_invoked);
+        assert_eq!(surface.latest_turn.provider_kind, None);
+        assert_eq!(surface.latest_turn.provider_name, None);
+    }
+
+    #[test]
+    fn conversation_surface_preserves_conversation_id() {
+        let memory = MemoryKernel::open(temp_paths("surface-conversation-id"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("conversation id"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.conversation_id, output.conversation_id);
+        assert_eq!(surface.latest_turn.conversation_id, output.conversation_id);
+    }
+
+    #[test]
+    fn conversation_surface_uses_runtime_event_count() {
+        let memory = MemoryKernel::open(temp_paths("surface-event-count"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("event count"),
+        )
+        .expect("agent turn should succeed");
+
+        let surface = output.to_conversation_surface();
+        assert_eq!(surface.latest_turn.event_count, output.event_count);
+    }
+
+    #[test]
+    fn agent_turn_completed_can_be_converted_to_surface_entry() {
+        let memory = MemoryKernel::open(temp_paths("surface-entry-completed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("completed entry"),
+        )
+        .expect("agent turn should succeed");
+
+        let entry = output.to_surface_entry();
+        assert_eq!(entry.outcome, AgentTurnOutcome::Completed);
+    }
+
+    #[test]
+    fn agent_turn_failed_can_be_converted_to_surface_entry() {
+        let memory = MemoryKernel::open(temp_paths("surface-entry-failed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            base_input("failed entry"),
+        )
+        .expect("agent turn should return failed outcome");
+
+        let entry = output.to_surface_entry();
+        assert_eq!(entry.outcome, AgentTurnOutcome::Failed);
+    }
+
+    #[test]
+    fn agent_turn_queued_can_be_converted_to_surface_entry() {
+        let memory = MemoryKernel::open(temp_paths("surface-entry-queued"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            base_input("queued entry"),
+        )
+        .expect("agent turn should succeed");
+
+        let entry = output.to_surface_entry();
+        assert_eq!(entry.outcome, AgentTurnOutcome::Queued);
+    }
+
+    #[test]
+    fn agent_turn_interrupted_can_be_converted_to_surface_entry() {
+        let memory = MemoryKernel::open(temp_paths("surface-entry-interrupted"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+
+        let output =
+            AgentTurnRunner::run(&mut runtime, &memory, &auth_pool(), &runtime_config(), {
+                let mut input = base_input("interrupted entry");
+                input.interrupt_mode = InterruptMode::SoftInterrupt;
+                input
+            })
+            .expect("agent turn should succeed");
+
+        let entry = output.to_surface_entry();
+        assert_eq!(entry.outcome, AgentTurnOutcome::Interrupted);
     }
 
     #[test]
