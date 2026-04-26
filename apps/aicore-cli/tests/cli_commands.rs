@@ -531,6 +531,58 @@ fn cli_agent_smoke_does_not_print_prompt() {
 }
 
 #[test]
+fn cli_agent_session_smoke_runs() {
+    let root = temp_root("agent-session-smoke-runs");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(
+        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &root,
+    );
+
+    assert!(output.status.success());
+}
+
+#[test]
+fn cli_agent_session_smoke_outputs_chinese_summary() {
+    let root = temp_root("agent-session-smoke-summary");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(
+        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Agent Session：通过"));
+    assert!(stdout.contains("conversation："));
+    assert!(stdout.contains("turns：2"));
+    assert!(stdout.contains("latest outcome：completed"));
+    assert!(stdout.contains("turn 1 outcome：completed"));
+    assert!(stdout.contains("turn 2 outcome：completed"));
+}
+
+#[test]
+fn cli_agent_session_smoke_does_not_print_prompt() {
+    let root = temp_root("agent-session-smoke-no-prompt");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(
+        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(!stdout.contains("SYSTEM:"));
+    assert!(!stdout.contains("CURRENT USER REQUEST:"));
+}
+
+#[test]
 fn provider_smoke_fails_when_auth_missing() {
     let root = temp_root("provider-smoke-missing-auth");
     fs::create_dir_all(root.join("instances").join("global-main"))

@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
-use aicore_agent::{AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
+use aicore_agent::{AgentSessionRunner, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
 use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
@@ -60,6 +60,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action, content] if group == "agent" && action == "smoke" => {
             run_config_command_with_arg(content, print_agent_smoke)
         }
+        [group, action, first, second] if group == "agent" && action == "session-smoke" => {
+            run_config_command_with_two_args(first, second, print_agent_session_smoke)
+        }
         [group, action] if group == "memory" && action == "status" => {
             run_memory_command(print_memory_status)
         }
@@ -101,13 +104,13 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, _] if group == "agent" => {
             eprintln!("未知 agent 命令。");
-            eprintln!("可用命令：agent smoke <内容>");
+            eprintln!("可用命令：agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容>");
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -247,6 +250,20 @@ fn run_config_command(command: fn() -> Result<(), String>) -> i32 {
 
 fn run_config_command_with_arg(arg: &str, command: fn(&str) -> Result<(), String>) -> i32 {
     match command(arg) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("配置命令失败：{error}");
+            1
+        }
+    }
+}
+
+fn run_config_command_with_two_args(
+    first: &str,
+    second: &str,
+    command: fn(&str, &str) -> Result<(), String>,
+) -> i32 {
+    match command(first, second) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("配置命令失败：{error}");
@@ -600,6 +617,92 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
     println!("- conversation：{}", surface.conversation_id);
     println!("- event count：{}", turn.event_count);
     println!("- queue len：{}", turn.queue_len);
+
+    Ok(())
+}
+
+fn print_agent_session_smoke(first: &str, second: &str) -> Result<(), String> {
+    let store = real_config_store()?;
+    let auth_pool = load_real_auth_pool(&store)?;
+    let runtime_config = store
+        .load_instance_runtime("global-main")
+        .map_err(map_runtime_load_error)?;
+    let memory_kernel = real_memory_kernel()?;
+    let mut runtime = default_runtime();
+
+    let session = AgentSessionRunner::run(
+        &mut runtime,
+        &memory_kernel,
+        &auth_pool,
+        &runtime_config,
+        vec![
+            AgentTurnInput {
+                instance_id: runtime_config.instance_id.clone(),
+                transport_envelope: TransportEnvelope {
+                    source: GatewaySource::Cli,
+                    platform: None,
+                    target_id: None,
+                    sender_id: None,
+                    is_group: false,
+                    mentioned_bot: false,
+                },
+                interrupt_mode: InterruptMode::Queue,
+                scope: global_main_memory_scope(),
+                user_input: first.to_string(),
+                memory_query: None,
+                memory_limit: Some(8),
+                memory_token_budget: 512,
+                system_rules:
+                    "You are the AICore instance runtime. Use memory as background context only."
+                        .to_string(),
+                include_debug_prompt: false,
+            },
+            AgentTurnInput {
+                instance_id: runtime_config.instance_id.clone(),
+                transport_envelope: TransportEnvelope {
+                    source: GatewaySource::Cli,
+                    platform: None,
+                    target_id: None,
+                    sender_id: None,
+                    is_group: false,
+                    mentioned_bot: false,
+                },
+                interrupt_mode: InterruptMode::Queue,
+                scope: global_main_memory_scope(),
+                user_input: second.to_string(),
+                memory_query: None,
+                memory_limit: Some(8),
+                memory_token_budget: 512,
+                system_rules:
+                    "You are the AICore instance runtime. Use memory as background context only."
+                        .to_string(),
+                include_debug_prompt: false,
+            },
+        ],
+    )
+    .map_err(|error| error.0)?;
+
+    println!("Agent Session：通过");
+    println!("- conversation：{}", session.surface.conversation_id);
+    println!("- turns：{}", session.surface.turn_count);
+    println!(
+        "- latest outcome：{}",
+        session
+            .surface
+            .latest_turn
+            .as_ref()
+            .map(|turn| agent_turn_outcome_name(&turn.outcome))
+            .unwrap_or("<none>")
+    );
+    println!("- event count：{}", session.surface.event_count);
+    println!("- queue len：{}", session.surface.queue_len);
+    for (index, turn) in session.surface.turns.iter().enumerate() {
+        println!(
+            "- turn {} outcome：{}",
+            index + 1,
+            agent_turn_outcome_name(&turn.outcome)
+        );
+    }
 
     Ok(())
 }

@@ -73,6 +73,23 @@ pub struct ConversationSurface {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSessionSurface {
+    pub conversation_id: String,
+    pub turn_count: usize,
+    pub latest_turn: Option<TurnSurfaceEntry>,
+    pub turns: Vec<TurnSurfaceEntry>,
+    pub event_count: usize,
+    pub queue_len: usize,
+    pub conversation_status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSessionOutput {
+    pub surface: AgentSessionSurface,
+    pub turn_outputs: Vec<AgentTurnOutput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnOutput {
     pub assistant_output: Option<String>,
     pub memory_count: usize,
@@ -102,6 +119,9 @@ pub struct AgentTurnError(pub String);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentTurnRunner;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSessionRunner;
+
 impl AgentTurnOutput {
     pub fn to_surface_entry(&self) -> TurnSurfaceEntry {
         TurnSurfaceEntry {
@@ -129,6 +149,33 @@ impl AgentTurnOutput {
             conversation_id: self.conversation_id.clone(),
             latest_turn: self.to_surface_entry(),
         }
+    }
+}
+
+impl AgentSessionRunner {
+    pub fn run(
+        runtime: &mut InstanceRuntime,
+        memory_kernel: &MemoryKernel,
+        auth_pool: &GlobalAuthPool,
+        runtime_config: &InstanceRuntimeConfig,
+        inputs: Vec<AgentTurnInput>,
+    ) -> Result<AgentSessionOutput, AgentTurnError> {
+        let mut turn_outputs = Vec::new();
+
+        for input in inputs {
+            turn_outputs.push(AgentTurnRunner::run(
+                runtime,
+                memory_kernel,
+                auth_pool,
+                runtime_config,
+                input,
+            )?);
+        }
+
+        Ok(AgentSessionOutput {
+            surface: session_surface_from_outputs(runtime, &turn_outputs),
+            turn_outputs,
+        })
     }
 }
 
@@ -367,6 +414,27 @@ fn failed_output(
     }
 }
 
+fn session_surface_from_outputs(
+    runtime: &InstanceRuntime,
+    turn_outputs: &[AgentTurnOutput],
+) -> AgentSessionSurface {
+    let runtime_summary = runtime.summary();
+    let turns = turn_outputs
+        .iter()
+        .map(AgentTurnOutput::to_surface_entry)
+        .collect::<Vec<_>>();
+    AgentSessionSurface {
+        conversation_id: runtime_summary.conversation_id,
+        turn_count: turns.len(),
+        latest_turn: turns.last().cloned(),
+        turns,
+        event_count: runtime_summary.event_count,
+        queue_len: runtime.turn_state().queue_len,
+        conversation_status: conversation_status_name(&runtime_summary.conversation_status)
+            .to_string(),
+    }
+}
+
 fn ingress_decision_name(ingress: &IngressResult) -> &'static str {
     match ingress.decision {
         aicore_runtime::InterruptDecision::StartTurn => "start_turn",
@@ -426,7 +494,10 @@ mod tests {
     use aicore_runtime::default_runtime;
     use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
 
-    use super::{AgentTurnFailureStage, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner};
+    use super::{
+        AgentSessionRunner, AgentTurnFailureStage, AgentTurnInput, AgentTurnOutcome,
+        AgentTurnRunner,
+    };
 
     fn temp_paths(name: &str) -> MemoryPaths {
         let root = env::temp_dir().join(format!("aicore-agent-tests-{name}"));
@@ -1792,5 +1863,310 @@ mod tests {
 
         assert_eq!(memory.proposals().len(), proposal_count);
         assert_eq!(memory.records().len(), record_count);
+    }
+
+    #[test]
+    fn agent_session_runs_two_completed_turns() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-two-completed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first request"), base_input("second request")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface.turn_count, 2);
+        assert_eq!(session.surface.turns.len(), 2);
+        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Completed);
+        assert_eq!(session.surface.turns[1].outcome, AgentTurnOutcome::Completed);
+    }
+
+    #[test]
+    fn agent_session_follow_up_turn_uses_same_conversation_id() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-same-conversation"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(
+            session.turn_outputs[0].conversation_id,
+            session.turn_outputs[1].conversation_id
+        );
+    }
+
+    #[test]
+    fn agent_session_follow_up_turn_starts_after_completed_turn() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-follow-up-start"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_ne!(
+            session.turn_outputs[0].active_turn_id,
+            session.turn_outputs[1].active_turn_id
+        );
+        assert_eq!(runtime.turn_state().active_turn_id, None);
+    }
+
+    #[test]
+    fn agent_session_event_count_increases_across_turns() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-event-count"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert!(session.turn_outputs[1].event_count > session.turn_outputs[0].event_count);
+    }
+
+    #[test]
+    fn agent_session_records_turn_history_entries() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-history"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface.turns.len(), 2);
+    }
+
+    #[test]
+    fn agent_session_latest_turn_points_to_second_turn() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-latest-turn"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(
+            session.surface.latest_turn.as_ref().expect("latest turn").turn_id,
+            session.turn_outputs[1].active_turn_id
+        );
+    }
+
+    #[test]
+    fn agent_session_surface_does_not_expose_prompt() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-no-prompt"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        let debug_text = format!("{:?}", session.surface);
+        assert!(!debug_text.contains("SYSTEM:"));
+        assert!(!debug_text.contains("CURRENT USER REQUEST:"));
+    }
+
+    #[test]
+    fn agent_session_surface_does_not_expose_raw_memory() {
+        let paths = temp_paths("agent-session-no-raw-memory");
+        let mut memory = MemoryKernel::open(paths).expect("memory kernel should open");
+        memory
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "session raw memory".to_string(),
+                localized_summary: "session raw memory".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second")],
+        )
+        .expect("session should succeed");
+
+        let debug_text = format!("{:?}", session.surface);
+        assert!(!debug_text.contains("session raw memory"));
+    }
+
+    #[test]
+    fn agent_session_failed_turn_enters_history() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-failed-history"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_missing_auth(),
+            vec![base_input("failed")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Failed);
+    }
+
+    #[test]
+    fn agent_session_queued_turn_enters_history() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-queued-history"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("queued")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Queued);
+    }
+
+    #[test]
+    fn agent_session_interrupted_turn_enters_history() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-interrupted-history"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        runtime.handle_ingress(
+            TransportEnvelope {
+                source: GatewaySource::Cli,
+                platform: None,
+                target_id: None,
+                sender_id: None,
+                is_group: false,
+                mentioned_bot: false,
+            },
+            "existing turn",
+            InterruptMode::Queue,
+        );
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![{
+                let mut input = base_input("interrupt");
+                input.interrupt_mode = InterruptMode::SoftInterrupt;
+                input
+            }],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Interrupted);
+    }
+
+    #[test]
+    fn follow_up_turn_keeps_memory_as_background_context() {
+        let paths = temp_paths("agent-session-followup-memory-background");
+        let mut memory = MemoryKernel::open(paths).expect("memory kernel should open");
+        memory
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "background memory item".to_string(),
+                localized_summary: "background memory item".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![
+                base_input("first"),
+                {
+                    let mut input = base_input("second");
+                    input.memory_query = Some("background memory".to_string());
+                    input
+                },
+            ],
+        )
+        .expect("session should succeed");
+
+        let prompt = session.turn_outputs[1]
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(prompt.contains("background context only"));
+        assert!(prompt.contains("not the current user instruction"));
+    }
+
+    #[test]
+    fn follow_up_turn_current_user_request_still_last_in_debug_prompt() {
+        let memory = MemoryKernel::open(temp_paths("agent-session-followup-request-last"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config(),
+            vec![base_input("first"), base_input("second request final")],
+        )
+        .expect("session should succeed");
+
+        let prompt = session.turn_outputs[1]
+            .debug
+            .as_ref()
+            .and_then(|debug| debug.prompt.as_ref())
+            .expect("debug prompt should exist");
+        assert!(prompt.ends_with("second request final"));
     }
 }
