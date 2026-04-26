@@ -1567,4 +1567,319 @@ mod tests {
         assert!(inserted[0].starts_with("prop_"));
         assert_eq!(kernel.proposals()[0].proposal_id, inserted[0]);
     }
+
+    #[test]
+    fn list_open_proposals_returns_only_open() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-open-list"))
+            .expect("memory kernel should open");
+
+        let inserted = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![
+                    agent_proposal(MemoryType::Core, "开放提案"),
+                    agent_proposal(MemoryType::Status, "将被拒绝"),
+                ],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored");
+        kernel
+            .reject_proposal(&inserted[1], "user", Some("不需要"))
+            .expect("reject should succeed");
+
+        let open = kernel.list_open_proposals();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].proposal_id, inserted[0]);
+        assert_eq!(open[0].status, MemoryProposalStatus::Open);
+    }
+
+    #[test]
+    fn accept_proposal_creates_active_memory_record() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-record"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "接受后创建记忆")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        let memory_id = kernel
+            .accept_proposal(&proposal_id, "user", Some("采纳"))
+            .expect("accept should succeed");
+
+        let record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == memory_id)
+            .expect("accepted record should exist");
+        assert_eq!(record.status, MemoryStatus::Active);
+        assert_eq!(record.permanence, MemoryPermanence::Standard);
+        assert_eq!(record.content, "接受后创建记忆");
+    }
+
+    #[test]
+    fn accept_proposal_marks_proposal_accepted() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-status"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Working, "proposal accepted")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        kernel
+            .accept_proposal(&proposal_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let proposal = kernel
+            .proposals()
+            .iter()
+            .find(|proposal| proposal.proposal_id == proposal_id)
+            .expect("proposal should exist");
+        assert_eq!(proposal.status, MemoryProposalStatus::Accepted);
+    }
+
+    #[test]
+    fn accept_proposal_writes_accepted_event() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-event"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Status, "accept event")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        let memory_id = kernel
+            .accept_proposal(&proposal_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let event = kernel
+            .events()
+            .iter()
+            .find(|event| {
+                event.event_kind == MemoryEventKind::Accepted
+                    && event.proposal_id.as_deref() == Some(proposal_id.as_str())
+            })
+            .expect("accepted event should exist");
+        assert_eq!(event.memory_id.as_deref(), Some(memory_id.as_str()));
+    }
+
+    #[test]
+    fn accept_proposal_rebuilds_projection() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-projection"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "进入 CORE projection")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        kernel
+            .accept_proposal(&proposal_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let core = kernel
+            .core_markdown()
+            .expect("core projection should exist");
+        assert!(core.contains("进入 CORE projection"));
+        assert!(!kernel.projection_state().stale);
+    }
+
+    #[test]
+    fn accept_proposal_does_not_make_memory_permanent() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-permanence"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Decision, "标准持久化")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        let memory_id = kernel
+            .accept_proposal(&proposal_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let record = kernel
+            .records()
+            .iter()
+            .find(|record| record.memory_id == memory_id)
+            .expect("record should exist");
+        assert_eq!(record.permanence, MemoryPermanence::Standard);
+    }
+
+    #[test]
+    fn reject_proposal_marks_proposal_rejected() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-reject-status"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Working, "reject me")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        kernel
+            .reject_proposal(&proposal_id, "user", Some("拒绝"))
+            .expect("reject should succeed");
+
+        let proposal = kernel
+            .proposals()
+            .iter()
+            .find(|proposal| proposal.proposal_id == proposal_id)
+            .expect("proposal should exist");
+        assert_eq!(proposal.status, MemoryProposalStatus::Rejected);
+    }
+
+    #[test]
+    fn reject_proposal_writes_rejected_event() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-reject-event"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Working, "reject event")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        kernel
+            .reject_proposal(&proposal_id, "user", Some("拒绝"))
+            .expect("reject should succeed");
+
+        let event = kernel
+            .events()
+            .iter()
+            .find(|event| {
+                event.event_kind == MemoryEventKind::Rejected
+                    && event.proposal_id.as_deref() == Some(proposal_id.as_str())
+            })
+            .expect("rejected event should exist");
+        assert_eq!(event.memory_id, None);
+    }
+
+    #[test]
+    fn reject_proposal_does_not_create_record() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-reject-no-record"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "reject no record")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+
+        kernel
+            .reject_proposal(&proposal_id, "user", Some("拒绝"))
+            .expect("reject should succeed");
+
+        assert!(kernel.records().is_empty());
+    }
+
+    #[test]
+    fn accept_rejects_non_open_proposal() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-accept-non-open"))
+            .expect("memory kernel should open");
+
+        let accepted_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "already accepted")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+        kernel
+            .accept_proposal(&accepted_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let rejected_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "already rejected")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+        kernel
+            .reject_proposal(&rejected_id, "user", Some("拒绝"))
+            .expect("reject should succeed");
+
+        let accepted_error = kernel
+            .accept_proposal(&accepted_id, "user", Some("重复接受"))
+            .expect_err("accepted proposal should be rejected");
+        let rejected_error = kernel
+            .accept_proposal(&rejected_id, "user", Some("错误接受"))
+            .expect_err("rejected proposal should be rejected");
+
+        assert!(accepted_error.0.contains("non-open proposal"));
+        assert!(rejected_error.0.contains("non-open proposal"));
+    }
+
+    #[test]
+    fn reject_rejects_non_open_proposal() {
+        let mut kernel = MemoryKernel::open(temp_paths("proposal-reject-non-open"))
+            .expect("memory kernel should open");
+
+        let accepted_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "accepted then reject")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+        kernel
+            .accept_proposal(&accepted_id, "user", Some("通过"))
+            .expect("accept should succeed");
+
+        let rejected_id = kernel
+            .submit_agent_output(MemoryAgentOutput {
+                proposals: vec![agent_proposal(MemoryType::Core, "rejected then reject")],
+                corrections: Vec::new(),
+                archive_suggestions: Vec::new(),
+            })
+            .expect("agent output should be stored")[0]
+            .clone();
+        kernel
+            .reject_proposal(&rejected_id, "user", Some("拒绝"))
+            .expect("reject should succeed");
+
+        let accepted_error = kernel
+            .reject_proposal(&accepted_id, "user", Some("错误拒绝"))
+            .expect_err("accepted proposal should reject further reject");
+        let rejected_error = kernel
+            .reject_proposal(&rejected_id, "user", Some("重复拒绝"))
+            .expect_err("rejected proposal should reject further reject");
+
+        assert!(accepted_error.0.contains("non-open proposal"));
+        assert!(rejected_error.0.contains("non-open proposal"));
+    }
 }

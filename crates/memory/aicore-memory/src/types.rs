@@ -53,6 +53,7 @@ pub enum MemoryProposalStatus {
 pub enum MemoryEventKind {
     Accepted,
     Proposed,
+    Rejected,
     Corrected,
     Archived,
     Forgotten,

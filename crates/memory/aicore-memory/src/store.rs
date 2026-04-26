@@ -366,6 +366,104 @@ pub async fn update_record_status(
         .map_err(|error| MemoryError(error.to_string()))
 }
 
+pub async fn accept_proposal(
+    db_path: &Path,
+    proposal_id: &str,
+    record: &MemoryRecord,
+    event: &MemoryEvent,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+
+    let update = sqlx::query(
+        "UPDATE memory_proposals
+         SET status = ?
+         WHERE proposal_id = ? AND status = ?",
+    )
+    .bind(proposal_status_name(&MemoryProposalStatus::Accepted))
+    .bind(proposal_id)
+    .bind(proposal_status_name(&MemoryProposalStatus::Open))
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    if update.rows_affected() == 0 {
+        return Err(MemoryError(format!("non-open proposal: {proposal_id}")));
+    }
+
+    sqlx::query(
+        "INSERT INTO memory_records (
+            memory_id, record_version, memory_type, status, permanence, scope_kind, instance_id, workspace_root,
+            content, content_language, normalized_content, normalized_language, localized_summary,
+            source, evidence_json, state_key, state_version, current_state, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&record.memory_id)
+    .bind(record.record_version)
+    .bind(memory_type_name(&record.memory_type))
+    .bind(memory_status_name(&record.status))
+    .bind(memory_permanence_name(&record.permanence))
+    .bind(scope_kind(&record.scope))
+    .bind(instance_id(&record.scope))
+    .bind(workspace_root(&record.scope))
+    .bind(&record.content)
+    .bind(&record.content_language)
+    .bind(&record.normalized_content)
+    .bind(&record.normalized_language)
+    .bind(&record.localized_summary)
+    .bind(memory_source_name(&record.source))
+    .bind(&record.evidence_json)
+    .bind(&record.state_key)
+    .bind(record.state_version)
+    .bind(&record.current_state)
+    .bind(&record.created_at)
+    .bind(&record.updated_at)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    insert_event_tx(&mut tx, event).await?;
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
+}
+
+pub async fn reject_proposal(
+    db_path: &Path,
+    proposal_id: &str,
+    event: &MemoryEvent,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+
+    let update = sqlx::query(
+        "UPDATE memory_proposals
+         SET status = ?
+         WHERE proposal_id = ? AND status = ?",
+    )
+    .bind(proposal_status_name(&MemoryProposalStatus::Rejected))
+    .bind(proposal_id)
+    .bind(proposal_status_name(&MemoryProposalStatus::Open))
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    if update.rows_affected() == 0 {
+        return Err(MemoryError(format!("non-open proposal: {proposal_id}")));
+    }
+
+    insert_event_tx(&mut tx, event).await?;
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
+}
+
 async fn insert_event_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     event: &MemoryEvent,
@@ -655,6 +753,7 @@ fn event_kind_name(value: &MemoryEventKind) -> &'static str {
     match value {
         MemoryEventKind::Accepted => "accepted",
         MemoryEventKind::Proposed => "proposed",
+        MemoryEventKind::Rejected => "rejected",
         MemoryEventKind::Corrected => "corrected",
         MemoryEventKind::Archived => "archived",
         MemoryEventKind::Forgotten => "forgotten",
@@ -713,6 +812,7 @@ fn parse_event_kind(value: &str) -> Result<MemoryEventKind, MemoryError> {
     match value {
         "accepted" => Ok(MemoryEventKind::Accepted),
         "proposed" => Ok(MemoryEventKind::Proposed),
+        "rejected" => Ok(MemoryEventKind::Rejected),
         "corrected" => Ok(MemoryEventKind::Corrected),
         "archived" => Ok(MemoryEventKind::Archived),
         "forgotten" => Ok(MemoryEventKind::Forgotten),

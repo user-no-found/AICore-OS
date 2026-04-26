@@ -18,8 +18,9 @@ use crate::{
     store,
     types::{
         MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent,
-        MemoryEventKind, MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryScope,
-        MemorySource, MemoryStatus, MemoryType, ProjectionState, RememberInput, SearchQuery,
+        MemoryEventKind, MemoryPermanence, MemoryProposal, MemoryProposalStatus, MemoryRecord,
+        MemoryScope, MemorySource, MemoryStatus, MemoryType, ProjectionState, RememberInput,
+        SearchQuery,
     },
 };
 
@@ -362,6 +363,113 @@ impl MemoryKernel {
         Ok(filter_records(&self.records, &query))
     }
 
+    pub fn list_open_proposals(&self) -> Vec<MemoryProposal> {
+        self.proposals
+            .iter()
+            .filter(|proposal| proposal.status == MemoryProposalStatus::Open)
+            .cloned()
+            .collect()
+    }
+
+    pub fn accept_proposal(
+        &mut self,
+        proposal_id: &str,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<MemoryId, MemoryError> {
+        let _guard = self.acquire_write_guard("accept_proposal")?;
+        self.maybe_fail_write_for_tests()?;
+
+        let proposal = self
+            .proposals
+            .iter()
+            .find(|proposal| proposal.proposal_id == proposal_id)
+            .cloned()
+            .ok_or_else(|| MemoryError(format!("unknown proposal_id: {proposal_id}")))?;
+
+        if proposal.status != MemoryProposalStatus::Open {
+            return Err(MemoryError(format!("non-open proposal: {proposal_id}")));
+        }
+
+        let timestamp = now_string();
+        let memory_id = next_id("mem");
+        let record = MemoryRecord {
+            memory_id: memory_id.clone(),
+            record_version: 1,
+            memory_type: proposal.memory_type,
+            status: MemoryStatus::Active,
+            permanence: MemoryPermanence::Standard,
+            scope: proposal.scope.clone(),
+            content: proposal.content.clone(),
+            content_language: proposal.content_language.clone(),
+            normalized_content: proposal.normalized_content.clone(),
+            normalized_language: proposal.normalized_language.clone(),
+            localized_summary: proposal.localized_summary.clone(),
+            source: proposal.source.clone(),
+            evidence_json: "[]".to_string(),
+            state_key: None,
+            state_version: 1,
+            current_state: None,
+            created_at: timestamp.clone(),
+            updated_at: timestamp.clone(),
+        };
+        let event = MemoryEvent {
+            event_id: next_id("evt"),
+            event_kind: MemoryEventKind::Accepted,
+            memory_id: Some(memory_id.clone()),
+            proposal_id: Some(proposal_id.to_string()),
+            scope: proposal.scope,
+            actor: actor.to_string(),
+            reason: reason.map(ToString::to_string),
+            evidence_json: "[]".to_string(),
+            created_at: timestamp,
+        };
+
+        block_on(async {
+            store::accept_proposal(&self.paths.db_path, proposal_id, &record, &event).await
+        })?;
+        self.refresh_cache()?;
+        self.rebuild_projections_after_commit()?;
+        Ok(memory_id)
+    }
+
+    pub fn reject_proposal(
+        &mut self,
+        proposal_id: &str,
+        actor: &str,
+        reason: Option<&str>,
+    ) -> Result<(), MemoryError> {
+        let _guard = self.acquire_write_guard("reject_proposal")?;
+        self.maybe_fail_write_for_tests()?;
+
+        let proposal = self
+            .proposals
+            .iter()
+            .find(|proposal| proposal.proposal_id == proposal_id)
+            .cloned()
+            .ok_or_else(|| MemoryError(format!("unknown proposal_id: {proposal_id}")))?;
+
+        if proposal.status != MemoryProposalStatus::Open {
+            return Err(MemoryError(format!("non-open proposal: {proposal_id}")));
+        }
+
+        let event = MemoryEvent {
+            event_id: next_id("evt"),
+            event_kind: MemoryEventKind::Rejected,
+            memory_id: None,
+            proposal_id: Some(proposal_id.to_string()),
+            scope: proposal.scope,
+            actor: actor.to_string(),
+            reason: reason.map(ToString::to_string),
+            evidence_json: "[]".to_string(),
+            created_at: now_string(),
+        };
+
+        block_on(async { store::reject_proposal(&self.paths.db_path, proposal_id, &event).await })?;
+        self.refresh_cache()?;
+        Ok(())
+    }
+
     pub fn records(&self) -> &[MemoryRecord] {
         &self.records
     }
@@ -406,6 +514,25 @@ impl MemoryKernel {
                             event.event_id, memory_id
                         ));
                     }
+
+                    if let Some(proposal_id) = event.proposal_id.as_deref() {
+                        match self
+                            .proposals
+                            .iter()
+                            .find(|proposal| proposal.proposal_id == proposal_id)
+                        {
+                            Some(proposal) if proposal.status == MemoryProposalStatus::Accepted => {
+                            }
+                            Some(_) => issues.push(format!(
+                                "accepted event {} points to non-accepted proposal {}",
+                                event.event_id, proposal_id
+                            )),
+                            None => issues.push(format!(
+                                "accepted event {} points to missing proposal {}",
+                                event.event_id, proposal_id
+                            )),
+                        }
+                    }
                 }
                 MemoryEventKind::Proposed => {
                     let Some(proposal_id) = event.proposal_id.as_deref() else {
@@ -425,6 +552,31 @@ impl MemoryKernel {
                             "proposed event {} points to missing proposal {}",
                             event.event_id, proposal_id
                         ));
+                    }
+                }
+                MemoryEventKind::Rejected => {
+                    let Some(proposal_id) = event.proposal_id.as_deref() else {
+                        issues.push(format!(
+                            "rejected event {} missing proposal_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    match self
+                        .proposals
+                        .iter()
+                        .find(|proposal| proposal.proposal_id == proposal_id)
+                    {
+                        Some(proposal) if proposal.status == MemoryProposalStatus::Rejected => {}
+                        Some(_) => issues.push(format!(
+                            "rejected event {} points to non-rejected proposal {}",
+                            event.event_id, proposal_id
+                        )),
+                        None => issues.push(format!(
+                            "rejected event {} points to missing proposal {}",
+                            event.event_id, proposal_id
+                        )),
                     }
                 }
                 MemoryEventKind::Corrected => {
