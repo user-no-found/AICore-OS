@@ -13,9 +13,9 @@ use crate::{
     search::filter_records,
     store,
     types::{
-        MemoryError, MemoryEvent, MemoryEventKind, MemoryProposal, MemoryProposalStatus,
-        MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType, ProjectionState,
-        RememberInput, SearchQuery,
+        MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryProposal,
+        MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType,
+        ProjectionState, RememberInput, SearchQuery,
     },
 };
 
@@ -25,6 +25,7 @@ pub struct MemoryKernel {
     records: Vec<MemoryRecord>,
     proposals: Vec<MemoryProposal>,
     events: Vec<MemoryEvent>,
+    edges: Vec<MemoryEdge>,
     projection_state: ProjectionState,
     projection_should_fail_for_tests: bool,
 }
@@ -42,6 +43,7 @@ impl MemoryKernel {
             records: Vec::new(),
             proposals: Vec::new(),
             events: Vec::new(),
+            edges: Vec::new(),
             projection_state: ProjectionState {
                 stale: false,
                 warning: None,
@@ -64,7 +66,8 @@ impl MemoryKernel {
         let timestamp = now_string();
         let memory_id = next_id("mem");
         let event_id = next_id("evt");
-        let normalized = normalize(&input.content);
+        let content_language = infer_language(&input.content).to_string();
+        let normalized = input.content.clone();
 
         let record = MemoryRecord {
             memory_id: memory_id.clone(),
@@ -73,9 +76,9 @@ impl MemoryKernel {
             permanence: input.permanence,
             scope: input.scope.clone(),
             content: input.content,
-            content_language: "zh".to_string(),
+            content_language: content_language.clone(),
             normalized_content: normalized,
-            normalized_language: "en".to_string(),
+            normalized_language: content_language,
             localized_summary: input.localized_summary,
             source: MemorySource::UserExplicit,
             evidence_json: "[]".to_string(),
@@ -115,16 +118,31 @@ impl MemoryKernel {
         let proposal = MemoryProposal {
             proposal_id: next_id("prop"),
             memory_type: MemoryType::Working,
-            scope,
+            scope: scope.clone(),
             source: MemorySource::AssistantSummary,
             status: MemoryProposalStatus::Open,
             content: content.to_string(),
-            normalized_content: normalize(content),
+            content_language: infer_language(content).to_string(),
+            normalized_content: content.to_string(),
+            normalized_language: infer_language(content).to_string(),
             localized_summary: content.to_string(),
             created_at: now_string(),
         };
+        let event = MemoryEvent {
+            event_id: next_id("evt"),
+            event_kind: MemoryEventKind::Proposed,
+            memory_id: None,
+            proposal_id: Some(proposal.proposal_id.clone()),
+            scope,
+            actor: "assistant".to_string(),
+            reason: Some("assistant summary".to_string()),
+            evidence_json: "[]".to_string(),
+            created_at: proposal.created_at.clone(),
+        };
 
-        block_on(async { store::insert_proposal(&self.paths.db_path, &proposal).await })?;
+        block_on(async {
+            store::insert_proposal_and_event(&self.paths.db_path, &proposal, &event).await
+        })?;
         self.refresh_cache()?;
         Ok(proposal.proposal_id.clone())
     }
@@ -150,9 +168,9 @@ impl MemoryKernel {
             permanence: old_record.permanence,
             scope: old_record.scope.clone(),
             content: new_content.to_string(),
-            content_language: old_record.content_language,
-            normalized_content: normalize(new_content),
-            normalized_language: old_record.normalized_language,
+            content_language: old_record.content_language.clone(),
+            normalized_content: new_content.to_string(),
+            normalized_language: old_record.content_language.clone(),
             localized_summary: new_content.to_string(),
             source: MemorySource::UserCorrection,
             evidence_json: "[]".to_string(),
@@ -211,6 +229,10 @@ impl MemoryKernel {
         &self.events
     }
 
+    pub fn edges(&self) -> &[MemoryEdge] {
+        &self.edges
+    }
+
     pub fn projection_state(&self) -> &ProjectionState {
         &self.projection_state
     }
@@ -231,6 +253,7 @@ impl MemoryKernel {
         self.records = block_on(async { store::load_records(&self.paths.db_path).await })?;
         self.proposals = block_on(async { store::load_proposals(&self.paths.db_path).await })?;
         self.events = block_on(async { store::load_events(&self.paths.db_path).await })?;
+        self.edges = block_on(async { store::load_edges(&self.paths.db_path).await })?;
         self.projection_state =
             block_on(async { store::load_projection_state(&self.paths.db_path).await })?;
         Ok(())
@@ -330,8 +353,8 @@ fn now_string() -> String {
         .to_string()
 }
 
-fn normalize(content: &str) -> String {
-    content.to_ascii_lowercase()
+fn infer_language(content: &str) -> &'static str {
+    if content.is_ascii() { "en" } else { "zh-CN" }
 }
 
 fn block_on<F, T>(future: F) -> Result<T, MemoryError>

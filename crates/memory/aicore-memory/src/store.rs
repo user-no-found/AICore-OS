@@ -9,7 +9,7 @@ use crate::{
     projection::projection_state,
     search::{instance_id, scope_kind, workspace_root},
     types::{
-        MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence, MemoryProposal,
+        MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence, MemoryProposal,
         MemoryProposalStatus, MemoryRecord, MemoryScope, MemoryStatus, MemoryType, ProjectionState,
     },
 };
@@ -84,7 +84,9 @@ pub async fn init_schema(db_path: &Path) -> Result<(), MemoryError> {
             source TEXT NOT NULL,
             status TEXT NOT NULL,
             content TEXT NOT NULL,
+            content_language TEXT NOT NULL,
             normalized_content TEXT NOT NULL,
+            normalized_language TEXT NOT NULL,
             localized_summary TEXT NOT NULL,
             created_at TEXT NOT NULL
         )",
@@ -189,8 +191,16 @@ pub async fn insert_record_and_event(
         .map_err(|error| MemoryError(error.to_string()))
 }
 
-pub async fn insert_proposal(db_path: &Path, proposal: &MemoryProposal) -> Result<(), MemoryError> {
+pub async fn insert_proposal_and_event(
+    db_path: &Path,
+    proposal: &MemoryProposal,
+    event: &MemoryEvent,
+) -> Result<(), MemoryError> {
     let mut conn = connect(db_path).await?;
+    let mut tx = conn
+        .begin()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
     let scope = match &proposal.scope {
         MemoryScope::GlobalMain { instance_id } => MemoryScope::GlobalMain {
             instance_id: instance_id.clone(),
@@ -207,8 +217,9 @@ pub async fn insert_proposal(db_path: &Path, proposal: &MemoryProposal) -> Resul
     sqlx::query(
         "INSERT INTO memory_proposals (
             proposal_id, memory_type, scope_kind, instance_id, workspace_root,
-            source, status, content, normalized_content, localized_summary, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            source, status, content, content_language, normalized_content, normalized_language,
+            localized_summary, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&proposal.proposal_id)
     .bind(memory_type_name(&proposal.memory_type))
@@ -218,14 +229,19 @@ pub async fn insert_proposal(db_path: &Path, proposal: &MemoryProposal) -> Resul
     .bind(memory_source_name(&proposal.source))
     .bind(proposal_status_name(&proposal.status))
     .bind(&proposal.content)
+    .bind(&proposal.content_language)
     .bind(&proposal.normalized_content)
+    .bind(&proposal.normalized_language)
     .bind(&proposal.localized_summary)
     .bind(&proposal.created_at)
-    .execute(&mut conn)
+    .execute(&mut *tx)
     .await
     .map_err(|error| MemoryError(error.to_string()))?;
 
-    Ok(())
+    insert_event_tx(&mut tx, event).await?;
+    tx.commit()
+        .await
+        .map_err(|error| MemoryError(error.to_string()))
 }
 
 pub async fn supersede_record(
@@ -281,8 +297,8 @@ pub async fn supersede_record(
     sqlx::query(
         "INSERT INTO memory_edges (from_memory_id, to_memory_id, relation) VALUES (?, ?, ?)",
     )
-    .bind(old_memory_id)
     .bind(&new_record.memory_id)
+    .bind(old_memory_id)
     .bind("supersedes")
     .execute(&mut *tx)
     .await
@@ -369,6 +385,26 @@ pub async fn load_proposals(db_path: &Path) -> Result<Vec<MemoryProposal>, Memor
     rows.into_iter().map(row_to_proposal).collect()
 }
 
+pub async fn load_edges(db_path: &Path) -> Result<Vec<MemoryEdge>, MemoryError> {
+    let mut conn = connect(db_path).await?;
+    let rows = sqlx::query(
+        "SELECT from_memory_id, to_memory_id, relation FROM memory_edges ORDER BY rowid ASC",
+    )
+    .fetch_all(&mut conn)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(MemoryEdge {
+                from_memory_id: row.get("from_memory_id"),
+                to_memory_id: row.get("to_memory_id"),
+                relation: row.get("relation"),
+            })
+        })
+        .collect()
+}
+
 pub async fn load_events(db_path: &Path) -> Result<Vec<MemoryEvent>, MemoryError> {
     let mut conn = connect(db_path).await?;
     let rows = sqlx::query("SELECT * FROM memory_events ORDER BY created_at ASC, event_id ASC")
@@ -452,7 +488,9 @@ fn row_to_proposal(row: sqlx::sqlite::SqliteRow) -> Result<MemoryProposal, Memor
         source: parse_memory_source(&row.get::<String, _>("source"))?,
         status: parse_proposal_status(&row.get::<String, _>("status"))?,
         content: row.get("content"),
+        content_language: row.get("content_language"),
         normalized_content: row.get("normalized_content"),
+        normalized_language: row.get("normalized_language"),
         localized_summary: row.get("localized_summary"),
         created_at: row.get("created_at"),
     })

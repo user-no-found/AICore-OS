@@ -16,7 +16,7 @@ pub use paths::MemoryPaths;
 pub use safety::blocks_secret;
 pub use search::build_memory_pack_for_tests;
 pub use types::{
-    MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence, MemoryProposal,
+    MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence, MemoryProposal,
     MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType,
     ProjectionState, RememberInput, SearchQuery,
 };
@@ -103,6 +103,28 @@ mod tests {
     }
 
     #[test]
+    fn remember_without_model_normalization_keeps_normalized_language_same_as_content_language() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("remember-language")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "中文原文".to_string(),
+                localized_summary: "中文原文".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        assert_eq!(kernel.records()[0].content_language, "zh-CN");
+        assert_eq!(kernel.records()[0].normalized_content, "中文原文");
+        assert_eq!(kernel.records()[0].normalized_language, "zh-CN");
+    }
+
+    #[test]
     fn assistant_summary_creates_proposal_not_record() {
         let mut kernel =
             MemoryKernel::open(temp_paths("assistant-summary")).expect("memory kernel should open");
@@ -113,6 +135,41 @@ mod tests {
 
         assert!(kernel.records().is_empty());
         assert_eq!(kernel.proposals().len(), 1);
+    }
+
+    #[test]
+    fn assistant_summary_proposal_stores_language_fields() {
+        let mut kernel = MemoryKernel::open(temp_paths("assistant-summary-language"))
+            .expect("memory kernel should open");
+
+        kernel
+            .submit_assistant_summary(global_scope(), "中文 assistant summary proposal")
+            .expect("assistant summary should succeed");
+
+        assert_eq!(kernel.proposals()[0].content_language, "zh-CN");
+        assert_eq!(
+            kernel.proposals()[0].normalized_content,
+            "中文 assistant summary proposal"
+        );
+        assert_eq!(kernel.proposals()[0].normalized_language, "zh-CN");
+    }
+
+    #[test]
+    fn assistant_summary_writes_proposed_event() {
+        let mut kernel = MemoryKernel::open(temp_paths("assistant-summary-event"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_assistant_summary(global_scope(), "assistant summary proposal")
+            .expect("assistant summary should succeed");
+
+        assert_eq!(kernel.events().len(), 1);
+        assert_eq!(kernel.events()[0].event_kind, MemoryEventKind::Proposed);
+        assert_eq!(
+            kernel.events()[0].proposal_id.as_deref(),
+            Some(proposal_id.as_str())
+        );
+        assert_eq!(kernel.events()[0].memory_id, None);
     }
 
     #[test]
@@ -150,6 +207,37 @@ mod tests {
                 .records()
                 .iter()
                 .any(|record| record.memory_id == new_id && record.status == MemoryStatus::Active)
+        );
+    }
+
+    #[test]
+    fn correction_edge_points_from_new_memory_to_old_memory() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("correct-edge")).expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let new_id = kernel
+            .correct_by_user(&old_id, "新记忆")
+            .expect("correct should succeed");
+
+        assert!(
+            kernel
+                .edges()
+                .iter()
+                .any(|edge| edge.from_memory_id == new_id
+                    && edge.to_memory_id == old_id
+                    && edge.relation == "supersedes")
         );
     }
 

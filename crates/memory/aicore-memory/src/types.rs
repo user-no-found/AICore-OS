@@ -85,9 +85,18 @@ pub struct MemoryProposal {
     pub source: MemorySource,
     pub status: MemoryProposalStatus,
     pub content: String,
+    pub content_language: String,
     pub normalized_content: String,
+    pub normalized_language: String,
     pub localized_summary: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryEdge {
+    pub from_memory_id: MemoryId,
+    pub to_memory_id: MemoryId,
+    pub relation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
