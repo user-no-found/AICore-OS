@@ -7,8 +7,8 @@ use aicore_config::{
 };
 use aicore_control::default_control_plane;
 use aicore_memory::{
-    MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType, RememberInput,
-    SearchQuery,
+    MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType,
+    RememberInput, SearchQuery,
 };
 use aicore_provider::{DummyProvider, ModelRequest, ProviderError, ProviderResolver};
 use aicore_runtime::{
@@ -57,6 +57,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "memory" && action == "status" => {
             run_memory_command(print_memory_status)
         }
+        [group, action] if group == "memory" && action == "audit" => {
+            run_memory_command(print_memory_audit)
+        }
         [group, action, content] if group == "memory" && action == "remember" => {
             run_memory_command_with_arg(content, print_memory_remember)
         }
@@ -70,13 +73,15 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, _] if group == "memory" => {
             eprintln!("未知 memory 命令。");
-            eprintln!("可用命令：memory status | memory remember <内容> | memory search <关键词>");
+            eprintln!(
+                "可用命令：memory status | memory audit | memory remember <内容> | memory search <关键词>"
+            );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory remember <内容> | memory search <关键词>"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory remember <内容> | memory search <关键词>"
             );
             1
         }
@@ -475,6 +480,14 @@ fn print_memory_status() -> Result<(), String> {
     Ok(())
 }
 
+fn print_memory_audit() -> Result<(), String> {
+    let kernel = real_memory_kernel()?;
+    let report = kernel.verify_ledger_consistency();
+
+    render_memory_audit(&report);
+    Ok(())
+}
+
 fn print_memory_remember(content: &str) -> Result<(), String> {
     let mut kernel = real_memory_kernel()?;
     let memory_id = kernel
@@ -521,6 +534,18 @@ fn print_memory_search(query: &str) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn render_memory_audit(report: &MemoryAuditReport) {
+    println!("Memory Audit：");
+    println!("- checked events: {}", report.checked_events);
+    println!("- status: {}", if report.ok { "ok" } else { "failed" });
+
+    if !report.ok {
+        for issue in &report.issues {
+            println!("- issue: {issue}");
+        }
+    }
 }
 
 fn output_target_name(target: &OutputTarget) -> &'static str {

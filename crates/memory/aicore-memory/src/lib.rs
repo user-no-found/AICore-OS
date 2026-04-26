@@ -16,9 +16,9 @@ pub use paths::MemoryPaths;
 pub use safety::blocks_secret;
 pub use search::build_memory_pack_for_tests;
 pub use types::{
-    MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence, MemoryProposal,
-    MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType,
-    ProjectionState, RememberInput, SearchQuery,
+    MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryPermanence,
+    MemoryProposal, MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus,
+    MemoryType, ProjectionState, RememberInput, SearchQuery,
 };
 
 #[cfg(test)]
@@ -852,5 +852,263 @@ mod tests {
         assert!(!blocks_secret(
             "这里讨论 api_key 命名规范和 secret storage 设计"
         ));
+    }
+
+    #[test]
+    fn audit_passes_for_remembered_memory() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("audit-remember")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "审计记忆".to_string(),
+                localized_summary: "审计记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+        assert_eq!(report.checked_events, 1);
+        assert!(report.issues.is_empty());
+    }
+
+    #[test]
+    fn audit_detects_accepted_event_without_record() {
+        let mut kernel = MemoryKernel::open(temp_paths("audit-missing-record"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待删记录".to_string(),
+                localized_summary: "待删记录".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .delete_record_for_tests(&memory_id)
+            .expect("record deletion should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(!report.ok);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.contains("accepted event") && issue.contains("missing memory"))
+        );
+    }
+
+    #[test]
+    fn audit_passes_for_assistant_summary_proposal() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("audit-proposal")).expect("memory kernel should open");
+
+        kernel
+            .submit_assistant_summary(global_scope(), "assistant summary proposal")
+            .expect("assistant summary should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+        assert_eq!(report.checked_events, 1);
+    }
+
+    #[test]
+    fn audit_detects_proposed_event_without_proposal() {
+        let mut kernel = MemoryKernel::open(temp_paths("audit-missing-proposal"))
+            .expect("memory kernel should open");
+
+        let proposal_id = kernel
+            .submit_assistant_summary(global_scope(), "assistant summary proposal")
+            .expect("assistant summary should succeed");
+        kernel
+            .delete_proposal_for_tests(&proposal_id)
+            .expect("proposal deletion should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(!report.ok);
+        assert!(report
+            .issues
+            .iter()
+            .any(|issue| issue.contains("proposed event") && issue.contains("missing proposal")));
+    }
+
+    #[test]
+    fn audit_passes_for_user_correction_supersedes_edge() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("audit-correction")).expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .correct_by_user_with_version(&old_id, 1, "新记忆")
+            .expect("correct should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+    }
+
+    #[test]
+    fn audit_detects_missing_supersedes_edge_for_correction() {
+        let mut kernel = MemoryKernel::open(temp_paths("audit-missing-edge"))
+            .expect("memory kernel should open");
+
+        let old_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "旧记忆".to_string(),
+                localized_summary: "旧记忆".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        let new_id = kernel
+            .correct_by_user_with_version(&old_id, 1, "新记忆")
+            .expect("correct should succeed");
+        kernel
+            .delete_edge_for_tests(&new_id, &old_id, "supersedes")
+            .expect("edge deletion should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(!report.ok);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.contains("missing supersedes edge"))
+        );
+    }
+
+    #[test]
+    fn audit_passes_for_archived_memory() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("audit-archived")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待归档".to_string(),
+                localized_summary: "待归档".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .archive_with_version(&memory_id, 1)
+            .expect("archive should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+    }
+
+    #[test]
+    fn audit_detects_archived_event_without_archived_record() {
+        let mut kernel = MemoryKernel::open(temp_paths("audit-archived-mismatch"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待归档".to_string(),
+                localized_summary: "待归档".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .archive_with_version(&memory_id, 1)
+            .expect("archive should succeed");
+        kernel
+            .force_record_status_for_tests(&memory_id, MemoryStatus::Active)
+            .expect("status override should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(!report.ok);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.contains("archived event") && issue.contains("non-archived"))
+        );
+    }
+
+    #[test]
+    fn audit_passes_for_forgotten_memory() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("audit-forgotten")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待遗忘".to_string(),
+                localized_summary: "待遗忘".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .forget_with_version(&memory_id, 1)
+            .expect("forget should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(report.ok);
+    }
+
+    #[test]
+    fn audit_detects_forgotten_event_without_forgotten_record() {
+        let mut kernel = MemoryKernel::open(temp_paths("audit-forgotten-mismatch"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "待遗忘".to_string(),
+                localized_summary: "待遗忘".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .forget_with_version(&memory_id, 1)
+            .expect("forget should succeed");
+        kernel
+            .force_record_status_for_tests(&memory_id, MemoryStatus::Active)
+            .expect("status override should succeed");
+
+        let report = kernel.verify_ledger_consistency();
+        assert!(!report.ok);
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.contains("forgotten event") && issue.contains("non-forgotten"))
+        );
     }
 }

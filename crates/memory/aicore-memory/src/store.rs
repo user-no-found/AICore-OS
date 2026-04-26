@@ -479,6 +479,67 @@ pub async fn save_projection_state(
     Ok(())
 }
 
+#[cfg(test)]
+pub async fn delete_record_for_tests(db_path: &Path, memory_id: &str) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    sqlx::query("DELETE FROM memory_records WHERE memory_id = ?")
+        .bind(memory_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub async fn delete_proposal_for_tests(
+    db_path: &Path,
+    proposal_id: &str,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    sqlx::query("DELETE FROM memory_proposals WHERE proposal_id = ?")
+        .bind(proposal_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub async fn delete_edge_for_tests(
+    db_path: &Path,
+    from_memory_id: &str,
+    to_memory_id: &str,
+    relation: &str,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    sqlx::query(
+        "DELETE FROM memory_edges WHERE from_memory_id = ? AND to_memory_id = ? AND relation = ?",
+    )
+    .bind(from_memory_id)
+    .bind(to_memory_id)
+    .bind(relation)
+    .execute(&mut conn)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+pub async fn force_record_status_for_tests(
+    db_path: &Path,
+    memory_id: &str,
+    status: MemoryStatus,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    sqlx::query("UPDATE memory_records SET status = ? WHERE memory_id = ?")
+        .bind(memory_status_name(&status))
+        .bind(memory_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+    Ok(())
+}
+
 fn row_to_scope(row: &sqlx::sqlite::SqliteRow) -> Result<MemoryScope, MemoryError> {
     let scope_kind = row.get::<String, _>("scope_kind");
     let instance_id = row.get::<String, _>("instance_id");

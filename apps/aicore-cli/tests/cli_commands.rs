@@ -416,6 +416,35 @@ fn memory_status_shows_projection_metadata() {
 }
 
 #[test]
+fn memory_audit_command_succeeds() {
+    let root = temp_root("memory-audit");
+    let output = run_cli_with_config_root(&["memory", "audit"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Audit："));
+    assert!(stdout.contains("checked events: 0"));
+    assert!(stdout.contains("status: ok"));
+}
+
+#[test]
+fn memory_audit_reports_ok_for_valid_memory_store() {
+    let root = temp_root("memory-audit-valid");
+    let remember_output = run_cli_with_config_root(&["memory", "remember", "测试记忆审计"], &root);
+    assert!(remember_output.status.success());
+
+    let output = run_cli_with_config_root(&["memory", "audit"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Audit："));
+    assert!(stdout.contains("checked events: 1"));
+    assert!(stdout.contains("status: ok"));
+}
+
+#[test]
 fn renders_config_path_command() {
     let root = temp_root("config-path");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))

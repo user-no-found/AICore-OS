@@ -16,7 +16,7 @@ use crate::{
     search::filter_records,
     store,
     types::{
-        MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryProposal,
+        MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent, MemoryEventKind, MemoryProposal,
         MemoryProposalStatus, MemoryRecord, MemoryScope, MemorySource, MemoryStatus, MemoryType,
         ProjectionState, RememberInput, SearchQuery,
     },
@@ -303,6 +303,174 @@ impl MemoryKernel {
         &self.projection_state
     }
 
+    pub fn verify_ledger_consistency(&self) -> MemoryAuditReport {
+        let mut issues = Vec::new();
+
+        for event in &self.events {
+            match event.event_kind {
+                MemoryEventKind::Accepted => {
+                    let Some(memory_id) = event.memory_id.as_deref() else {
+                        issues.push(format!(
+                            "accepted event {} missing memory_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    if !self
+                        .records
+                        .iter()
+                        .any(|record| record.memory_id == memory_id)
+                    {
+                        issues.push(format!(
+                            "accepted event {} points to missing memory {}",
+                            event.event_id, memory_id
+                        ));
+                    }
+                }
+                MemoryEventKind::Proposed => {
+                    let Some(proposal_id) = event.proposal_id.as_deref() else {
+                        issues.push(format!(
+                            "proposed event {} missing proposal_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    if !self
+                        .proposals
+                        .iter()
+                        .any(|proposal| proposal.proposal_id == proposal_id)
+                    {
+                        issues.push(format!(
+                            "proposed event {} points to missing proposal {}",
+                            event.event_id, proposal_id
+                        ));
+                    }
+                }
+                MemoryEventKind::Corrected => {
+                    let Some(memory_id) = event.memory_id.as_deref() else {
+                        issues.push(format!(
+                            "corrected event {} missing memory_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    let Some(record) = self
+                        .records
+                        .iter()
+                        .find(|record| record.memory_id == memory_id)
+                    else {
+                        issues.push(format!(
+                            "corrected event {} points to missing memory {}",
+                            event.event_id, memory_id
+                        ));
+                        continue;
+                    };
+
+                    if record.status != MemoryStatus::Active {
+                        issues.push(format!(
+                            "corrected event {} points to non-active memory {}",
+                            event.event_id, memory_id
+                        ));
+                    }
+
+                    let old_memory_id = event
+                        .reason
+                        .as_deref()
+                        .and_then(|reason| reason.strip_prefix("supersedes "));
+                    match old_memory_id {
+                        Some(old_memory_id) => {
+                            if !self.edges.iter().any(|edge| {
+                                edge.from_memory_id == memory_id
+                                    && edge.to_memory_id == old_memory_id
+                                    && edge.relation == "supersedes"
+                            }) {
+                                issues.push(format!(
+                                    "corrected event {} missing supersedes edge {} -> {}",
+                                    event.event_id, memory_id, old_memory_id
+                                ));
+                            }
+                        }
+                        None => issues.push(format!(
+                            "corrected event {} missing supersedes reason",
+                            event.event_id
+                        )),
+                    }
+                }
+                MemoryEventKind::Archived => {
+                    let Some(memory_id) = event.memory_id.as_deref() else {
+                        issues.push(format!(
+                            "archived event {} missing memory_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    match self
+                        .records
+                        .iter()
+                        .find(|record| record.memory_id == memory_id)
+                    {
+                        Some(record) if record.status == MemoryStatus::Archived => {}
+                        Some(_) => issues.push(format!(
+                            "archived event {} points to non-archived memory {}",
+                            event.event_id, memory_id
+                        )),
+                        None => issues.push(format!(
+                            "archived event {} points to missing memory {}",
+                            event.event_id, memory_id
+                        )),
+                    }
+                }
+                MemoryEventKind::Forgotten => {
+                    let Some(memory_id) = event.memory_id.as_deref() else {
+                        issues.push(format!(
+                            "forgotten event {} missing memory_id",
+                            event.event_id
+                        ));
+                        continue;
+                    };
+
+                    match self
+                        .records
+                        .iter()
+                        .find(|record| record.memory_id == memory_id)
+                    {
+                        Some(record) if record.status == MemoryStatus::Forgotten => {}
+                        Some(_) => issues.push(format!(
+                            "forgotten event {} points to non-forgotten memory {}",
+                            event.event_id, memory_id
+                        )),
+                        None => issues.push(format!(
+                            "forgotten event {} points to missing memory {}",
+                            event.event_id, memory_id
+                        )),
+                    }
+                }
+            }
+        }
+
+        for proposal in &self.proposals {
+            if !self.events.iter().any(|event| {
+                event.event_kind == MemoryEventKind::Proposed
+                    && event.proposal_id.as_deref() == Some(proposal.proposal_id.as_str())
+            }) {
+                issues.push(format!(
+                    "proposal {} missing proposed event",
+                    proposal.proposal_id
+                ));
+            }
+        }
+
+        MemoryAuditReport {
+            ok: issues.is_empty(),
+            checked_events: self.events.len(),
+            issues,
+        }
+    }
+
     pub fn core_markdown(&self) -> Result<String, MemoryError> {
         fs::read_to_string(&self.paths.core_md).map_err(|error| MemoryError(error.to_string()))
     }
@@ -313,6 +481,51 @@ impl MemoryKernel {
 
     pub fn set_projection_failure_for_tests(&mut self, should_fail: bool) {
         self.projection_should_fail_for_tests = should_fail;
+    }
+
+    #[cfg(test)]
+    pub fn delete_record_for_tests(&mut self, memory_id: &str) -> Result<(), MemoryError> {
+        block_on(async { store::delete_record_for_tests(&self.paths.db_path, memory_id).await })?;
+        self.refresh_cache()
+    }
+
+    #[cfg(test)]
+    pub fn delete_proposal_for_tests(&mut self, proposal_id: &str) -> Result<(), MemoryError> {
+        block_on(async {
+            store::delete_proposal_for_tests(&self.paths.db_path, proposal_id).await
+        })?;
+        self.refresh_cache()
+    }
+
+    #[cfg(test)]
+    pub fn delete_edge_for_tests(
+        &mut self,
+        from_memory_id: &str,
+        to_memory_id: &str,
+        relation: &str,
+    ) -> Result<(), MemoryError> {
+        block_on(async {
+            store::delete_edge_for_tests(
+                &self.paths.db_path,
+                from_memory_id,
+                to_memory_id,
+                relation,
+            )
+            .await
+        })?;
+        self.refresh_cache()
+    }
+
+    #[cfg(test)]
+    pub fn force_record_status_for_tests(
+        &mut self,
+        memory_id: &str,
+        status: MemoryStatus,
+    ) -> Result<(), MemoryError> {
+        block_on(async {
+            store::force_record_status_for_tests(&self.paths.db_path, memory_id, status).await
+        })?;
+        self.refresh_cache()
     }
 
     fn refresh_cache(&mut self) -> Result<(), MemoryError> {

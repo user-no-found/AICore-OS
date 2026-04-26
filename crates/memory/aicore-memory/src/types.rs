@@ -146,4 +146,11 @@ pub struct SearchQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryAuditReport {
+    pub ok: bool,
+    pub checked_events: usize,
+    pub issues: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryError(pub String);
