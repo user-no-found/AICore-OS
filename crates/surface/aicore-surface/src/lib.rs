@@ -16,6 +16,7 @@ pub enum MemoryProposalTypeView {
     Core,
     Working,
     Status,
+    Decision,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub fn build_kernel_surface(
                     MemoryType::Core => MemoryProposalTypeView::Core,
                     MemoryType::Working => MemoryProposalTypeView::Working,
                     MemoryType::Status => MemoryProposalTypeView::Status,
+                    MemoryType::Decision => MemoryProposalTypeView::Decision,
                 },
                 display_text: if !memory.localized_summary.is_empty() {
                     memory.localized_summary.clone()

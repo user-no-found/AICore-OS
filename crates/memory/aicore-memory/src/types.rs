@@ -16,6 +16,7 @@ pub enum MemoryType {
     Core,
     Working,
     Status,
+    Decision,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,6 +125,7 @@ pub struct MemorySnapshot {
 pub struct ProjectionState {
     pub stale: bool,
     pub warning: Option<String>,
+    pub last_rebuild_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,7 +9,10 @@ use tokio::runtime::Builder;
 use crate::{
     ids::{MemoryId, MemoryProposalId},
     paths::MemoryPaths,
-    projection::{build_core_projection, build_status_projection, rebuild_projections},
+    projection::{
+        build_core_projection, build_decisions_projection, build_permanent_projection,
+        build_status_projection, rebuild_projections,
+    },
     search::filter_records,
     store,
     types::{
@@ -47,6 +50,7 @@ impl MemoryKernel {
             projection_state: ProjectionState {
                 stale: false,
                 warning: None,
+                last_rebuild_at: None,
             },
             projection_should_fail_for_tests: false,
         };
@@ -325,13 +329,17 @@ impl MemoryKernel {
         match rebuild_projections(
             &self.paths.core_md,
             &self.paths.status_md,
+            &self.paths.permanent_md,
+            &self.paths.decisions_md,
             &self.records,
             self.projection_should_fail_for_tests,
         ) {
             Ok(_) => {
+                let rebuilt_at = now_string();
                 self.projection_state = ProjectionState {
                     stale: false,
                     warning: None,
+                    last_rebuild_at: Some(rebuilt_at),
                 };
                 block_on(async {
                     store::save_projection_state(&self.paths.db_path, &self.projection_state).await
@@ -342,6 +350,7 @@ impl MemoryKernel {
                 self.projection_state = ProjectionState {
                     stale: true,
                     warning: Some(error),
+                    last_rebuild_at: self.projection_state.last_rebuild_at.clone(),
                 };
                 block_on(async {
                     store::save_projection_state(&self.paths.db_path, &self.projection_state).await
@@ -444,4 +453,12 @@ pub fn build_core_projection_for_tests(records: &[MemoryRecord]) -> String {
 
 pub fn build_status_projection_for_tests(records: &[MemoryRecord]) -> String {
     build_status_projection(records)
+}
+
+pub fn build_permanent_projection_for_tests(records: &[MemoryRecord]) -> String {
+    build_permanent_projection(records)
+}
+
+pub fn build_decisions_projection_for_tests(records: &[MemoryRecord]) -> String {
+    build_decisions_projection(records)
 }

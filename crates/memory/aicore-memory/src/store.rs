@@ -119,18 +119,23 @@ pub async fn init_schema(db_path: &Path) -> Result<(), MemoryError> {
         "CREATE TABLE IF NOT EXISTS memory_projection_state (
             singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
             stale INTEGER NOT NULL,
-            warning TEXT
+            warning TEXT,
+            last_rebuild_at TEXT
         )",
     )
     .await
     .map_err(|error| MemoryError(error.to_string()))?;
 
     conn.execute(
-        "INSERT OR IGNORE INTO memory_projection_state(singleton, stale, warning)
-         VALUES (1, 0, NULL)",
+        "INSERT OR IGNORE INTO memory_projection_state(singleton, stale, warning, last_rebuild_at)
+         VALUES (1, 0, NULL, NULL)",
     )
     .await
     .map_err(|error| MemoryError(error.to_string()))?;
+
+    let _ = conn
+        .execute("ALTER TABLE memory_projection_state ADD COLUMN last_rebuild_at TEXT")
+        .await;
 
     Ok(())
 }
@@ -442,14 +447,17 @@ pub async fn load_events(db_path: &Path) -> Result<Vec<MemoryEvent>, MemoryError
 
 pub async fn load_projection_state(db_path: &Path) -> Result<ProjectionState, MemoryError> {
     let mut conn = connect(db_path).await?;
-    let row = sqlx::query("SELECT stale, warning FROM memory_projection_state WHERE singleton = 1")
-        .fetch_one(&mut conn)
-        .await
-        .map_err(|error| MemoryError(error.to_string()))?;
+    let row = sqlx::query(
+        "SELECT stale, warning, last_rebuild_at FROM memory_projection_state WHERE singleton = 1",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .map_err(|error| MemoryError(error.to_string()))?;
 
     Ok(projection_state(
         row.get::<i64, _>("stale") != 0,
         row.get::<Option<String>, _>("warning"),
+        row.get::<Option<String>, _>("last_rebuild_at"),
     ))
 }
 
@@ -458,9 +466,12 @@ pub async fn save_projection_state(
     state: &ProjectionState,
 ) -> Result<(), MemoryError> {
     let mut conn = connect(db_path).await?;
-    sqlx::query("UPDATE memory_projection_state SET stale = ?, warning = ? WHERE singleton = 1")
+    sqlx::query(
+        "UPDATE memory_projection_state SET stale = ?, warning = ?, last_rebuild_at = ? WHERE singleton = 1",
+    )
         .bind(if state.stale { 1 } else { 0 })
         .bind(&state.warning)
+        .bind(&state.last_rebuild_at)
         .execute(&mut conn)
         .await
         .map_err(|error| MemoryError(error.to_string()))?;
@@ -541,6 +552,7 @@ fn memory_type_name(value: &MemoryType) -> &'static str {
         MemoryType::Core => "core",
         MemoryType::Working => "working",
         MemoryType::Status => "status",
+        MemoryType::Decision => "decision",
     }
 }
 
@@ -592,6 +604,7 @@ fn parse_memory_type(value: &str) -> Result<MemoryType, MemoryError> {
         "core" => Ok(MemoryType::Core),
         "working" => Ok(MemoryType::Working),
         "status" => Ok(MemoryType::Status),
+        "decision" => Ok(MemoryType::Decision),
         _ => Err(MemoryError(format!("unknown memory_type: {value}"))),
     }
 }

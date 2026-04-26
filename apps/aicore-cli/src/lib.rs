@@ -455,6 +455,22 @@ fn print_memory_status() -> Result<(), String> {
     println!("- proposals: {}", kernel.proposals().len());
     println!("- events: {}", kernel.events().len());
     println!("- projection stale: {}", kernel.projection_state().stale);
+    println!(
+        "- projection warning: {}",
+        kernel
+            .projection_state()
+            .warning
+            .as_deref()
+            .unwrap_or("<none>")
+    );
+    println!(
+        "- last rebuild at: {}",
+        kernel
+            .projection_state()
+            .last_rebuild_at
+            .as_deref()
+            .unwrap_or("<none>")
+    );
 
     Ok(())
 }
@@ -815,6 +831,7 @@ fn memory_type_name(memory_type: &MemoryType) -> &'static str {
         MemoryType::Core => "core",
         MemoryType::Working => "working",
         MemoryType::Status => "status",
+        MemoryType::Decision => "decision",
     }
 }
 

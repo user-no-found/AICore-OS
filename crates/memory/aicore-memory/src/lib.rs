@@ -9,8 +9,8 @@ mod types;
 
 pub use ids::{MemoryEventId, MemoryId, MemoryProposalId, MemorySnapshotRev};
 pub use kernel::{
-    MemoryKernel, build_core_projection_for_tests, build_status_projection_for_tests,
-    default_memory_kernel,
+    MemoryKernel, build_core_projection_for_tests, build_decisions_projection_for_tests,
+    build_permanent_projection_for_tests, build_status_projection_for_tests, default_memory_kernel,
 };
 pub use paths::MemoryPaths;
 pub use safety::blocks_secret;
@@ -28,7 +28,8 @@ mod tests {
     use crate::{
         MemoryEventKind, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
         MemoryStatus, MemoryType, RememberInput, SearchQuery, blocks_secret,
-        build_core_projection_for_tests, build_memory_pack_for_tests,
+        build_core_projection_for_tests, build_decisions_projection_for_tests,
+        build_memory_pack_for_tests, build_permanent_projection_for_tests,
         build_status_projection_for_tests,
     };
 
@@ -577,6 +578,49 @@ mod tests {
 
         assert_eq!(kernel.records().len(), 1);
         assert!(kernel.projection_state().stale);
+        assert_eq!(
+            kernel.projection_state().warning.as_deref(),
+            Some("projection failure injected for tests")
+        );
+        assert_eq!(kernel.projection_state().last_rebuild_at, None);
+    }
+
+    #[test]
+    fn successful_rebuild_clears_stale_and_warning() {
+        let mut kernel = MemoryKernel::open(temp_paths("projection-recover"))
+            .expect("memory kernel should open");
+        kernel.set_projection_failure_for_tests(true);
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "第一次失败".to_string(),
+                localized_summary: "第一次失败".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should still succeed");
+
+        assert!(kernel.projection_state().stale);
+
+        kernel.set_projection_failure_for_tests(false);
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "第二次成功".to_string(),
+                localized_summary: "第二次成功".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        assert!(!kernel.projection_state().stale);
+        assert_eq!(kernel.projection_state().warning, None);
+        assert!(kernel.projection_state().last_rebuild_at.is_some());
     }
 
     #[test]
@@ -631,6 +675,108 @@ mod tests {
 
         let status = build_status_projection_for_tests(kernel.records());
         assert!(status.contains("P6.1"));
+    }
+
+    #[test]
+    fn permanent_projection_contains_only_active_permanent_records() {
+        let mut kernel = MemoryKernel::open(temp_paths("permanent-projection"))
+            .expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Permanent,
+                scope: global_scope(),
+                content: "长期有效规则".to_string(),
+                localized_summary: "长期有效规则".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "普通规则".to_string(),
+                localized_summary: "普通规则".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let permanent = build_permanent_projection_for_tests(kernel.records());
+        assert!(permanent.contains("长期有效规则"));
+        assert!(!permanent.contains("普通规则"));
+    }
+
+    #[test]
+    fn archived_permanent_record_is_excluded_from_permanent_projection() {
+        let mut kernel = MemoryKernel::open(temp_paths("permanent-archived"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Permanent,
+                scope: global_scope(),
+                content: "归档的长期规则".to_string(),
+                localized_summary: "归档的长期规则".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .archive_with_version(&memory_id, 1)
+            .expect("archive should succeed");
+
+        let permanent = build_permanent_projection_for_tests(kernel.records());
+        assert!(!permanent.contains("归档的长期规则"));
+    }
+
+    #[test]
+    fn decisions_projection_contains_active_decision_records() {
+        let mut kernel = MemoryKernel::open(temp_paths("decisions-projection"))
+            .expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Decision,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "决定优先 CLI 再做 TUI".to_string(),
+                localized_summary: "优先 CLI".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let decisions = build_decisions_projection_for_tests(kernel.records());
+        assert!(decisions.contains("决定优先 CLI 再做 TUI"));
+    }
+
+    #[test]
+    fn decisions_projection_excludes_archived_decisions() {
+        let mut kernel = MemoryKernel::open(temp_paths("decisions-archived"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Decision,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "已归档决定".to_string(),
+                localized_summary: "已归档决定".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .archive_with_version(&memory_id, 1)
+            .expect("archive should succeed");
+
+        let decisions = build_decisions_projection_for_tests(kernel.records());
+        assert!(!decisions.contains("已归档决定"));
     }
 
     #[test]

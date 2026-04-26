@@ -403,6 +403,19 @@ fn memory_status_shows_memory_root() {
 }
 
 #[test]
+fn memory_status_shows_projection_metadata() {
+    let root = temp_root("memory-status-projection-meta");
+    let output = run_cli_with_config_root(&["memory", "status"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("projection stale: false"));
+    assert!(stdout.contains("projection warning: <none>"));
+    assert!(stdout.contains("last rebuild at: <none>"));
+}
+
+#[test]
 fn renders_config_path_command() {
     let root = temp_root("config-path");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
