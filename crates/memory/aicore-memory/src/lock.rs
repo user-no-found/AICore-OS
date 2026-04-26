@@ -9,7 +9,7 @@ use std::{
 use crate::types::MemoryError;
 
 const STALE_LOCK_TIMEOUT_SECS: u64 = 30;
-const LOCK_WAIT_TIMEOUT_MILLIS: u64 = 500;
+const LOCK_WAIT_TIMEOUT_MILLIS: u64 = 1500;
 const LOCK_WAIT_POLL_MILLIS: u64 = 10;
 
 #[derive(Debug)]

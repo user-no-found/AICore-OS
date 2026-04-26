@@ -4,41 +4,29 @@ use crate::types::{
 };
 
 pub fn filter_records(records: &[MemoryRecord], query: &SearchQuery) -> Vec<SearchResult> {
-    let needle = query.text.to_ascii_lowercase();
     let mut results: Vec<SearchResult> = records
         .iter()
-        .filter(|record| record.status == MemoryStatus::Active)
-        .filter(|record| match &query.scope {
-            Some(scope) => &record.scope == scope,
-            None => true,
-        })
-        .filter(|record| match &query.memory_type {
-            Some(memory_type) => &record.memory_type == memory_type,
-            None => true,
-        })
-        .filter(|record| match &query.source {
-            Some(source) => &record.source == source,
-            None => true,
-        })
-        .filter(|record| match &query.permanence {
-            Some(permanence) => &record.permanence == permanence,
-            None => true,
-        })
-        .filter_map(|record| build_search_result(record, &needle))
+        .filter(|record| matches_query_filters(record, query))
+        .filter_map(|record| build_search_result(record, &query.text.to_ascii_lowercase()))
         .collect();
 
-    results.sort_by(|left, right| {
-        right
-            .score
-            .cmp(&left.score)
-            .then_with(|| record_created_at(&right.record).cmp(&record_created_at(&left.record)))
-            .then_with(|| left.record.memory_id.cmp(&right.record.memory_id))
-    });
+    sort_and_limit(&mut results, query.limit);
+    results
+}
 
-    if let Some(limit) = query.limit {
-        results.truncate(limit);
-    }
+pub fn filter_records_by_ids(
+    records: &[MemoryRecord],
+    query: &SearchQuery,
+    candidate_ids: &[String],
+) -> Vec<SearchResult> {
+    let mut results: Vec<SearchResult> = records
+        .iter()
+        .filter(|record| candidate_ids.iter().any(|id| id == &record.memory_id))
+        .filter(|record| matches_query_filters(record, query))
+        .filter_map(|record| build_search_result(record, &query.text.to_ascii_lowercase()))
+        .collect();
 
+    sort_and_limit(&mut results, query.limit);
     results
 }
 
@@ -82,6 +70,26 @@ fn estimate_tokens(record: &MemoryRecord) -> usize {
     } else {
         record.content.chars().count()
     }
+}
+
+fn matches_query_filters(record: &MemoryRecord, query: &SearchQuery) -> bool {
+    record.status == MemoryStatus::Active
+        && match &query.scope {
+            Some(scope) => &record.scope == scope,
+            None => true,
+        }
+        && match &query.memory_type {
+            Some(memory_type) => &record.memory_type == memory_type,
+            None => true,
+        }
+        && match &query.source {
+            Some(source) => &record.source == source,
+            None => true,
+        }
+        && match &query.permanence {
+            Some(permanence) => &record.permanence == permanence,
+            None => true,
+        }
 }
 
 pub fn scope_kind(scope: &MemoryScope) -> &'static str {
@@ -157,4 +165,18 @@ fn build_search_result(record: &MemoryRecord, needle: &str) -> Option<SearchResu
 
 fn record_created_at(record: &MemoryRecord) -> i64 {
     record.created_at.parse::<i64>().unwrap_or_default()
+}
+
+fn sort_and_limit(results: &mut Vec<SearchResult>, limit: Option<usize>) {
+    results.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| record_created_at(&right.record).cmp(&record_created_at(&left.record)))
+            .then_with(|| left.record.memory_id.cmp(&right.record.memory_id))
+    });
+
+    if let Some(limit) = limit {
+        results.truncate(limit);
+    }
 }

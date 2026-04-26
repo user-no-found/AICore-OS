@@ -14,7 +14,7 @@ use crate::{
         build_core_projection, build_decisions_projection, build_permanent_projection,
         build_status_projection, rebuild_projections,
     },
-    search::filter_records,
+    search::{filter_records, filter_records_by_ids},
     store,
     types::{
         MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent,
@@ -360,7 +360,16 @@ impl MemoryKernel {
     }
 
     pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchResult>, MemoryError> {
-        Ok(filter_records(&self.records, &query))
+        let candidate_ids = block_on(async {
+            store::search_index_candidates(&self.paths.db_path, &query.text, query.limit).await
+        })?;
+
+        Ok(match candidate_ids {
+            Some(candidate_ids) if !query.text.is_empty() && !candidate_ids.is_empty() => {
+                filter_records_by_ids(&self.records, &query, &candidate_ids)
+            }
+            _ => filter_records(&self.records, &query),
+        })
     }
 
     pub fn list_open_proposals(&self) -> Vec<MemoryProposal> {
@@ -800,6 +809,17 @@ impl MemoryKernel {
         self.refresh_cache()
     }
 
+    #[cfg(test)]
+    pub fn search_index_available_for_tests(&self) -> Result<bool, MemoryError> {
+        block_on(async { store::search_index_available(&self.paths.db_path).await })
+    }
+
+    #[cfg(test)]
+    pub fn drop_search_index_for_tests(&mut self) -> Result<(), MemoryError> {
+        block_on(async { store::drop_search_index_for_tests(&self.paths.db_path).await })?;
+        Ok(())
+    }
+
     fn refresh_cache(&mut self) -> Result<(), MemoryError> {
         self.records = block_on(async { store::load_records(&self.paths.db_path).await })?;
         self.proposals = block_on(async { store::load_proposals(&self.paths.db_path).await })?;
@@ -824,6 +844,7 @@ impl MemoryKernel {
 
     fn rebuild_projections_after_commit(&mut self) -> Result<(), MemoryError> {
         let rebuilt_at = now_string();
+        let _ = block_on(async { store::rebuild_search_index(&self.paths.db_path).await })?;
         match rebuild_projections(
             &self.paths.core_md,
             &self.paths.status_md,

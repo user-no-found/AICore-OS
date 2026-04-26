@@ -665,6 +665,187 @@ mod tests {
     }
 
     #[test]
+    fn fts_index_rebuilds_from_active_records() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("fts-rebuild")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "fts active record".to_string(),
+                localized_summary: "fts active record".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        if !kernel
+            .search_index_available_for_tests()
+            .expect("fts capability should be readable")
+        {
+            return;
+        }
+
+        let results = kernel
+            .search(SearchQuery {
+                text: "fts active".to_string(),
+                scope: None,
+                memory_type: None,
+                source: None,
+                permanence: None,
+                limit: None,
+            })
+            .expect("search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].record.content, "fts active record");
+    }
+
+    #[test]
+    fn fts_index_indexes_content_normalized_and_localized_fields() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("fts-index-fields")).expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Working,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "field content".to_string(),
+                localized_summary: "field summary".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .force_normalized_content_for_tests(&memory_id, "field normalized")
+            .expect("normalized content should be mutable in tests");
+
+        if !kernel
+            .search_index_available_for_tests()
+            .expect("fts capability should be readable")
+        {
+            return;
+        }
+
+        for query in ["content", "normalized", "summary"] {
+            let results = kernel
+                .search(SearchQuery {
+                    text: query.to_string(),
+                    scope: None,
+                    memory_type: None,
+                    source: None,
+                    permanence: None,
+                    limit: None,
+                })
+                .expect("search should succeed");
+            assert_eq!(results.len(), 1);
+        }
+    }
+
+    #[test]
+    fn fts_search_returns_search_results() {
+        let mut kernel = MemoryKernel::open(temp_paths("fts-search-results"))
+            .expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "fts result".to_string(),
+                localized_summary: "fts result".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+
+        let results = kernel
+            .search(SearchQuery {
+                text: "fts".to_string(),
+                scope: None,
+                memory_type: None,
+                source: None,
+                permanence: None,
+                limit: None,
+            })
+            .expect("search should succeed");
+
+        assert_eq!(results.len(), 1);
+        assert!(results[0].score > 0);
+        assert!(!results[0].matched_fields.is_empty());
+    }
+
+    #[test]
+    fn fts_search_falls_back_to_like_when_unavailable() {
+        let mut kernel =
+            MemoryKernel::open(temp_paths("fts-fallback")).expect("memory kernel should open");
+
+        kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "fallback search".to_string(),
+                localized_summary: "fallback search".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel
+            .drop_search_index_for_tests()
+            .expect("fts index should be droppable in tests");
+
+        let results = kernel
+            .search(SearchQuery {
+                text: "fallback".to_string(),
+                scope: None,
+                memory_type: None,
+                source: None,
+                permanence: None,
+                limit: None,
+            })
+            .expect("search should still succeed");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].record.content, "fallback search");
+    }
+
+    #[test]
+    fn search_index_is_not_truth_source() {
+        let mut kernel = MemoryKernel::open(temp_paths("fts-not-truth-source"))
+            .expect("memory kernel should open");
+
+        let memory_id = kernel
+            .remember_user_explicit(RememberInput {
+                memory_type: MemoryType::Core,
+                permanence: MemoryPermanence::Standard,
+                scope: global_scope(),
+                content: "search index not truth source".to_string(),
+                localized_summary: "search index not truth source".to_string(),
+                state_key: None,
+                current_state: None,
+            })
+            .expect("remember should succeed");
+        kernel.archive(&memory_id).expect("archive should succeed");
+
+        let results = kernel
+            .search(SearchQuery {
+                text: "search index".to_string(),
+                scope: None,
+                memory_type: None,
+                source: None,
+                permanence: None,
+                limit: None,
+            })
+            .expect("search should succeed");
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
     fn search_filters_by_source() {
         let mut kernel = MemoryKernel::open(temp_paths("search-filter-source"))
             .expect("memory kernel should open");
