@@ -5,6 +5,13 @@ use crate::{
     types::{MemoryRecord, MemoryStatus, MemoryType, ProjectionState},
 };
 
+struct WikiProjectionMetadata<'a> {
+    generated_at: &'a str,
+    last_rebuild_at: &'a str,
+    projection_stale: bool,
+    projection_warning: Option<&'a str>,
+}
+
 pub fn rebuild_projections(
     core_path: &Path,
     status_path: &Path,
@@ -34,18 +41,24 @@ pub fn rebuild_projections(
         return Err("projection failure injected for tests".to_string());
     }
 
+    let metadata = WikiProjectionMetadata {
+        generated_at,
+        last_rebuild_at: generated_at,
+        projection_stale: false,
+        projection_warning: None,
+    };
     let core = build_core_projection(records);
     let status = build_status_projection(records);
     let permanent = build_permanent_projection(records);
     let decisions = build_decisions_projection(records);
-    let wiki_index = build_wiki_index_projection(generated_at);
-    let wiki_core = build_wiki_page_projection("Core Memories", generated_at, records, |record| {
+    let wiki_index = build_wiki_index_projection(&metadata);
+    let wiki_core = build_wiki_page_projection("Core Memories", &metadata, records, |record| {
         record.memory_type == MemoryType::Core
     });
-    let wiki_decisions = build_wiki_page_projection("Decisions", generated_at, records, |record| {
+    let wiki_decisions = build_wiki_page_projection("Decisions", &metadata, records, |record| {
         record.memory_type == MemoryType::Decision
     });
-    let wiki_status = build_wiki_page_projection("Status", generated_at, records, |record| {
+    let wiki_status = build_wiki_page_projection("Status", &metadata, records, |record| {
         record.memory_type == MemoryType::Status
     });
 
@@ -74,14 +87,14 @@ pub fn rebuild_projections(
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
 
-    fs::write(core_path, &core).map_err(|error| error.to_string())?;
-    fs::write(status_path, &status).map_err(|error| error.to_string())?;
-    fs::write(permanent_path, &permanent).map_err(|error| error.to_string())?;
-    fs::write(decisions_path, &decisions).map_err(|error| error.to_string())?;
-    fs::write(wiki_index_path, &wiki_index).map_err(|error| error.to_string())?;
-    fs::write(wiki_core_path, &wiki_core).map_err(|error| error.to_string())?;
-    fs::write(wiki_decisions_path, &wiki_decisions).map_err(|error| error.to_string())?;
-    fs::write(wiki_status_path, &wiki_status).map_err(|error| error.to_string())?;
+    write_atomic(core_path, &core)?;
+    write_atomic(status_path, &status)?;
+    write_atomic(permanent_path, &permanent)?;
+    write_atomic(decisions_path, &decisions)?;
+    write_atomic(wiki_index_path, &wiki_index)?;
+    write_atomic(wiki_core_path, &wiki_core)?;
+    write_atomic(wiki_decisions_path, &wiki_decisions)?;
+    write_atomic(wiki_status_path, &wiki_status)?;
 
     Ok((
         core,
@@ -155,20 +168,28 @@ pub fn build_decisions_projection(records: &[MemoryRecord]) -> String {
     output
 }
 
-pub fn build_wiki_index_projection(generated_at: &str) -> String {
+fn build_wiki_index_projection(metadata: &WikiProjectionMetadata<'_>) -> String {
     format!(
-        "# Memory Wiki\n\n> 这是 generated projection。\n> 不是事实来源。\n> 事实来源仍然是 memory.db / MemoryRecord / Memory Event Ledger。\n> 不应手工编辑后期待反向同步。\n\nGenerated at: {generated_at}\n\n- [Core](core.md)\n- [Decisions](decisions.md)\n- [Status](status.md)\n"
+        "# Memory Wiki\n\n> 这是 generated projection。\n> 不是事实来源。\n> 事实来源仍然是 memory.db / MemoryRecord / Memory Event Ledger。\n> 不应手工编辑后期待反向同步。\n\n- generated_at: {}\n- last_rebuild_at: {}\n- projection_stale: {}\n- projection_warning: {}\n- source: memory_records\n- truth_source: memory.db / MemoryRecord / Memory Event Ledger\n\n- [Core](core.md): 当前 active core 记忆列表。\n- [Decisions](decisions.md): 当前 active decision 记忆列表。\n- [Status](status.md): 当前 active status 记忆列表。\n",
+        metadata.generated_at,
+        metadata.last_rebuild_at,
+        metadata.projection_stale,
+        metadata.projection_warning.unwrap_or("<none>"),
     )
 }
 
-pub fn build_wiki_page_projection(
+fn build_wiki_page_projection(
     title: &str,
-    generated_at: &str,
+    metadata: &WikiProjectionMetadata<'_>,
     records: &[MemoryRecord],
     predicate: impl Fn(&MemoryRecord) -> bool,
 ) -> String {
     let mut output = format!(
-        "# {title}\n\n> 这是 generated projection。\n> 不是事实来源。\n> 事实来源仍然是 memory.db / MemoryRecord / Memory Event Ledger。\n> 不应手工编辑后期待反向同步。\n\nGenerated at: {generated_at}\n\n"
+        "# {title}\n\n> 这是 generated projection。\n> 不是事实来源。\n> 事实来源仍然是 memory.db / MemoryRecord / Memory Event Ledger。\n> 不应手工编辑后期待反向同步。\n\n- generated_at: {}\n- last_rebuild_at: {}\n- projection_stale: {}\n- projection_warning: {}\n- source: memory_records\n- truth_source: memory.db / MemoryRecord / Memory Event Ledger\n\n",
+        metadata.generated_at,
+        metadata.last_rebuild_at,
+        metadata.projection_stale,
+        metadata.projection_warning.unwrap_or("<none>"),
     );
 
     let mut found = false;
@@ -179,15 +200,24 @@ pub fn build_wiki_page_projection(
     }) {
         found = true;
         output.push_str(&format!(
-            "- memory_id: {}\n  - memory_type: {}\n  - source: {}\n  - permanence: {}\n  - scope: {}\n  - updated_at: {}\n  - content: {}\n",
+            "- memory_id: {}\n  - memory_type: {}\n  - source: {}\n  - permanence: {}\n  - scope: {}\n  - record_version: {}\n  - updated_at: {}\n",
             record.memory_id,
             memory_type_name(&record.memory_type),
             memory_source_name(&record.source),
             memory_permanence_name(&record.permanence),
             memory_scope_name(&record.scope),
+            record.record_version,
             record.updated_at,
-            record.localized_summary
         ));
+        if record.memory_type == MemoryType::Status {
+            if let Some(state_key) = &record.state_key {
+                output.push_str(&format!("  - state_key: {state_key}\n"));
+            }
+            if let Some(current_state) = &record.current_state {
+                output.push_str(&format!("  - current_state: {current_state}\n"));
+            }
+        }
+        output.push_str(&format!("  - content: {}\n", record.localized_summary));
     }
 
     if !found {
@@ -207,6 +237,19 @@ pub fn projection_state(
         warning,
         last_rebuild_at,
     }
+}
+
+fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| format!("invalid projection path: {}", path.display()))?;
+    let temp_path = path.with_file_name(format!("{}.tmp", file_name.to_string_lossy()));
+    fs::write(&temp_path, content).map_err(|error| error.to_string())?;
+    fs::rename(&temp_path, path).map_err(|error| {
+        let _ = fs::remove_file(&temp_path);
+        error.to_string()
+    })?;
+    Ok(())
 }
 
 fn memory_type_name(memory_type: &MemoryType) -> &'static str {

@@ -549,6 +549,7 @@ fn print_memory_wiki_index() -> Result<(), String> {
 
 fn print_memory_wiki_page(page: &str) -> Result<(), String> {
     let paths = real_memory_paths()?;
+    let kernel = MemoryKernel::open(paths.clone()).map_err(memory_error)?;
     let (page_name, page_path) = resolve_memory_wiki_page(&paths, page)?;
 
     if !page_path.exists() {
@@ -559,6 +560,9 @@ fn print_memory_wiki_page(page: &str) -> Result<(), String> {
         .map_err(|error| format!("无法读取 Wiki Projection {}: {error}", page_path.display()))?;
 
     println!("记忆 Wiki Projection：");
+    for line in wiki_projection_status_lines(kernel.projection_state()) {
+        println!("{line}");
+    }
     println!("- page: {page_name}");
     println!("- path: {}", page_path.display());
     println!();
@@ -758,6 +762,17 @@ fn resolve_memory_wiki_page(
         "status" => Ok(("status", paths.wiki_status_md.clone())),
         _ => Err(format!("未知 Wiki 页面：{page}")),
     }
+}
+
+fn wiki_projection_status_lines(state: &aicore_memory::ProjectionState) -> Vec<String> {
+    let mut lines = Vec::new();
+    if state.stale {
+        lines.push("Projection 状态：stale".to_string());
+    }
+    if let Some(warning) = state.warning.as_deref() {
+        lines.push(format!("Projection warning：{warning}"));
+    }
+    lines
 }
 
 fn resolve_real_config_root() -> Result<PathBuf, String> {
@@ -1104,7 +1119,9 @@ fn parse_memory_permanence_filter(value: &str) -> Result<MemoryPermanence, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::run_from_args;
+    use aicore_memory::ProjectionState;
+
+    use super::{run_from_args, wiki_projection_status_lines};
 
     #[test]
     fn rejects_unknown_command() {
@@ -1116,6 +1133,32 @@ mod tests {
         assert_eq!(
             run_from_args(vec!["config".to_string(), "unknown".to_string()]),
             1
+        );
+    }
+
+    #[test]
+    fn memory_wiki_warns_when_projection_stale() {
+        let lines = wiki_projection_status_lines(&ProjectionState {
+            stale: true,
+            warning: None,
+            last_rebuild_at: Some("123".to_string()),
+        });
+
+        assert!(lines.iter().any(|line| line == "Projection 状态：stale"));
+    }
+
+    #[test]
+    fn memory_wiki_warns_when_projection_warning_exists() {
+        let lines = wiki_projection_status_lines(&ProjectionState {
+            stale: true,
+            warning: Some("projection warning".to_string()),
+            last_rebuild_at: Some("123".to_string()),
+        });
+
+        assert!(
+            lines
+                .iter()
+                .any(|line| line == "Projection warning：projection warning")
         );
     }
 }
