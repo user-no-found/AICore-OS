@@ -20,7 +20,7 @@ use crate::{
         MemoryAgentOutput, MemoryAuditReport, MemoryEdge, MemoryError, MemoryEvent,
         MemoryEventKind, MemoryPermanence, MemoryProposal, MemoryProposalStatus, MemoryRecord,
         MemoryScope, MemorySource, MemoryStatus, MemoryType, ProjectionState, RememberInput,
-        SearchQuery,
+        SearchQuery, SearchResult,
     },
 };
 
@@ -359,7 +359,7 @@ impl MemoryKernel {
         )
     }
 
-    pub fn search(&self, query: SearchQuery) -> Result<Vec<MemoryRecord>, MemoryError> {
+    pub fn search(&self, query: SearchQuery) -> Result<Vec<SearchResult>, MemoryError> {
         Ok(filter_records(&self.records, &query))
     }
 
@@ -760,6 +760,23 @@ impl MemoryKernel {
     ) -> Result<(), MemoryError> {
         block_on(async {
             store::force_record_status_for_tests(&self.paths.db_path, memory_id, status).await
+        })?;
+        self.refresh_cache()
+    }
+
+    #[cfg(test)]
+    pub fn force_normalized_content_for_tests(
+        &mut self,
+        memory_id: &str,
+        normalized_content: &str,
+    ) -> Result<(), MemoryError> {
+        block_on(async {
+            store::force_normalized_content_for_tests(
+                &self.paths.db_path,
+                memory_id,
+                normalized_content,
+            )
+            .await
         })?;
         self.refresh_cache()
     }

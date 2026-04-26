@@ -638,6 +638,22 @@ pub async fn force_record_status_for_tests(
     Ok(())
 }
 
+#[cfg(test)]
+pub async fn force_normalized_content_for_tests(
+    db_path: &Path,
+    memory_id: &str,
+    normalized_content: &str,
+) -> Result<(), MemoryError> {
+    let mut conn = connect(db_path).await?;
+    sqlx::query("UPDATE memory_records SET normalized_content = ? WHERE memory_id = ?")
+        .bind(normalized_content)
+        .bind(memory_id)
+        .execute(&mut conn)
+        .await
+        .map_err(|error| MemoryError(error.to_string()))?;
+    Ok(())
+}
+
 fn row_to_scope(row: &sqlx::sqlite::SqliteRow) -> Result<MemoryScope, MemoryError> {
     let scope_kind = row.get::<String, _>("scope_kind");
     let instance_id = row.get::<String, _>("instance_id");

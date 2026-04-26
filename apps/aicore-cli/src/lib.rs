@@ -579,6 +579,10 @@ fn print_memory_search(query: &str) -> Result<(), String> {
         .search(SearchQuery {
             text: query.to_string(),
             scope: Some(global_main_memory_scope()),
+            memory_type: None,
+            source: None,
+            permanence: None,
+            limit: None,
         })
         .map_err(memory_error)?;
 
@@ -586,7 +590,8 @@ fn print_memory_search(query: &str) -> Result<(), String> {
     if results.is_empty() {
         println!("- 无匹配记忆");
     } else {
-        for record in results {
+        for result in results {
+            let record = result.record;
             println!(
                 "- {} [{}] {}",
                 record.memory_id,

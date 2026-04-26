@@ -145,6 +145,17 @@ pub struct RememberInput {
 pub struct SearchQuery {
     pub text: String,
     pub scope: Option<MemoryScope>,
+    pub memory_type: Option<MemoryType>,
+    pub source: Option<MemorySource>,
+    pub permanence: Option<MemoryPermanence>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResult {
+    pub record: MemoryRecord,
+    pub score: i64,
+    pub matched_fields: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
