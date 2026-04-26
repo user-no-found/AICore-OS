@@ -4,6 +4,7 @@ members = [
   "apps/aicore",
   "apps/aicore-cli",
   "apps/aicore-tui",
+  "crates/agent/aicore-agent",
   "crates/auth/aicore-auth",
   "crates/config/aicore-config",
   "crates/foundation/aicore-foundation",
@@ -27,6 +28,7 @@ repository = "https://github.com/user-no-found/AICore-OS.git"
 authors = ["user-no-found"]
 
 [workspace.dependencies]
+aicore-agent = { path = "crates/agent/aicore-agent" }
 aicore-auth = { path = "crates/auth/aicore-auth" }
 aicore-config = { path = "crates/config/aicore-config" }
 aicore-contracts = { path = "crates/contracts/aicore-contracts" }

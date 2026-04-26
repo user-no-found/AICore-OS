@@ -1,5 +1,5 @@
 [package]
-name = "aicore-cli"
+name = "aicore-agent"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -8,11 +8,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-aicore-agent.workspace = true
 aicore-auth.workspace = true
 aicore-config.workspace = true
-aicore-control.workspace = true
-aicore-contracts.workspace = true
 aicore-memory.workspace = true
 aicore-provider.workspace = true
 aicore-runtime.workspace = true

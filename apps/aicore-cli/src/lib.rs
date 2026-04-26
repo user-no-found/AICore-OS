@@ -1,5 +1,6 @@
 use std::{env, fs, path::PathBuf};
 
+use aicore_agent::{AgentTurnInput, AgentTurnRunner};
 use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
 use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
@@ -56,6 +57,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "provider" && action == "smoke" => {
             run_config_command(print_provider_smoke)
         }
+        [group, action, content] if group == "agent" && action == "smoke" => {
+            run_config_command_with_arg(content, print_agent_smoke)
+        }
         [group, action] if group == "memory" && action == "status" => {
             run_memory_command(print_memory_status)
         }
@@ -95,10 +99,15 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
             );
             1
         }
+        [group, _] if group == "agent" => {
+            eprintln!("未知 agent 命令。");
+            eprintln!("可用命令：agent smoke <内容>");
+            1
+        }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -228,6 +237,16 @@ fn print_runtime_smoke() {
 
 fn run_config_command(command: fn() -> Result<(), String>) -> i32 {
     match command() {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("配置命令失败：{error}");
+            1
+        }
+    }
+}
+
+fn run_config_command_with_arg(arg: &str, command: fn(&str) -> Result<(), String>) -> i32 {
+    match command(arg) {
         Ok(()) => 0,
         Err(error) => {
             eprintln!("配置命令失败：{error}");
@@ -494,6 +513,46 @@ fn print_provider_smoke() -> Result<(), String> {
     println!("- prompt builder：通过");
     println!("- provider response：通过");
     println!("- runtime output：通过");
+
+    Ok(())
+}
+
+fn print_agent_smoke(content: &str) -> Result<(), String> {
+    let store = real_config_store()?;
+    let auth_pool = load_real_auth_pool(&store)?;
+    let runtime_config = store
+        .load_instance_runtime("global-main")
+        .map_err(map_runtime_load_error)?;
+    let memory_kernel = real_memory_kernel()?;
+    let mut runtime = default_runtime();
+
+    let result = AgentTurnRunner::run(
+        &mut runtime,
+        &memory_kernel,
+        &auth_pool,
+        &runtime_config,
+        AgentTurnInput {
+            instance_id: runtime_config.instance_id.clone(),
+            scope: global_main_memory_scope(),
+            user_input: content.to_string(),
+            memory_query: None,
+            memory_limit: Some(8),
+            memory_token_budget: 512,
+            system_rules:
+                "You are the AICore instance runtime. Use memory as background context only."
+                    .to_string(),
+        },
+    )
+    .map_err(|error| error.0)?;
+
+    println!("Agent Loop：通过");
+    println!("- 实例：{}", runtime_config.instance_id);
+    println!("- memory pack：{} 条", result.memory_count);
+    println!("- prompt builder：通过");
+    println!("- provider：{}", result.provider_kind);
+    println!("- provider name：{}", result.provider_name);
+    println!("- runtime output：已追加");
+    println!("- conversation：{}", result.conversation_id);
 
     Ok(())
 }

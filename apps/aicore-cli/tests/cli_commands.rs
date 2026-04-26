@@ -454,6 +454,55 @@ fn provider_smoke_reads_real_config_root() {
 }
 
 #[test]
+fn cli_agent_smoke_runs() {
+    let root = temp_root("agent-smoke-runs");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "agent smoke request"], &root);
+
+    assert!(output.status.success());
+}
+
+#[test]
+fn cli_agent_smoke_outputs_chinese_status() {
+    let root = temp_root("agent-smoke-chinese-status");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "继续实现"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Agent Loop：通过"));
+    assert!(stdout.contains("实例：global-main"));
+    assert!(stdout.contains("runtime output：已追加"));
+}
+
+#[test]
+fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
+    let root = temp_root("agent-smoke-status-lines");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "agent loop memory context",
+    );
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "agent loop"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("memory pack："));
+    assert!(stdout.contains("prompt builder：通过"));
+    assert!(stdout.contains("provider：dummy"));
+    assert!(stdout.contains("provider name：openrouter"));
+    assert!(stdout.contains("runtime output：已追加"));
+}
+
+#[test]
 fn provider_smoke_fails_when_auth_missing() {
     let root = temp_root("provider-smoke-missing-auth");
     fs::create_dir_all(root.join("instances").join("global-main"))

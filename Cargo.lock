@@ -11,6 +11,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-agent"
+version = "0.1.0"
+dependencies = [
+ "aicore-auth",
+ "aicore-config",
+ "aicore-memory",
+ "aicore-provider",
+ "aicore-runtime",
+]
+
+[[package]]
 name = "aicore-auth"
 version = "0.1.0"
 
@@ -18,6 +29,7 @@ version = "0.1.0"
 name = "aicore-cli"
 version = "0.1.0"
 dependencies = [
+ "aicore-agent",
  "aicore-auth",
  "aicore-config",
  "aicore-contracts",

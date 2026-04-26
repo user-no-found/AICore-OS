@@ -36,6 +36,7 @@ impl Workflow {
         match self {
             Self::Foundation => &["aicore-foundation", "aicore-contracts"],
             Self::Kernel => &[
+                "aicore-agent",
                 "aicore-auth",
                 "aicore-config",
                 "aicore-control",
@@ -92,5 +93,10 @@ mod tests {
     #[test]
     fn kernel_workflow_includes_provider_package() {
         assert!(Workflow::Kernel.crates().contains(&"aicore-provider"));
+    }
+
+    #[test]
+    fn kernel_workflow_includes_agent_package() {
+        assert!(Workflow::Kernel.crates().contains(&"aicore-agent"));
     }
 }
