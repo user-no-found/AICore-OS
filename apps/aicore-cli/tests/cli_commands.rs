@@ -344,6 +344,65 @@ fn memory_remember_preserves_chinese_text() {
 }
 
 #[test]
+fn memory_remember_persists_across_cli_processes() {
+    let root = temp_root("memory-persist-process");
+
+    let remember_output =
+        run_cli_with_config_root(&["memory", "remember", "跨进程持久化记忆"], &root);
+    assert!(remember_output.status.success());
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "跨进程"], &root);
+    assert!(search_output.status.success());
+
+    let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("跨进程持久化记忆"));
+}
+
+#[test]
+fn memory_status_reports_real_counts_after_remember() {
+    let root = temp_root("memory-status-after-remember");
+
+    let remember_output =
+        run_cli_with_config_root(&["memory", "remember", "status count memory"], &root);
+    assert!(remember_output.status.success());
+
+    let status_output = run_cli_with_config_root(&["memory", "status"], &root);
+    assert!(status_output.status.success());
+
+    let stdout = String::from_utf8(status_output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("records: 1"));
+    assert!(stdout.contains("events: 1"));
+    assert!(stdout.contains("projection stale: false"));
+}
+
+#[test]
+fn memory_search_empty_result_prints_friendly_message() {
+    let root = temp_root("memory-empty-search");
+    let output = run_cli_with_config_root(&["memory", "search", "missing"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn memory_status_shows_memory_root() {
+    let root = temp_root("memory-status-root");
+    let output = run_cli_with_config_root(&["memory", "status"], &root);
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Memory Status："));
+    assert!(stdout.contains(&format!(
+        "root: {}",
+        root.join("instances").join("global-main").join("memory").display()
+    )));
+}
+
+#[test]
 fn renders_config_path_command() {
     let root = temp_root("config-path");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))

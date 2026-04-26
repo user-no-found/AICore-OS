@@ -445,10 +445,12 @@ fn print_provider_smoke() -> Result<(), String> {
 }
 
 fn print_memory_status() -> Result<(), String> {
-    let kernel = real_memory_kernel()?;
+    let paths = real_memory_paths()?;
+    let kernel = MemoryKernel::open(paths.clone()).map_err(memory_error)?;
 
     println!("Memory Status：");
     println!("- instance: global-main");
+    println!("- root: {}", paths.root.display());
     println!("- records: {}", kernel.records().len());
     println!("- proposals: {}", kernel.proposals().len());
     println!("- events: {}", kernel.events().len());
