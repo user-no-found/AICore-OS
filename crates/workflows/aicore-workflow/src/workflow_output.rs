@@ -7,6 +7,7 @@ use aicore_terminal::{
 };
 
 use crate::cargo_runner::CommandReport;
+use crate::shell_integration::ShellPathBootstrapResult;
 
 const RICH_PANEL_WIDTH: usize = 58;
 const RICH_PANEL_MAX_WIDTH: usize = 78;
@@ -199,6 +200,10 @@ impl WorkflowOutput {
         );
     }
 
+    pub fn record_shell_path_bootstrap(&self, result: &ShellPathBootstrapResult) {
+        print!("{}", render_shell_path_bootstrap(result, &self.config));
+    }
+
     pub fn finish(&self, status: Status) -> Result<(), String> {
         if self.config.mode != TerminalMode::Json {
             print!("{}", render_warnings(self.warnings.clone(), &self.config));
@@ -354,6 +359,53 @@ fn render_warnings(warnings: Vec<WarningDiagnostic>, config: &TerminalConfig) ->
         lines.push(format!("... 还有 {} 条 warning", warnings.len() - 20));
     }
     render_panel("Warnings", &lines.join("\n"), config)
+}
+
+fn render_shell_path_bootstrap(
+    result: &ShellPathBootstrapResult,
+    config: &TerminalConfig,
+) -> String {
+    let rows = shell_path_bootstrap_rows(result);
+    let body = if config.mode == TerminalMode::Rich {
+        render_colon_rows(&rows, config)
+    } else {
+        render_key_rows(&rows)
+    };
+    if config.mode == TerminalMode::Json {
+        render_document(
+            &Document::new(vec![Block::panel("Shell PATH Bootstrap", &body)]),
+            config,
+        )
+    } else {
+        render_panel("Shell PATH Bootstrap", &body, config)
+    }
+}
+
+fn shell_path_bootstrap_rows(result: &ShellPathBootstrapResult) -> Vec<(&'static str, String)> {
+    let mut rows = vec![
+        ("status", result.status.label().to_string()),
+        ("shell", safe_text(&result.shell)),
+        (
+            "rc file",
+            result
+                .rc_file
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "-".to_string()),
+        ),
+        ("bin path", result.bin_path.display().to_string()),
+        ("action", safe_text(&result.action)),
+    ];
+    if let Some(reload) = &result.reload {
+        rows.push(("reload", safe_text(reload)));
+    }
+    if let Some(rollback) = &result.rollback {
+        rows.push(("rollback", safe_text(rollback)));
+    }
+    if let Some(message) = &result.message {
+        rows.push(("message", safe_text(message)));
+    }
+    rows
 }
 
 fn render_workflow_steps(steps: &[WorkflowStepRecord], config: &TerminalConfig) -> String {
@@ -559,6 +611,8 @@ fn parse_warning_surface(warning: &WarningDiagnostic) -> WarningSurface {
             if let Some(path) = line.strip_prefix("- ") {
                 paths.push(path.to_string());
             } else if let Some(value) = line.strip_prefix("临时生效命令：") {
+                fix = Some(value.to_string());
+            } else if let Some(value) = line.strip_prefix("重新加载命令：") {
                 fix = Some(value.to_string());
             } else if let Some(value) = line.strip_prefix("建议加入 shell rc：") {
                 persist = Some(value.to_string());
@@ -1245,11 +1299,14 @@ fn sample_step_records(count: usize) -> Vec<WorkflowStepRecord> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use aicore_terminal::{
         Status, TerminalCapabilities, TerminalConfig, TerminalEnv, WarningDiagnostic,
     };
 
     use crate::cargo_runner::CommandReport;
+    use crate::shell_integration::{ShellPathBootstrapResult, ShellPathBootstrapStatus};
 
     use super::*;
 
@@ -1733,6 +1790,34 @@ mod tests {
     }
 
     #[test]
+    fn shell_bootstrap_json_outputs_valid_json() {
+        let output = render_shell_path_bootstrap(
+            &sample_shell_bootstrap(),
+            &TerminalConfig::json_for_tests(),
+        );
+
+        for line in output.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).expect("json line");
+            assert_eq!(value["schema"], "aicore.terminal.v1");
+            assert_eq!(value["event"], "block.panel");
+            assert_eq!(value["payload"]["title"], "Shell PATH Bootstrap");
+        }
+    }
+
+    #[test]
+    fn shell_bootstrap_no_color_has_no_ansi() {
+        let config = TerminalConfig::from_env_and_capabilities(
+            &TerminalEnv::from_pairs([("NO_COLOR", "1")]),
+            TerminalCapabilities { is_tty: true },
+        );
+        let output = render_shell_path_bootstrap(&sample_shell_bootstrap(), &config);
+
+        assert!(output.contains("Shell PATH Bootstrap"));
+        assert!(output.contains("source ~/.bashrc && hash -r"));
+        assert!(!output.contains("\u{1b}["));
+    }
+
+    #[test]
     fn workflow_verbose_mode_keeps_raw_output() {
         let report = CommandReport::for_tests(
             "cargo test",
@@ -1763,6 +1848,19 @@ mod tests {
                 "检测到命令 shadowing：\n当前 shell 的 `aicore` 指向 `/home/sun/.local/bin/aicore`。\n新安装的 AICore OS 位于 `/home/sun/.aicore/bin/aicore`。\n请将 `$HOME/.aicore/bin` 放到 PATH 前面，或清理旧的 `/home/sun/.local/bin/aicore`。",
             ),
         ]
+    }
+
+    fn sample_shell_bootstrap() -> ShellPathBootstrapResult {
+        ShellPathBootstrapResult {
+            status: ShellPathBootstrapStatus::Appended,
+            shell: "bash".to_string(),
+            rc_file: Some(PathBuf::from("/home/sun/.bashrc")),
+            bin_path: PathBuf::from("/home/sun/.aicore/bin"),
+            action: "appended managed block".to_string(),
+            reload: Some("source ~/.bashrc && hash -r".to_string()),
+            rollback: Some("remove managed block".to_string()),
+            message: None,
+        }
     }
 
     fn assert_panel_lines_have_equal_width(output: &str) {

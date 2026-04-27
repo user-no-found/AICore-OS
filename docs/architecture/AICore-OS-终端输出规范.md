@@ -303,6 +303,38 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 
 ## Install Visibility 输出
 
+foundation workflow 的 install step 负责 shell PATH bootstrap。canonical install dir 为：
+
+```text
+$HOME/.aicore/bin
+```
+
+foundation install 在 bash 环境中通过 managed marker block 写入 `$HOME/.bashrc`：
+
+```text
+# >>> AICore OS >>>
+export PATH="$HOME/.aicore/bin:$PATH"
+# <<< AICore OS <<<
+```
+
+该 block 必须具备以下语义：
+
+- block 不存在时追加。
+- block 已存在时更新。
+- 重复执行不重复追加。
+- 用户删除该 block 即可回滚。
+- CI 环境下跳过真实 shell rc 写入。
+
+foundation shell bootstrap 输出必须包含：
+
+- status
+- shell
+- rc file
+- bin path
+- action
+- reload
+- rollback
+
 应用 workflow 的 install step 使用 canonical install dir：
 
 ```text
@@ -313,8 +345,9 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 
 - `~/.aicore/bin` 当前不在 `PATH`
 - 当前安装的二进制路径
-- 临时生效命令：`export PATH="$HOME/.aicore/bin:$PATH"`
-- 建议加入 shell rc 的命令
+- 如果 managed block 已存在，提示当前 shell 可能尚未 reload
+- 如果 managed block 不存在，提示先运行 `cargo foundation`
+- 重新加载命令：`source ~/.bashrc && hash -r`
 
 安装完成后，workflow 会检查这些命令当前会被 shell 解析到哪里：
 
@@ -329,7 +362,7 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - 新安装二进制路径
 - 修正 PATH 顺序或清理旧文件的建议
 
-Install visibility warning 只负责提示，不自动删除旧文件，不自动覆盖非 managed 文件，不自动修改用户 shell rc。
+应用 workflow 的 install visibility warning 只负责提示，不自动删除旧文件，不自动覆盖非 managed 文件，不自动修改用户 shell rc。
 
 ## Utility Surface 输出
 

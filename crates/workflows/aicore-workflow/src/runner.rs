@@ -10,6 +10,10 @@ use aicore_terminal::{Status, WarningDiagnostic};
 
 use crate::cargo_runner::{CommandReport, run_cargo_capture};
 use crate::layers::Workflow;
+use crate::shell_integration::{
+    ShellPathBootstrapEnv, ShellPathBootstrapResult, ShellPathBootstrapStatus,
+    bootstrap_shell_path, has_managed_path_block,
+};
 use crate::workflow_output::WorkflowOutput;
 
 const TARGET_LIMIT_BYTES: u64 = 30 * 1024 * 1024 * 1024;
@@ -66,9 +70,12 @@ fn run_single(
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "build")?;
     output.step_started(&format!("{} / install", workflow.id()));
     let install_started_at = Instant::now();
-    let install_warnings = install_layer(workflow, &target_dir)?;
-    let install_warning_count = install_warnings.len();
-    for warning in install_warnings {
+    let install_outcome = install_layer(workflow, &target_dir)?;
+    if let Some(shell_bootstrap) = &install_outcome.shell_bootstrap {
+        output.record_shell_path_bootstrap(shell_bootstrap);
+    }
+    let install_warning_count = install_outcome.warnings.len();
+    for warning in install_outcome.warnings {
         output.record_warning(warning);
     }
     if install_warning_count > 0 {
@@ -206,13 +213,34 @@ fn find_repo_root() -> Result<PathBuf, String> {
     }
 }
 
-fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<Vec<WarningDiagnostic>, String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InstallOutcome {
+    warnings: Vec<WarningDiagnostic>,
+    shell_bootstrap: Option<ShellPathBootstrapResult>,
+}
+
+fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<InstallOutcome, String> {
+    install_layer_with_shell_env(workflow, target_dir, &ShellPathBootstrapEnv::current())
+}
+
+fn install_layer_with_shell_env(
+    workflow: Workflow,
+    target_dir: &Path,
+    shell_env: &ShellPathBootstrapEnv,
+) -> Result<InstallOutcome, String> {
     let mut warnings = Vec::new();
+    let mut shell_bootstrap = None;
     if matches!(
         workflow,
         Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui
     ) {
         warnings.extend(install_app_binary(workflow, target_dir)?);
+    } else if workflow == Workflow::Foundation {
+        let result = bootstrap_shell_path(shell_env);
+        if let Some(warning) = shell_bootstrap_warning(&result) {
+            warnings.push(warning);
+        }
+        shell_bootstrap = Some(result);
     }
 
     let manifest_path = install_manifest_for(target_dir);
@@ -224,7 +252,29 @@ fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<Vec<WarningDia
     let content = render_install_manifest(workflow, target_dir);
     fs::write(&manifest_path, content)
         .map_err(|error| format!("写入安装记录 {} 失败: {error}", manifest_path.display()))?;
-    Ok(warnings)
+    Ok(InstallOutcome {
+        warnings,
+        shell_bootstrap,
+    })
+}
+
+fn shell_bootstrap_warning(result: &ShellPathBootstrapResult) -> Option<WarningDiagnostic> {
+    match result.status {
+        ShellPathBootstrapStatus::Failed | ShellPathBootstrapStatus::UnsupportedShell => {
+            Some(WarningDiagnostic::new(
+                "install",
+                &format!(
+                    "Shell PATH bootstrap 未完成。\n状态：{}\n说明：{}",
+                    result.status.label(),
+                    result.message.as_deref().unwrap_or("无附加说明")
+                ),
+            ))
+        }
+        ShellPathBootstrapStatus::AlreadyConfigured
+        | ShellPathBootstrapStatus::Appended
+        | ShellPathBootstrapStatus::Updated
+        | ShellPathBootstrapStatus::SkippedCi => None,
+    }
 }
 
 fn install_manifest_for(target_dir: &Path) -> PathBuf {
@@ -323,7 +373,12 @@ fn install_visibility_warnings(
         warnings.push(WarningDiagnostic::new(
             "install",
             &format!(
-                "~/.aicore/bin 当前不在 PATH。\n当前安装的二进制路径：\n{installed_paths}\n临时生效命令：export PATH=\"$HOME/.aicore/bin:$PATH\"\n建议加入 shell rc：echo 'export PATH=\"$HOME/.aicore/bin:$PATH\"' >> ~/.bashrc"
+                "~/.aicore/bin 当前不在 PATH。\n当前安装的二进制路径：\n{installed_paths}\n{}\n重新加载命令：source ~/.bashrc && hash -r",
+                if has_managed_path_block(home_root) {
+                    "底层 shell bootstrap 已提供永久配置；当前 shell 可能尚未 reload。"
+                } else {
+                    "请先运行 cargo foundation 或 foundation shell bootstrap。"
+                }
             ),
         ));
     }
@@ -394,13 +449,18 @@ fn render_install_manifest(workflow: Workflow, target_dir: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::layers::Workflow;
+    use crate::shell_integration::{
+        MANAGED_BLOCK_END, MANAGED_BLOCK_START, MANAGED_PATH_LINE, ShellPathBootstrapEnv,
+    };
 
     use super::{
-        cargo_args_for_workflow, install_bin_dir_for, install_manifest_for,
-        install_visibility_warnings, installed_binary_path, target_dir_for,
+        cargo_args_for_workflow, install_bin_dir_for, install_layer_with_shell_env,
+        install_manifest_for, install_visibility_warnings, installed_binary_path, target_dir_for,
     };
 
     #[test]
@@ -489,7 +549,65 @@ mod tests {
             .join("\n");
         assert!(message.contains("~/.aicore/bin 当前不在 PATH"));
         assert!(message.contains("/home/demo/.aicore/bin/aicore-cli"));
-        assert!(message.contains("export PATH=\"$HOME/.aicore/bin:$PATH\""));
+        assert!(message.contains("请先运行 cargo foundation"));
+    }
+
+    #[test]
+    fn foundation_workflow_runs_shell_path_bootstrap() {
+        let home_root = temp_home("foundation-bootstrap");
+        let target_dir = temp_home("foundation-target");
+        let outcome =
+            install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
+                .expect("foundation install should succeed");
+        let bashrc = fs::read_to_string(home_root.join(".bashrc")).expect("read bashrc");
+
+        assert!(outcome.shell_bootstrap.is_some());
+        assert!(bashrc.contains(MANAGED_BLOCK_START));
+        assert!(bashrc.contains(MANAGED_PATH_LINE));
+        assert!(bashrc.contains(MANAGED_BLOCK_END));
+    }
+
+    #[test]
+    fn app_install_warning_points_to_shell_reload_when_path_not_active() {
+        let home_root = temp_home("app-reload-warning");
+        fs::write(
+            home_root.join(".bashrc"),
+            format!("{MANAGED_BLOCK_START}\n{MANAGED_PATH_LINE}\n{MANAGED_BLOCK_END}\n"),
+        )
+        .expect("write bashrc");
+        let warnings = install_visibility_warnings(&home_root, "/usr/bin:/bin", |path| {
+            matches!(
+                path.to_str(),
+                Some(value) if value.ends_with("/.aicore/bin/aicore")
+            )
+        });
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(message.contains("底层 shell bootstrap 已提供永久配置"));
+        assert!(message.contains("当前 shell 可能尚未 reload"));
+        assert!(message.contains("source ~/.bashrc && hash -r"));
+    }
+
+    #[test]
+    fn app_install_warning_points_to_foundation_when_managed_block_missing() {
+        let home_root = temp_home("app-foundation-warning");
+        let warnings = install_visibility_warnings(&home_root, "/usr/bin:/bin", |path| {
+            matches!(
+                path.to_str(),
+                Some(value) if value.ends_with("/.aicore/bin/aicore")
+            )
+        });
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(message.contains("请先运行 cargo foundation"));
     }
 
     #[test]
@@ -627,5 +745,27 @@ mod tests {
                 "{alias} alias should use cargo run --quiet"
             );
         }
+    }
+
+    fn bash_env(home: &Path) -> ShellPathBootstrapEnv {
+        ShellPathBootstrapEnv {
+            home: Some(home.to_path_buf()),
+            shell: Some("/bin/bash".to_string()),
+            path: "/usr/bin:/bin".to_string(),
+            ci: false,
+        }
+    }
+
+    fn temp_home(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "aicore-runner-{name}-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).expect("create temp dir");
+        path
     }
 }
