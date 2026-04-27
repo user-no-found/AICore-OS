@@ -113,6 +113,8 @@ CI=1
 - 颜色不能作为唯一信息来源，必须同时有文本和符号。
 - 不使用大面积背景色。
 - workflow step table 中只对状态符号与状态词着色，不对整行输出着色。
+- rich mode 使用 cyan 作为 AICore accent；绿色只表示成功，黄色只表示 warning，红色只表示 failure。
+- rich mode 边框和弱分隔线使用 dim gray，避免高亮白色边框主导视觉。
 
 颜色语义：
 
@@ -123,6 +125,8 @@ FAILED / error        red
 RUNNING               cyan
 SKIPPED               dim gray
 section title         bold cyan
+brand / accent        cyan
+border / separator    dim gray
 command               dim / neutral
 path                  blue
 secret redaction      yellow or dim
@@ -138,16 +142,24 @@ AICORE_LOGO=compact|full|off
 
 rich 默认使用 compact header panel。plain 输出使用无边框文本。json mode 强制关闭 logo。
 
+rich header 包含品牌行与 metadata 区：
+
+- 品牌行包含轻量线性 symbol、`AICore OS` 与 `Composable Rust AgentOS Platform`。
+- metadata 使用两列布局展示 `Workflow / Target / Root / Mode / Warnings`。
+- label 与冒号对齐。
+- Root 独占一行，长路径不得破坏 panel 右边界。
+- rich + unicode mode 可以使用线性 symbol；`AICORE_SYMBOLS=ascii` 时 symbol 使用 ASCII fallback。
+
 compact rich 示例：
 
 ```text
-╭─ AICore OS ───────────────────────────────────────────────╮
-│ Composable Rust AgentOS Platform                          │
-│                                                          │
-│ Workflow  core                  Mode      rich           │
-│ Target    foundation + kernel   Warnings  report         │
-│ Root      /vol1/1000/sun/aicore/AICore-OS                │
-╰────────────────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────────────────────────────────╮
+│ ⎇ AICore OS — Composable Rust AgentOS Platform                             │
+│                                                                            │
+│ ⎇ Workflow : core                               ◈ Mode     : rich          │
+│ ◎ Target   : foundation + kernel                ⚠ Warnings : report        │
+│ □ Root     : /vol1/1000/sun/aicore/AICore-OS                               │
+╰────────────────────────────────────────────────────────────────────────────╯
 ```
 
 plain 示例：
@@ -182,6 +194,8 @@ SKIPPED  –        [SKIPPED]
 ```
 
 plain / CI 默认使用 ASCII。
+
+rich mode 的 section symbol 使用轻量线性字符，不使用彩色 emoji。成功输出中不得残留 running symbol。
 
 ## Block 类型
 
@@ -236,32 +250,33 @@ rich mode 的 workflow 输出包含：
 step table 使用英文技术字段：
 
 ```text
-╭─ Workflow Steps ─────────────────────────────────────────────╮
-│ #  Layer       Step     Status  Warn  Time                  │
-│ ─  ──────────  ───────  ──────  ────  ─────                 │
-│ 1  foundation  fmt      ✓ OK    0     0.08s                 │
-│ 2  foundation  test     ✓ OK    0     0.31s                 │
-│ 3  foundation  build    ✓ OK    0     0.12s                 │
-│ 4  foundation  install  ✓ OK    0     0.01s                 │
-│ 5  kernel      fmt      ✓ OK    0     0.03s                 │
-│ 6  kernel      test     ✓ OK    0     0.42s                 │
-│ 7  kernel      build    ✓ OK    0     0.09s                 │
-│ 8  kernel      install  ✓ OK    0     0.01s                 │
-╰──────────────────────────────────────────────────────────────╯
+╭─ ☷ Workflow Steps ─────────────────────────────────────────────────────────╮
+│ #  Layer       Step     Status  Warn  Time                                 │
+│ ───────────────────────────────────────────                                │
+│ 1  foundation  fmt      ✓ OK    0     0.08s                                │
+│ ───────────────────────────────────────────                                │
+│ 2  foundation  test     ✓ OK    0     0.31s                                │
+│ ───────────────────────────────────────────                                │
+│ 3  foundation  build    ✓ OK    0     0.12s                                │
+╰────────────────────────────────────────────────────────────────────────────╯
 ```
+
+rich step table 使用 cyan row number、dim header / separator、绿色成功状态、黄色 warning 状态、红色失败状态。状态颜色只作用于状态单元格，不对整行染色。
 
 最终 summary 输出 workflow、状态、step 统计、warning 统计、duration 和 result：
 
 ```text
-╭─ Summary ────────────────────────────────────────────────────╮
-│ Workflow  core                                               │
-│ Status    ✓ OK                                               │
-│ Steps     8 total / 8 ok / 0 failed                          │
-│ Warnings  0 scanned this run                                 │
-│ Duration  1.42s                                              │
-│ Result    workflow completed successfully                    │
-╰──────────────────────────────────────────────────────────────╯
+╭─ ▥ Summary ────────────────────────────────────────────────────────────────╮
+│ Workflow : core                                                            │
+│ Status   : ✓ OK                                                            │
+│ Steps    : 8 total / 8 ok / 0 failed                                       │
+│ Warnings : 0 scanned this run                                              │
+│ Duration : 1.42s                                                           │
+│ Result   : workflow completed successfully                                 │
+╰────────────────────────────────────────────────────────────────────────────╯
 ```
+
+summary result 按最终状态着色：success 使用 green，warning 使用 yellow，failure 使用 red。
 
 summary 文案使用：
 

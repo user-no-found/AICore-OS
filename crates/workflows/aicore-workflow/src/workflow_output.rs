@@ -8,6 +8,14 @@ use aicore_terminal::{
 
 use crate::cargo_runner::CommandReport;
 
+const RICH_PANEL_WIDTH: usize = 76;
+const ANSI_RESET: &str = "\u{1b}[0m";
+const ANSI_DIM: &str = "\u{1b}[2m";
+const ANSI_CYAN: &str = "\u{1b}[96m";
+const ANSI_GREEN: &str = "\u{1b}[32m";
+const ANSI_YELLOW: &str = "\u{1b}[33m";
+const ANSI_RED: &str = "\u{1b}[31m";
+
 pub struct WorkflowOutput {
     config: TerminalConfig,
     workflow_id: String,
@@ -241,8 +249,7 @@ fn render_run_started(
         );
     }
 
-    let body = render_header_body(workflow_id, repo_root, target, config);
-    render_panel("AICore OS", &body, config)
+    render_header_panel(workflow_id, repo_root, target, config)
 }
 
 fn render_finished(
@@ -273,20 +280,25 @@ fn render_finished(
         .iter()
         .filter(|step| step.status == Status::Failed)
         .count();
-    let body = render_key_rows(&[
-        ("Workflow", workflow_id),
-        ("Status", &status_plain_text(status, config)),
+    let rows = vec![
+        ("Workflow", safe_text(workflow_id)),
+        ("Status", status_text(status, config)),
         (
             "Steps",
-            &format!(
+            format!(
                 "{} total / {ok_count} ok / {failed_count} failed",
                 steps.len()
             ),
         ),
-        ("Warnings", &format!("{warning_count} scanned this run")),
-        ("Duration", &format_duration(duration)),
-        ("Result", result_label(status)),
-    ]);
+        ("Warnings", format!("{warning_count} scanned this run")),
+        ("Duration", format_duration(duration)),
+        ("Result", result_text(status, config)),
+    ];
+    let body = if config.mode == TerminalMode::Rich {
+        render_colon_rows(&rows, config)
+    } else {
+        render_key_rows(&rows)
+    };
     render_panel("Summary", &body, config)
 }
 
@@ -316,7 +328,7 @@ fn render_workflow_steps(steps: &[WorkflowStepRecord], config: &TerminalConfig) 
         .enumerate()
         .map(|(index, step)| {
             vec![
-                (index + 1).to_string(),
+                row_number(index + 1, config),
                 safe_text(&step.layer),
                 safe_text(&step.step),
                 status_text(step.status, config),
@@ -352,27 +364,31 @@ fn render_table(headers: &[&str], rows: &[Vec<String>], config: &TerminalConfig)
         }
     }
 
-    let mut lines = vec![render_table_row(
+    let header_line = render_table_row(
         &headers
             .iter()
-            .map(|value| value.to_string())
+            .map(|value| table_header(value, config))
             .collect::<Vec<_>>(),
         &widths,
-    )];
-    let separator_char = if config.mode == TerminalMode::Rich {
-        "─"
+    );
+    let separator = if config.mode == TerminalMode::Rich {
+        dim(&"─".repeat(visible_width(&header_line)), config)
     } else {
-        "-"
+        render_table_row(
+            &widths
+                .iter()
+                .map(|width| "-".repeat(*width))
+                .collect::<Vec<_>>(),
+            &widths,
+        )
     };
-    lines.push(render_table_row(
-        &widths
-            .iter()
-            .map(|width| separator_char.repeat(*width))
-            .collect::<Vec<_>>(),
-        &widths,
-    ));
-    for row in rows {
+    let mut lines = vec![header_line];
+    lines.push(separator.clone());
+    for (index, row) in rows.iter().enumerate() {
         lines.push(render_table_row(row, &widths));
+        if config.mode == TerminalMode::Rich && index + 1 < rows.len() {
+            lines.push(separator.clone());
+        }
     }
     lines.join("\n")
 }
@@ -385,7 +401,7 @@ fn render_table_row(row: &[String], widths: &[usize]) -> String {
         .join("  ")
 }
 
-fn render_key_rows(rows: &[(&str, &str)]) -> String {
+fn render_key_rows(rows: &[(&str, String)]) -> String {
     let key_width = rows
         .iter()
         .filter(|(_, value)| !value.is_empty())
@@ -402,8 +418,33 @@ fn render_key_rows(rows: &[(&str, &str)]) -> String {
                     "{}{}  {}",
                     safe_text(key),
                     " ".repeat(key_width.saturating_sub(terminal_width(key))),
-                    safe_text(value)
+                    value
                 )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn render_colon_rows(rows: &[(&str, String)], config: &TerminalConfig) -> String {
+    let key_width = rows
+        .iter()
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(key, _)| terminal_width(key))
+        .max()
+        .unwrap_or(0);
+
+    rows.iter()
+        .map(|(key, value)| {
+            if value.is_empty() {
+                safe_text(key)
+            } else {
+                let label = format!(
+                    "{}{}",
+                    safe_text(key),
+                    " ".repeat(key_width.saturating_sub(terminal_width(key)))
+                );
+                format!("{} : {}", dim(&label, config), value)
             }
         })
         .collect::<Vec<_>>()
@@ -412,32 +453,97 @@ fn render_key_rows(rows: &[(&str, &str)]) -> String {
 
 fn render_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
     if config.mode == TerminalMode::Rich {
-        return render_rich_panel(title, body);
+        return render_rich_panel(title, body, config);
     }
 
     format!("{}\n{}\n", safe_text(title), safe_text(body))
 }
 
-fn render_rich_panel(title: &str, body: &str) -> String {
-    let title = safe_text(title);
+fn render_rich_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
+    let title = render_section_title(title, config);
     let lines = body.lines().collect::<Vec<_>>();
     let body_width = lines
         .iter()
         .map(|line| visible_width(line))
         .max()
         .unwrap_or(0);
-    let inner_width = body_width.max(terminal_width(&title) + 4).max(62);
-    let dash_count = inner_width.saturating_sub(terminal_width(&title) + 3);
+    let inner_width = body_width
+        .max(visible_width(&title) + 4)
+        .max(RICH_PANEL_WIDTH);
+    let dash_count = inner_width.saturating_sub(visible_width(&title) + 3);
 
-    let mut output = format!("╭─ {title} {}╮\n", "─".repeat(dash_count));
+    let mut output = format!(
+        "{}{}{}{}{}\n",
+        border("╭─ ", config),
+        title,
+        border(" ", config),
+        border(&"─".repeat(dash_count), config),
+        border("╮", config)
+    );
     for line in lines {
         output.push_str(&format!(
-            "│ {}{} │\n",
+            "{} {}{} {}\n",
+            border("│", config),
             line,
-            " ".repeat(inner_width.saturating_sub(visible_width(line) + 2))
+            " ".repeat(inner_width.saturating_sub(visible_width(line) + 2)),
+            border("│", config)
         ));
     }
-    output.push_str(&format!("╰{}╯\n", "─".repeat(inner_width)));
+    output.push_str(&format!(
+        "{}{}{}\n",
+        border("╰", config),
+        border(&"─".repeat(inner_width), config),
+        border("╯", config)
+    ));
+    output
+}
+
+fn render_header_panel(
+    workflow_id: &str,
+    repo_root: &str,
+    target: &str,
+    config: &TerminalConfig,
+) -> String {
+    if config.mode != TerminalMode::Rich {
+        let body = render_plain_header_body(workflow_id, repo_root, target, config);
+        return render_panel("AICore OS", &body, config);
+    }
+
+    let body = render_header_body(workflow_id, repo_root, target, config);
+    let lines = body.lines().collect::<Vec<_>>();
+    let body_width = lines
+        .iter()
+        .map(|line| visible_width(line))
+        .max()
+        .unwrap_or(0);
+    let inner_width = body_width.max(RICH_PANEL_WIDTH);
+    let top_border = if config.use_ansi() {
+        accent(&"─".repeat(inner_width), config)
+    } else {
+        "─".repeat(inner_width)
+    };
+
+    let mut output = format!(
+        "{}{}{}\n",
+        border("╭", config),
+        top_border,
+        border("╮", config)
+    );
+    for line in lines {
+        output.push_str(&format!(
+            "{} {}{} {}\n",
+            border("│", config),
+            line,
+            " ".repeat(inner_width.saturating_sub(visible_width(line) + 2)),
+            border("│", config)
+        ));
+    }
+    output.push_str(&format!(
+        "{}{}{}\n",
+        border("╰", config),
+        border(&"─".repeat(inner_width), config),
+        border("╯", config)
+    ));
     output
 }
 
@@ -463,20 +569,20 @@ fn status_text(status: Status, config: &TerminalConfig) -> String {
         return rendered;
     }
 
-    let code = match status {
-        Status::Ok => "32",
-        Status::Warn => "33",
-        Status::Failed => "31",
-        Status::Running | Status::Info => "36",
-        Status::Skipped => "2",
+    let style = match status {
+        Status::Ok => ANSI_GREEN,
+        Status::Warn => ANSI_YELLOW,
+        Status::Failed => ANSI_RED,
+        Status::Running | Status::Info => ANSI_CYAN,
+        Status::Skipped => ANSI_DIM,
     };
-    format!("\u{1b}[{code}m{rendered}\u{1b}[0m")
-}
-
-fn status_plain_text(status: Status, config: &TerminalConfig) -> String {
-    let mut no_color = config.clone();
-    no_color.color = aicore_terminal::ColorMode::Never;
-    status_text(status, &no_color)
+    if symbol.starts_with('[') {
+        return format!("{style}{rendered}{ANSI_RESET}");
+    }
+    format!(
+        "{style}{symbol}{ANSI_RESET} {style}{}{ANSI_RESET}",
+        status.label()
+    )
 }
 
 fn terminal_mode_label(mode: TerminalMode) -> &'static str {
@@ -506,7 +612,51 @@ fn result_label(status: Status) -> &'static str {
     }
 }
 
+fn result_text(status: Status, config: &TerminalConfig) -> String {
+    let label = result_label(status);
+    if !config.use_ansi() {
+        return label.to_string();
+    }
+
+    match status {
+        Status::Ok => success(label, config),
+        Status::Warn => warning(label, config),
+        Status::Failed => failure(label, config),
+        Status::Running | Status::Info => accent(label, config),
+        Status::Skipped => dim(label, config),
+    }
+}
+
 fn render_header_body(
+    workflow_id: &str,
+    repo_root: &str,
+    target: &str,
+    config: &TerminalConfig,
+) -> String {
+    let brand = format!(
+        "{} {} {} {}",
+        accent(icon("⎇", config), config),
+        accent("AICore OS", config),
+        dim("—", config),
+        safe_text("Composable Rust AgentOS Platform")
+    );
+    let workflow = render_rich_meta_pair("⎇", "Workflow", workflow_id, config);
+    let mode = render_rich_meta_pair("◈", "Mode", terminal_mode_label(config.mode), config);
+    let target = render_rich_meta_pair("◎", "Target", target, config);
+    let warnings = render_rich_meta_pair("⚠", "Warnings", warning_policy_label(config), config);
+    let root = render_rich_meta_pair("□", "Root", repo_root, config);
+
+    format!(
+        "{brand}\n\n{}  {}\n{}  {}\n{}",
+        pad_visible(&workflow, 46),
+        mode,
+        pad_visible(&target, 46),
+        warnings,
+        root
+    )
+}
+
+fn render_plain_header_body(
     workflow_id: &str,
     repo_root: &str,
     target: &str,
@@ -534,6 +684,92 @@ fn render_inline_pair(key: &str, value: &str) -> String {
         key = safe_text(key),
         value = safe_text(value)
     )
+}
+
+fn render_rich_meta_pair(
+    icon_value: &str,
+    key: &str,
+    value: &str,
+    config: &TerminalConfig,
+) -> String {
+    let label = format!("{:<8}", safe_text(key));
+    format!(
+        "{} {} : {}",
+        accent(icon(icon_value, config), config),
+        dim(&label, config),
+        safe_text(value)
+    )
+}
+
+fn render_section_title(title: &str, config: &TerminalConfig) -> String {
+    let title = safe_text(title);
+    let icon_value = match title.as_str() {
+        "Workflow Steps" => "☷",
+        "Summary" => "▥",
+        "Warnings" => "⚠",
+        _ => "◇",
+    };
+    format!(
+        "{} {}",
+        accent(icon(icon_value, config), config),
+        accent(&title, config)
+    )
+}
+
+fn table_header(value: &str, config: &TerminalConfig) -> String {
+    if config.mode == TerminalMode::Rich {
+        dim(value, config)
+    } else {
+        safe_text(value)
+    }
+}
+
+fn row_number(value: usize, config: &TerminalConfig) -> String {
+    let text = value.to_string();
+    if config.mode == TerminalMode::Rich {
+        accent(&text, config)
+    } else {
+        text
+    }
+}
+
+fn icon<'a>(unicode: &'a str, config: &TerminalConfig) -> &'a str {
+    match config.symbols {
+        SymbolMode::Unicode => unicode,
+        SymbolMode::Ascii => "*",
+    }
+}
+
+fn border(value: &str, config: &TerminalConfig) -> String {
+    dim(value, config)
+}
+
+fn accent(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_CYAN, config)
+}
+
+fn success(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_GREEN, config)
+}
+
+fn warning(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_YELLOW, config)
+}
+
+fn failure(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_RED, config)
+}
+
+fn dim(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_DIM, config)
+}
+
+fn style(value: &str, code: &str, config: &TerminalConfig) -> String {
+    if config.use_ansi() {
+        format!("{code}{value}{ANSI_RESET}")
+    } else {
+        safe_text(value)
+    }
 }
 
 fn format_duration(duration: Duration) -> String {
@@ -668,7 +904,9 @@ fn sample_step_records(count: usize) -> Vec<WorkflowStepRecord> {
 
 #[cfg(test)]
 mod tests {
-    use aicore_terminal::{Status, TerminalConfig, WarningDiagnostic};
+    use aicore_terminal::{
+        Status, TerminalCapabilities, TerminalConfig, TerminalEnv, WarningDiagnostic,
+    };
 
     use crate::cargo_runner::CommandReport;
 
@@ -710,7 +948,7 @@ mod tests {
         let output =
             render_finished_for_tests("core", Status::Ok, 8, 0, &TerminalConfig::rich_for_tests());
 
-        assert!(output.contains("╭─ Summary"));
+        assert!(output.contains("Summary"));
         assert!(output.contains("Workflow"));
         assert!(output.contains("core"));
         assert!(output.contains("✓ OK"));
@@ -722,7 +960,7 @@ mod tests {
     fn workflow_rich_output_renders_step_table() {
         let output = render_workflow_steps_for_tests(&TerminalConfig::rich_for_tests());
 
-        assert!(output.contains("╭─ Workflow Steps"));
+        assert!(output.contains("Workflow Steps"));
         assert!(output.contains("Layer"));
         assert!(output.contains("Step"));
         assert!(output.contains("Status"));
@@ -737,15 +975,20 @@ mod tests {
     fn workflow_rich_table_has_header_separator() {
         let output = render_workflow_steps_for_tests(&TerminalConfig::rich_for_tests());
 
-        assert!(output.contains("─  ──────────  ───────"));
+        let separator = output
+            .lines()
+            .map(strip_ansi)
+            .find(|line| line.starts_with('│') && line.contains('─') && !line.contains("Layer"))
+            .expect("rich table should render a separator line");
+        assert!(!separator.contains("─  ─"));
     }
 
     #[test]
     fn workflow_rich_header_uses_two_column_summary_layout() {
         let output = render_run_started_for_tests("core", &TerminalConfig::rich_for_tests());
 
-        assert!(output.contains("Workflow  core"));
-        assert!(output.contains("Mode      rich"));
+        assert!(output.contains("Workflow : core"));
+        assert!(output.contains("Mode     : rich"));
         assert!(
             output
                 .lines()
@@ -756,6 +999,83 @@ mod tests {
                 .lines()
                 .any(|line| line.contains("Target") && line.contains("Warnings"))
         );
+    }
+
+    #[test]
+    fn workflow_rich_header_matches_target_structure() {
+        let output = render_run_started_for_tests("core", &TerminalConfig::rich_for_tests());
+
+        assert!(output.contains("⎇ AICore OS"));
+        assert!(output.contains("AICore OS — Composable Rust AgentOS Platform"));
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("Workflow") && line.contains("Mode"))
+        );
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("Target") && line.contains("Warnings"))
+        );
+        assert!(output.contains("Workflow : core"));
+        assert!(output.contains("Target   : foundation + kernel"));
+        assert!(output.contains("Root     : /repo"));
+    }
+
+    #[test]
+    fn workflow_rich_header_uses_accent_brand_and_metadata_icons() {
+        let output = render_run_started_for_tests("core", &rich_color_config());
+
+        assert!(output.contains("\u{1b}[96mAICore OS\u{1b}[0m"));
+        assert!(output.contains('⎇'));
+        assert!(output.contains('◈'));
+        assert!(output.contains('◎'));
+        assert!(output.contains('□'));
+        assert!(output.contains('⚠'));
+    }
+
+    #[test]
+    fn workflow_rich_steps_use_accent_row_numbers_and_status_cell_only() {
+        let output = render_workflow_steps_for_tests(&rich_color_config());
+
+        assert!(output.contains("\u{1b}[96m1\u{1b}[0m"));
+        assert!(output.contains("\u{1b}[32m✓\u{1b}[0m"));
+        assert!(output.contains("\u{1b}[32mOK\u{1b}[0m"));
+        assert!(!output.contains("\u{1b}[32mfoundation"));
+        assert!(!output.contains('⏳'));
+    }
+
+    #[test]
+    fn workflow_rich_summary_uses_colon_labels_and_green_result() {
+        let output = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Workflow : core"));
+        assert!(plain.contains("Status   :"));
+        assert!(plain.contains("Result   :"));
+        assert!(output.contains("\u{1b}[32mworkflow completed successfully\u{1b}[0m"));
+    }
+
+    #[test]
+    fn workflow_rich_colored_panels_have_aligned_right_border() {
+        for output in [
+            render_run_started_for_tests("core", &rich_color_config()),
+            render_workflow_steps_for_tests(&rich_color_config()),
+            render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config()),
+        ] {
+            assert_panel_lines_have_equal_width(&output);
+        }
+    }
+
+    #[test]
+    fn workflow_rich_output_handles_mixed_chinese_english_width() {
+        let output = render_panel(
+            "Summary",
+            "Result   : workflow completed successfully\n说明     : 底层与内核层 OK",
+            &rich_color_config(),
+        );
+
+        assert_panel_lines_have_equal_width(&output);
     }
 
     #[test]
@@ -793,6 +1113,8 @@ mod tests {
 
         assert!(!output.contains("\u{1b}"));
         assert!(!output.contains('╭'));
+        assert!(!output.contains('⎇'));
+        assert!(!output.contains('◈'));
         assert!(!steps.contains('─'));
     }
 
@@ -829,14 +1151,22 @@ mod tests {
     fn assert_panel_lines_have_equal_width(output: &str) {
         let widths = output
             .lines()
+            .map(strip_ansi)
             .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
-            .map(test_terminal_width)
+            .map(|line| test_terminal_width(&line))
             .collect::<Vec<_>>();
         assert!(!widths.is_empty());
         assert!(
             widths.windows(2).all(|pair| pair[0] == pair[1]),
             "panel line widths differ: {widths:?}\n{output}"
         );
+    }
+
+    fn rich_color_config() -> TerminalConfig {
+        TerminalConfig::from_env_and_capabilities(
+            &TerminalEnv::from_pairs([("AICORE_TERMINAL", "rich"), ("AICORE_COLOR", "always")]),
+            TerminalCapabilities { is_tty: true },
+        )
     }
 
     fn test_terminal_width(line: &str) -> usize {
