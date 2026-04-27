@@ -8,6 +8,5 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-aicore-control.workspace = true
-aicore-runtime.workspace = true
+aicore-kernel.workspace = true
 aicore-surface.workspace = true

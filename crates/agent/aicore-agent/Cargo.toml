@@ -10,6 +10,6 @@ authors.workspace = true
 [dependencies]
 aicore-auth.workspace = true
 aicore-config.workspace = true
+aicore-kernel.workspace = true
 aicore-memory.workspace = true
 aicore-provider.workspace = true
-aicore-runtime.workspace = true

@@ -6,8 +6,7 @@ version = 4
 name = "aicore"
 version = "0.1.0"
 dependencies = [
- "aicore-control",
- "aicore-runtime",
+ "aicore-kernel",
 ]
 
 [[package]]
@@ -16,9 +15,9 @@ version = "0.1.0"
 dependencies = [
  "aicore-auth",
  "aicore-config",
+ "aicore-kernel",
  "aicore-memory",
  "aicore-provider",
- "aicore-runtime",
 ]
 
 [[package]]
@@ -32,11 +31,9 @@ dependencies = [
  "aicore-agent",
  "aicore-auth",
  "aicore-config",
- "aicore-contracts",
- "aicore-control",
+ "aicore-kernel",
  "aicore-memory",
  "aicore-provider",
- "aicore-runtime",
 ]
 
 [[package]]
@@ -44,23 +41,6 @@ name = "aicore-config"
 version = "0.1.0"
 dependencies = [
  "aicore-auth",
-]
-
-[[package]]
-name = "aicore-contracts"
-version = "0.1.0"
-dependencies = [
- "aicore-foundation",
-]
-
-[[package]]
-name = "aicore-control"
-version = "0.1.0"
-dependencies = [
- "aicore-auth",
- "aicore-config",
- "aicore-contracts",
- "aicore-foundation",
 ]
 
 [[package]]
@@ -96,13 +76,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aicore-runtime"
-version = "0.1.0"
-dependencies = [
- "aicore-contracts",
-]
-
-[[package]]
 name = "aicore-skills"
 version = "0.1.0"
 
@@ -124,8 +97,7 @@ version = "0.1.0"
 name = "aicore-tui"
 version = "0.1.0"
 dependencies = [
- "aicore-control",
- "aicore-runtime",
+ "aicore-kernel",
  "aicore-surface",
 ]
 

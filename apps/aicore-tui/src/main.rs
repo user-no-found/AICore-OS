@@ -1,5 +1,5 @@
-use aicore_control::default_control_plane;
-use aicore_runtime::default_runtime;
+use aicore_kernel::default_control_plane;
+use aicore_kernel::default_runtime;
 
 fn main() {
     let control_plane = default_control_plane();

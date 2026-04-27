@@ -8,7 +8,7 @@ use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
-use aicore_control::default_control_plane;
+use aicore_kernel::default_control_plane;
 use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
     MemoryType, RememberInput, SearchQuery,
@@ -16,7 +16,7 @@ use aicore_memory::{
 use aicore_provider::{
     ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
-use aicore_runtime::{
+use aicore_kernel::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
     default_runtime,
 };
@@ -144,8 +144,8 @@ fn print_instance_list() {
     println!("实例列表：");
     for instance in control_plane.instance_registry().list() {
         let kind = match instance.kind {
-            aicore_contracts::InstanceKind::GlobalMain => "global_main",
-            aicore_contracts::InstanceKind::Workspace => "workspace",
+            aicore_kernel::InstanceKind::GlobalMain => "global_main",
+            aicore_kernel::InstanceKind::Workspace => "workspace",
         };
 
         println!(

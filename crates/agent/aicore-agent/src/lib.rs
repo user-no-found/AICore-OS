@@ -4,7 +4,7 @@ use aicore_memory::{MemoryKernel, MemoryScope, SearchQuery};
 use aicore_provider::{
     ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
-use aicore_runtime::{
+use aicore_kernel::{
     ConversationStatus, GatewaySource, IngressResult, InstanceRuntime, InterruptMode,
     TransportEnvelope, TurnStatus,
 };
@@ -249,23 +249,23 @@ impl AgentTurnRunner {
             input.interrupt_mode,
         );
         match ingress.decision {
-            aicore_runtime::InterruptDecision::StartTurn => {}
-            aicore_runtime::InterruptDecision::Queue => {
+            aicore_kernel::InterruptDecision::StartTurn => {}
+            aicore_kernel::InterruptDecision::Queue => {
                 return Ok(non_generated_output(
                     runtime,
                     &ingress,
                     AgentTurnOutcome::Queued,
                 ));
             }
-            aicore_runtime::InterruptDecision::AppendContext => {
+            aicore_kernel::InterruptDecision::AppendContext => {
                 return Ok(non_generated_output(
                     runtime,
                     &ingress,
                     AgentTurnOutcome::AppendedContext,
                 ));
             }
-            aicore_runtime::InterruptDecision::SoftInterrupt
-            | aicore_runtime::InterruptDecision::HardInterrupt => {
+            aicore_kernel::InterruptDecision::SoftInterrupt
+            | aicore_kernel::InterruptDecision::HardInterrupt => {
                 return Ok(non_generated_output(
                     runtime,
                     &ingress,
@@ -542,11 +542,11 @@ fn session_stop_reason(
 
 fn ingress_decision_name(ingress: &IngressResult) -> &'static str {
     match ingress.decision {
-        aicore_runtime::InterruptDecision::StartTurn => "start_turn",
-        aicore_runtime::InterruptDecision::Queue => "queue",
-        aicore_runtime::InterruptDecision::AppendContext => "append_context",
-        aicore_runtime::InterruptDecision::SoftInterrupt => "soft_interrupt",
-        aicore_runtime::InterruptDecision::HardInterrupt => "hard_interrupt",
+        aicore_kernel::InterruptDecision::StartTurn => "start_turn",
+        aicore_kernel::InterruptDecision::Queue => "queue",
+        aicore_kernel::InterruptDecision::AppendContext => "append_context",
+        aicore_kernel::InterruptDecision::SoftInterrupt => "soft_interrupt",
+        aicore_kernel::InterruptDecision::HardInterrupt => "hard_interrupt",
     }
 }
 
@@ -599,8 +599,8 @@ mod tests {
     use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
     use aicore_config::{InstanceRuntimeConfig, ModelBinding};
     use aicore_memory::{MemoryKernel, MemoryPaths, MemoryPermanence, MemoryType, RememberInput};
-    use aicore_runtime::default_runtime;
-    use aicore_runtime::{GatewaySource, InterruptMode, TransportEnvelope};
+    use aicore_kernel::default_runtime;
+    use aicore_kernel::{GatewaySource, InterruptMode, TransportEnvelope};
 
     use super::{
         AgentSessionContinuationPolicy, AgentSessionRunner, AgentSessionStopReason,
@@ -1147,7 +1147,7 @@ mod tests {
         assert_eq!(runtime.turn_state().active_turn_id, None);
         assert_eq!(
             runtime.summary().conversation_status,
-            aicore_runtime::ConversationStatus::Idle
+            aicore_kernel::ConversationStatus::Idle
         );
     }
 
@@ -1494,7 +1494,7 @@ mod tests {
         assert_eq!(runtime.turn_state().active_turn_id, None);
         assert_eq!(
             runtime.summary().conversation_status,
-            aicore_runtime::ConversationStatus::Idle
+            aicore_kernel::ConversationStatus::Idle
         );
     }
 
@@ -1562,7 +1562,7 @@ mod tests {
         assert_eq!(runtime.turn_state().active_turn_id, None);
         assert_eq!(
             runtime.summary().conversation_status,
-            aicore_runtime::ConversationStatus::Idle
+            aicore_kernel::ConversationStatus::Idle
         );
     }
 
@@ -1642,7 +1642,7 @@ mod tests {
         assert_eq!(runtime.turn_state().active_turn_id, None);
         assert_eq!(
             runtime.summary().conversation_status,
-            aicore_runtime::ConversationStatus::Idle
+            aicore_kernel::ConversationStatus::Idle
         );
     }
 
