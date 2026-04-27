@@ -8,6 +8,7 @@ members = [
   "crates/auth/aicore-auth",
   "crates/config/aicore-config",
   "crates/foundation/aicore-foundation",
+  "crates/kernel/aicore-kernel",
   "crates/contracts/aicore-contracts",
   "crates/control/aicore-control",
   "crates/evolution/aicore-evolution",
@@ -35,6 +36,7 @@ aicore-contracts = { path = "crates/contracts/aicore-contracts" }
 aicore-control = { path = "crates/control/aicore-control" }
 aicore-evolution = { path = "crates/evolution/aicore-evolution" }
 aicore-foundation = { path = "crates/foundation/aicore-foundation" }
+aicore-kernel = { path = "crates/kernel/aicore-kernel" }
 aicore-memory = { path = "crates/memory/aicore-memory" }
 aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-runtime = { path = "crates/runtime/aicore-runtime" }

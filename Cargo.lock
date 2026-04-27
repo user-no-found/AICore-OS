@@ -72,6 +72,13 @@ name = "aicore-foundation"
 version = "0.1.0"
 
 [[package]]
+name = "aicore-kernel"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+]
+
+[[package]]
 name = "aicore-memory"
 version = "0.1.0"
 dependencies = [
