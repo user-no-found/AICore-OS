@@ -36,7 +36,11 @@ mod tests {
         MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType, RememberInput,
         SearchQuery,
     };
-    use std::{env, fs};
+    use std::{
+        env, fs,
+        io::Write,
+        process::{Command, Stdio},
+    };
 
     use crate::{
         ModelRequest, PromptBuildInput, PromptBuilder, ProviderAdapterStatus, ProviderApiMode,
@@ -153,6 +157,80 @@ mod tests {
         })
         .expect("runtime should resolve")
         .provider_runtime
+    }
+
+    fn python3_available() -> bool {
+        Command::new("python3")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+    }
+
+    fn run_fake_worker(content: &str) -> Option<Vec<ProviderEngineEvent>> {
+        if !python3_available() {
+            eprintln!("python3 unavailable; skipping fake worker smoke");
+            return None;
+        }
+
+        let request = ProviderEngineRequest {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: "inv-fake".to_string(),
+            provider_id: "dummy".to_string(),
+            adapter_id: "dummy".to_string(),
+            engine_id: "python.fake".to_string(),
+            api_mode: "dummy".to_string(),
+            model: "dummy/default-chat".to_string(),
+            base_url: None,
+            credential_lease_ref: None,
+            messages: vec![ProviderEngineMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+            }],
+            tools_json: None,
+            parameters_json: None,
+            stream: false,
+            timeout_ms: None,
+        };
+        let request_json = serde_json::to_string(&request).expect("request should serialize");
+        let python_root = format!("{}/python", env!("CARGO_MANIFEST_DIR"));
+        let mut child = Command::new("python3")
+            .arg("-m")
+            .arg("aicore_provider_engine.worker")
+            .arg("--engine")
+            .arg("fake")
+            .env("PYTHONPATH", python_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("fake worker should spawn");
+
+        child
+            .stdin
+            .as_mut()
+            .expect("stdin should be available")
+            .write_all(format!("{request_json}\n").as_bytes())
+            .expect("request should be written");
+        drop(child.stdin.take());
+
+        let output = child.wait_with_output().expect("worker should finish");
+        assert!(
+            output.status.success(),
+            "worker failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        assert!(!stdout.contains("sk-live-secret-value"));
+        assert!(!stderr.contains("sk-live-secret-value"));
+
+        Some(
+            stdout
+                .lines()
+                .map(|line| serde_json::from_str(line).expect("event line should parse"))
+                .collect(),
+        )
     }
 
     fn temp_paths(name: &str) -> MemoryPaths {
@@ -710,6 +788,51 @@ mod tests {
         let encoded = serde_json::to_string(&request).expect("request should serialize");
 
         assert!(!encoded.contains('\n'));
+    }
+
+    #[test]
+    fn python_fake_engine_returns_started_delta_finished() {
+        let Some(events) = run_fake_worker("ping") else {
+            return;
+        };
+
+        assert_eq!(events[0].kind, ProviderEngineEventKind::Started);
+        assert!(events.iter().any(|event| {
+            event.kind == ProviderEngineEventKind::MessageDelta
+                && event.content.as_deref() == Some("pong")
+        }));
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == ProviderEngineEventKind::Finished)
+        );
+    }
+
+    #[test]
+    fn python_fake_engine_error_is_structured() {
+        let Some(events) = run_fake_worker("fail") else {
+            return;
+        };
+
+        let error = events
+            .iter()
+            .find(|event| event.kind == ProviderEngineEventKind::Error)
+            .expect("fake failure should emit structured error");
+        assert_eq!(error.user_message_zh.as_deref(), Some("Provider 请求失败"));
+        assert_eq!(error.machine_code.as_deref(), Some("fake_error"));
+    }
+
+    #[test]
+    fn python_fake_engine_stdout_contains_only_jsonl_events() {
+        let Some(events) = run_fake_worker("ping") else {
+            return;
+        };
+
+        assert!(
+            events
+                .iter()
+                .all(|event| event.protocol_version == "provider.engine.v1")
+        );
     }
 
     #[test]
