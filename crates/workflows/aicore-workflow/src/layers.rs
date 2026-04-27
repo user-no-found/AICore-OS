@@ -34,23 +34,17 @@ impl Workflow {
 
     pub fn crates(self) -> &'static [&'static str] {
         match self {
-            Self::Foundation => &["aicore-foundation", "aicore-contracts"],
-            Self::Kernel => &[
-                "aicore-agent",
-                "aicore-auth",
-                "aicore-config",
-                "aicore-control",
-                "aicore-provider",
-                "aicore-runtime",
-                "aicore-surface",
-                "aicore-tools",
-                "aicore-memory",
-                "aicore-skills",
-                "aicore-evolution",
-            ],
+            Self::Foundation => &["aicore-foundation"],
+            Self::Kernel => &["aicore-foundation", "aicore-kernel"],
             Self::Core => &[],
             Self::AppAicore => &["aicore"],
-            Self::AppCli => &["aicore-cli"],
+            Self::AppCli => &[
+                "aicore-cli",
+                "aicore-agent",
+                "aicore-provider",
+                "aicore-memory",
+                "aicore-surface",
+            ],
             Self::AppTui => &["aicore-tui"],
         }
     }
@@ -77,7 +71,7 @@ mod tests {
 
     #[test]
     fn app_cli_workflow_maps_to_aicore_cli_package() {
-        assert_eq!(Workflow::AppCli.crates(), &["aicore-cli"]);
+        assert!(Workflow::AppCli.crates().contains(&"aicore-cli"));
     }
 
     #[test]
@@ -91,12 +85,31 @@ mod tests {
     }
 
     #[test]
-    fn kernel_workflow_includes_provider_package() {
-        assert!(Workflow::Kernel.crates().contains(&"aicore-provider"));
+    fn kernel_workflow_includes_foundation_and_kernel() {
+        assert_eq!(
+            Workflow::Kernel.crates(),
+            &["aicore-foundation", "aicore-kernel"]
+        );
     }
 
     #[test]
-    fn kernel_workflow_includes_agent_package() {
-        assert!(Workflow::Kernel.crates().contains(&"aicore-agent"));
+    fn kernel_workflow_excludes_removed_internal_kernel_crates() {
+        assert!(!Workflow::Kernel.crates().contains(&"aicore-contracts"));
+        assert!(!Workflow::Kernel.crates().contains(&"aicore-control"));
+        assert!(!Workflow::Kernel.crates().contains(&"aicore-runtime"));
+    }
+
+    #[test]
+    fn application_workflow_still_includes_cli_provider_agent_memory_surface() {
+        assert_eq!(
+            Workflow::AppCli.crates(),
+            &[
+                "aicore-cli",
+                "aicore-agent",
+                "aicore-provider",
+                "aicore-memory",
+                "aicore-surface"
+            ]
+        );
     }
 }
