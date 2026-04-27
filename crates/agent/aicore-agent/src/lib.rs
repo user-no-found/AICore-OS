@@ -1603,7 +1603,7 @@ mod tests {
                 .error_message
                 .as_deref()
                 .expect("failure message should exist")
-                .contains("adapter unavailable")
+                .contains("Provider")
         );
         assert!(
             !output

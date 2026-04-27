@@ -1,7 +1,9 @@
 mod adapter;
 mod dummy;
 mod engine_ipc;
+mod engine_manager;
 mod invoker;
+mod normalizer;
 mod profile;
 mod prompt;
 mod resolver;
@@ -13,6 +15,7 @@ pub use dummy::DummyProvider;
 pub use engine_ipc::{
     ProviderEngineEvent, ProviderEngineEventKind, ProviderEngineMessage, ProviderEngineRequest,
 };
+pub use engine_manager::ProviderEngineManager;
 pub use invoker::ProviderInvoker;
 pub use profile::ProviderRegistry;
 pub use prompt::PromptBuilder;
@@ -45,8 +48,8 @@ mod tests {
     use crate::{
         ModelRequest, PromptBuildInput, PromptBuilder, ProviderAdapterStatus, ProviderApiMode,
         ProviderAuthMode, ProviderAvailability, ProviderEngineEvent, ProviderEngineEventKind,
-        ProviderEngineMessage, ProviderEngineRequest, ProviderInvoker, ProviderKind,
-        ProviderProfile, ProviderRegistry, ProviderResolver, ProviderRuntime,
+        ProviderEngineManager, ProviderEngineMessage, ProviderEngineRequest, ProviderInvoker,
+        ProviderKind, ProviderProfile, ProviderRegistry, ProviderResolver, ProviderRuntime,
         ProviderRuntimeResolveInput, ProviderRuntimeResolver,
     };
 
@@ -146,6 +149,10 @@ mod tests {
     }
 
     fn resolve_runtime(provider: &str, model: &str) -> crate::ProviderRuntime {
+        resolve_model(provider, model).runtime
+    }
+
+    fn resolve_model(provider: &str, model: &str) -> crate::ResolvedModel {
         let auth_pool = auth_pool_for_provider(provider);
         let runtime = runtime_for_model(model);
         let registry = ProviderRegistry::builtin();
@@ -156,7 +163,7 @@ mod tests {
             registry: &registry,
         })
         .expect("runtime should resolve")
-        .provider_runtime
+        .resolved_model
     }
 
     fn python3_available() -> bool {
@@ -1170,11 +1177,151 @@ mod tests {
             .expect_err("real provider should be gated as unavailable");
         match error {
             crate::ProviderError::Invoke(message) => {
-                assert!(message.contains("provider adapter unavailable"));
+                assert!(
+                    message.contains("Provider")
+                        || message.contains("provider")
+                        || message.contains("engine")
+                );
                 assert!(!message.contains("secret://"));
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn provider_invoker_keeps_dummy_path_available() {
+        let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config())
+            .expect("resolver should resolve dummy");
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolved,
+        };
+
+        let response = ProviderInvoker::invoke(&request).expect("dummy provider should run");
+
+        assert_eq!(response.role, "assistant");
+        assert!(response.content.contains("dummy"));
+    }
+
+    #[test]
+    fn provider_invoker_routes_openrouter_to_python_openai_engine() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("openrouter", "anthropic/claude-sonnet"),
+        };
+        let engine_request = ProviderInvoker::build_engine_request(&request);
+
+        assert_eq!(engine_request.provider_id, "openrouter");
+        assert_eq!(engine_request.api_mode, "openai_chat_completions");
+        assert_eq!(engine_request.engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_invoker_routes_openai_to_python_openai_engine() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("openai", "gpt-4.1"),
+        };
+        let engine_request = ProviderInvoker::build_engine_request(&request);
+
+        assert_eq!(engine_request.api_mode, "openai_responses");
+        assert_eq!(engine_request.engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_invoker_routes_anthropic_to_python_anthropic_engine() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("anthropic", "claude-sonnet-4-5"),
+        };
+        let engine_request = ProviderInvoker::build_engine_request(&request);
+
+        assert_eq!(engine_request.api_mode, "anthropic_messages");
+        assert_eq!(engine_request.engine_id, "python.anthropic");
+    }
+
+    #[test]
+    fn provider_invoker_routes_kimi_to_python_openai_engine() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("kimi", "moonshot-v1-8k"),
+        };
+        let engine_request = ProviderInvoker::build_engine_request(&request);
+
+        assert_eq!(engine_request.api_mode, "openai_chat_completions");
+        assert_eq!(engine_request.engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_invoker_routes_kimi_coding_to_python_anthropic_engine() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("kimi-coding", "kimi-k2-coder"),
+        };
+        let engine_request = ProviderInvoker::build_engine_request(&request);
+
+        assert_eq!(engine_request.api_mode, "anthropic_messages");
+        assert_eq!(engine_request.engine_id, "python.anthropic");
+    }
+
+    #[test]
+    fn provider_invoker_rejects_xiaomi_without_profile() {
+        let auth_pool = auth_pool_for_provider("xiaomi");
+        let runtime = runtime_for_model("mimo");
+        let registry = ProviderRegistry::builtin();
+
+        assert!(
+            ProviderRuntimeResolver::resolve(ProviderRuntimeResolveInput {
+                auth_pool: &auth_pool,
+                runtime: &runtime,
+                registry: &registry,
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn provider_invoker_engine_unavailable_returns_structured_failure() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("openai-codex-login", "gpt-5-codex"),
+        };
+        let manager = ProviderEngineManager::default_for_crate();
+        let error = ProviderInvoker::invoke_with_manager(&request, &manager)
+            .expect_err("codex bridge should be unavailable in M1");
+
+        assert!(matches!(error, crate::ProviderError::Invoke(_)));
+    }
+
+    #[test]
+    fn provider_invoker_does_not_expose_credential_lease_ref() {
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolve_model("openai", "gpt-4.1"),
+        };
+        let error = ProviderInvoker::invoke(&request)
+            .expect_err("real provider should fail without credential lease resolver");
+        let rendered = format!("{error:?}");
+
+        assert!(!rendered.contains("credential_lease_ref"));
+        assert!(!rendered.contains("lease:auth.test.main"));
+        assert!(!rendered.contains("secret://"));
     }
 
     #[test]

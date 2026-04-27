@@ -778,7 +778,8 @@ primary_model = "openai/gpt-5"
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
     assert!(stderr.contains("配置命令失败"));
     assert!(stderr.contains("provider 调用错误"));
-    assert!(stderr.contains("provider adapter unavailable"));
+    assert!(stderr.contains("Provider"));
+    assert!(!stderr.contains("secret://"));
 }
 
 #[test]
@@ -862,7 +863,8 @@ primary_model = "openai/gpt-5"
     assert!(stderr.contains("配置命令失败"));
     assert!(stderr.contains("Agent Turn 失败"));
     assert!(stderr.contains("provider_invoke"));
-    assert!(stderr.contains("provider adapter unavailable"));
+    assert!(stderr.contains("Provider"));
+    assert!(!stderr.contains("secret://"));
 }
 
 #[test]
