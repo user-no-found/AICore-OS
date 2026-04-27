@@ -46,13 +46,19 @@ fn run_cargo_for_workflow(
     target_dir: &Path,
     subcommand: &str,
 ) -> Result<(), String> {
-    let mut args = vec![subcommand];
+    let args = cargo_args_for_workflow(workflow, subcommand);
+    let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+    run_cargo(repo_root, Some(target_dir), &arg_refs)
+}
+
+fn cargo_args_for_workflow(workflow: Workflow, subcommand: &str) -> Vec<String> {
+    let mut args = vec![subcommand.to_string()];
     for crate_name in workflow.crates() {
-        args.push("-p");
-        args.push(crate_name);
+        args.push("-p".to_string());
+        args.push((*crate_name).to_string());
     }
-    args.push("--offline");
-    run_cargo(repo_root, Some(target_dir), &args)
+    args.push("--offline".to_string());
+    args
 }
 
 fn run_cargo(repo_root: &Path, target_dir: Option<&Path>, args: &[&str]) -> Result<(), String> {
@@ -238,7 +244,10 @@ mod tests {
 
     use crate::layers::Workflow;
 
-    use super::{install_bin_dir_for, install_manifest_for, installed_binary_path, target_dir_for};
+    use super::{
+        cargo_args_for_workflow, install_bin_dir_for, install_manifest_for, installed_binary_path,
+        target_dir_for,
+    };
 
     #[test]
     fn foundation_workflow_uses_foundation_target_dir() {
@@ -305,5 +314,29 @@ mod tests {
             installed_binary_path(home_root, Workflow::AppCli),
             PathBuf::from("/home/demo/.aicore/bin/aicore-cli")
         );
+    }
+
+    #[test]
+    fn provider_workflow_does_not_require_live_sdk_by_default() {
+        let args = cargo_args_for_workflow(Workflow::AppCli, "test");
+
+        assert!(args.contains(&"--offline".to_string()));
+        assert!(!args.iter().any(|arg| arg.contains("OPENAI_API_KEY")));
+        assert!(!args.iter().any(|arg| arg.contains("ANTHROPIC_API_KEY")));
+    }
+
+    #[test]
+    fn formal_provider_doc_exists() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .ancestors()
+            .nth(3)
+            .expect("workflow crate should live under crates/workflows");
+        let doc = repo_root
+            .join("docs")
+            .join("architecture")
+            .join("AICore-OS-Provider请求应用规范.md");
+
+        assert!(doc.exists());
     }
 }

@@ -112,4 +112,9 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn provider_workflow_includes_aicore_provider() {
+        assert!(Workflow::AppCli.crates().contains(&"aicore-provider"));
+    }
 }
