@@ -233,6 +233,77 @@ mod tests {
         )
     }
 
+    fn run_sdk_worker_with_env(
+        engine: &str,
+        api_mode: &str,
+        extra_env: &[(&str, &str)],
+    ) -> Option<(Vec<ProviderEngineEvent>, String, String)> {
+        if !python3_available() {
+            eprintln!("python3 unavailable; skipping SDK worker smoke");
+            return None;
+        }
+
+        let request = ProviderEngineRequest {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: format!("inv-{engine}"),
+            provider_id: engine.to_string(),
+            adapter_id: engine.to_string(),
+            engine_id: format!("python.{engine}"),
+            api_mode: api_mode.to_string(),
+            model: "test-model".to_string(),
+            base_url: None,
+            credential_lease_ref: Some("env:AICORE_PROVIDER_TEST_SECRET".to_string()),
+            messages: vec![ProviderEngineMessage {
+                role: "user".to_string(),
+                content: "ping".to_string(),
+            }],
+            tools_json: None,
+            parameters_json: None,
+            stream: false,
+            timeout_ms: None,
+        };
+        let request_json = serde_json::to_string(&request).expect("request should serialize");
+        let python_root = format!("{}/python", env!("CARGO_MANIFEST_DIR"));
+        let mut command = Command::new("python3");
+        command
+            .arg("-m")
+            .arg("aicore_provider_engine.worker")
+            .arg("--engine")
+            .arg(engine)
+            .env("PYTHONPATH", python_root)
+            .env("AICORE_PROVIDER_TEST_SECRET", "sk-live-secret-value")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+
+        let mut child = command.spawn().expect("SDK worker should spawn");
+        child
+            .stdin
+            .as_mut()
+            .expect("stdin should be available")
+            .write_all(format!("{request_json}\n").as_bytes())
+            .expect("request should be written");
+        drop(child.stdin.take());
+
+        let output = child.wait_with_output().expect("worker should finish");
+        assert!(
+            output.status.success(),
+            "worker failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+        let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
+        let events = stdout
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("event line should parse"))
+            .collect();
+
+        Some((events, stdout, stderr))
+    }
+
     fn temp_paths(name: &str) -> MemoryPaths {
         let root = env::temp_dir().join(format!("aicore-provider-tests-{name}"));
         if root.exists() {
@@ -833,6 +904,68 @@ mod tests {
                 .iter()
                 .all(|event| event.protocol_version == "provider.engine.v1")
         );
+    }
+
+    #[test]
+    fn openai_engine_reports_missing_sdk_when_package_absent() {
+        let Some((events, _, _)) = run_sdk_worker_with_env(
+            "openai",
+            "openai_responses",
+            &[("AICORE_PROVIDER_FORCE_MISSING_OPENAI", "1")],
+        ) else {
+            return;
+        };
+
+        let error = events
+            .iter()
+            .find(|event| event.kind == ProviderEngineEventKind::Error)
+            .expect("forced missing openai SDK should emit error");
+        assert_eq!(error.machine_code.as_deref(), Some("openai_sdk_missing"));
+    }
+
+    #[test]
+    fn anthropic_engine_reports_missing_sdk_when_package_absent() {
+        let Some((events, _, _)) = run_sdk_worker_with_env(
+            "anthropic",
+            "anthropic_messages",
+            &[("AICORE_PROVIDER_FORCE_MISSING_ANTHROPIC", "1")],
+        ) else {
+            return;
+        };
+
+        let error = events
+            .iter()
+            .find(|event| event.kind == ProviderEngineEventKind::Error)
+            .expect("forced missing anthropic SDK should emit error");
+        assert_eq!(error.machine_code.as_deref(), Some("anthropic_sdk_missing"));
+    }
+
+    #[test]
+    fn openai_engine_request_does_not_log_secret() {
+        let Some((_, stdout, stderr)) = run_sdk_worker_with_env(
+            "openai",
+            "openai_responses",
+            &[("AICORE_PROVIDER_FORCE_MISSING_OPENAI", "1")],
+        ) else {
+            return;
+        };
+
+        assert!(!stdout.contains("sk-live-secret-value"));
+        assert!(!stderr.contains("sk-live-secret-value"));
+    }
+
+    #[test]
+    fn anthropic_engine_request_does_not_log_secret() {
+        let Some((_, stdout, stderr)) = run_sdk_worker_with_env(
+            "anthropic",
+            "anthropic_messages",
+            &[("AICORE_PROVIDER_FORCE_MISSING_ANTHROPIC", "1")],
+        ) else {
+            return;
+        };
+
+        assert!(!stdout.contains("sk-live-secret-value"));
+        assert!(!stderr.contains("sk-live-secret-value"));
     }
 
     #[test]
