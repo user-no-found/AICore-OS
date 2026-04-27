@@ -2,7 +2,7 @@ use aicore_auth::GlobalAuthPool;
 use aicore_config::InstanceRuntimeConfig;
 use aicore_memory::{MemoryKernel, MemoryScope, SearchQuery};
 use aicore_provider::{
-    DummyProvider, ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderResolver,
+    ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
 use aicore_runtime::{
     ConversationStatus, GatewaySource, IngressResult, InstanceRuntime, InterruptMode,
@@ -43,6 +43,7 @@ pub enum AgentTurnOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentTurnFailureStage {
     ProviderResolve,
+    ProviderInvoke,
     RuntimeAppend,
 }
 
@@ -320,6 +321,8 @@ impl AgentTurnRunner {
                     AgentTurnFailureStage::ProviderResolve,
                     provider_error_message(error),
                     false,
+                    None,
+                    None,
                     memory_pack.len(),
                     true,
                     Some(debug),
@@ -332,7 +335,26 @@ impl AgentTurnRunner {
             prompt: prompt_text.clone(),
             resolved_model: resolved.clone(),
         };
-        let response = DummyProvider::generate(&request);
+        let provider_name = resolved.provider.clone();
+        let provider_kind = provider_kind_name(&resolved.kind).to_string();
+        let response = match ProviderInvoker::invoke(&request) {
+            Ok(response) => response,
+            Err(error) => {
+                runtime.complete_turn();
+                return Ok(failed_output(
+                    runtime,
+                    &ingress,
+                    AgentTurnFailureStage::ProviderInvoke,
+                    provider_error_message(error),
+                    false,
+                    Some(provider_name),
+                    Some(provider_kind),
+                    memory_pack.len(),
+                    true,
+                    Some(debug),
+                ));
+            }
+        };
         let outputs = runtime.append_assistant_output(&response.content);
         let runtime_output_ok = outputs
             .events
@@ -347,6 +369,8 @@ impl AgentTurnRunner {
                 AgentTurnFailureStage::RuntimeAppend,
                 "runtime 未收到 provider 输出".to_string(),
                 true,
+                Some(provider_name.clone()),
+                Some(provider_kind.clone()),
                 memory_pack.len(),
                 true,
                 Some(debug),
@@ -360,8 +384,8 @@ impl AgentTurnRunner {
         Ok(AgentTurnOutput {
             assistant_output: Some(response.content),
             memory_count: memory_pack.len(),
-            provider_name: Some(resolved.provider),
-            provider_kind: Some(provider_kind_name(&resolved.kind).to_string()),
+            provider_name: Some(provider_name),
+            provider_kind: Some(provider_kind),
             prompt_builder_ok: true,
             runtime_output_ok,
             provider_invoked: true,
@@ -434,6 +458,8 @@ fn failed_output(
     failure_stage: AgentTurnFailureStage,
     error_message: String,
     provider_invoked: bool,
+    provider_name: Option<String>,
+    provider_kind: Option<String>,
     memory_count: usize,
     prompt_builder_ok: bool,
     debug: Option<AgentTurnDebug>,
@@ -443,8 +469,8 @@ fn failed_output(
     AgentTurnOutput {
         assistant_output: None,
         memory_count,
-        provider_name: None,
-        provider_kind: None,
+        provider_name,
+        provider_kind,
         prompt_builder_ok,
         runtime_output_ok: false,
         provider_invoked,
@@ -554,12 +580,15 @@ fn conversation_status_name(status: &ConversationStatus) -> &'static str {
 fn provider_kind_name(kind: &aicore_provider::ProviderKind) -> &'static str {
     match kind {
         aicore_provider::ProviderKind::Dummy => "dummy",
+        aicore_provider::ProviderKind::OpenRouter => "openrouter",
+        aicore_provider::ProviderKind::OpenAI => "openai",
     }
 }
 
 fn provider_error_message(error: ProviderError) -> String {
     match error {
         ProviderError::Resolve(message) => message,
+        ProviderError::Invoke(message) => message,
     }
 }
 
@@ -593,17 +622,46 @@ mod tests {
     }
 
     fn auth_pool() -> GlobalAuthPool {
-        GlobalAuthPool::new(vec![AuthEntry {
-            auth_ref: AuthRef::new("auth.openrouter.main"),
-            provider: "openrouter".to_string(),
-            kind: AuthKind::ApiKey,
-            secret_ref: SecretRef::new("secret://auth.openrouter.main"),
-            capabilities: vec![AuthCapability::Chat],
-            enabled: true,
-        }])
+        GlobalAuthPool::new(vec![
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.dummy.main"),
+                provider: "dummy".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.dummy.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.openrouter.main"),
+                provider: "openrouter".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.openrouter.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.openai.main"),
+                provider: "openai".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.openai.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+        ])
     }
 
     fn runtime_config() -> InstanceRuntimeConfig {
+        InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.dummy.main"),
+                model: "dummy/default-chat".to_string(),
+            },
+            fallback: None,
+        }
+    }
+
+    fn runtime_config_openrouter() -> InstanceRuntimeConfig {
         InstanceRuntimeConfig {
             instance_id: "global-main".to_string(),
             primary: ModelBinding {
@@ -830,7 +888,7 @@ mod tests {
         )
         .expect("agent turn should succeed");
 
-        assert_eq!(output.provider_name.as_deref(), Some("openrouter"));
+        assert_eq!(output.provider_name.as_deref(), Some("dummy"));
         assert_eq!(output.provider_kind.as_deref(), Some("dummy"));
         assert!(
             output
@@ -1352,6 +1410,111 @@ mod tests {
     }
 
     #[test]
+    fn agent_turn_real_provider_unavailable_returns_failed_outcome() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-invoke-failed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(
+            output.failure_stage,
+            Some(AgentTurnFailureStage::ProviderInvoke)
+        );
+        assert_eq!(output.provider_invoked, false);
+        assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_provider_invoke_failure_does_not_append_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-invoke-no-append"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let initial_event_count = runtime.summary().event_count;
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.event_count, initial_event_count + 1);
+        assert_eq!(runtime.summary().event_count, initial_event_count + 1);
+        assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_provider_invoke_failure_does_not_leave_turn_running() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-invoke-no-running"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(runtime.turn_state().active_turn_id, None);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            aicore_runtime::ConversationStatus::Idle
+        );
+    }
+
+    #[test]
+    fn agent_turn_provider_invoke_failure_reports_failure_stage() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-provider-invoke-stage"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        assert_eq!(
+            output.failure_stage,
+            Some(AgentTurnFailureStage::ProviderInvoke)
+        );
+        assert_eq!(output.provider_kind.as_deref(), Some("openrouter"));
+        assert_eq!(output.provider_name.as_deref(), Some("openrouter"));
+        assert!(
+            output
+                .error_message
+                .as_deref()
+                .expect("failure message should exist")
+                .contains("adapter unavailable")
+        );
+        assert!(
+            !output
+                .error_message
+                .as_deref()
+                .expect("failure message should exist")
+                .contains("secret://")
+        );
+    }
+
+    #[test]
     fn agent_turn_provider_resolve_failure_does_not_append_assistant_output() {
         let memory = MemoryKernel::open(temp_paths("agent-turn-provider-resolve-no-append"))
             .expect("memory kernel should open");
@@ -1696,6 +1859,32 @@ mod tests {
     }
 
     #[test]
+    fn conversation_surface_reports_provider_invoke_failure() {
+        let memory = MemoryKernel::open(temp_paths("conversation-surface-provider-invoke"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+        let surface = output.to_conversation_surface();
+
+        assert_eq!(
+            surface.latest_turn.failure_stage,
+            Some(AgentTurnFailureStage::ProviderInvoke)
+        );
+        assert_eq!(
+            surface.latest_turn.provider_kind.as_deref(),
+            Some("openrouter")
+        );
+    }
+
+    #[test]
     fn conversation_surface_reports_provider_metadata_when_invoked() {
         let memory = MemoryKernel::open(temp_paths("surface-provider-metadata"))
             .expect("memory kernel should open");
@@ -1713,10 +1902,7 @@ mod tests {
         let surface = output.to_conversation_surface();
         assert!(surface.latest_turn.provider_invoked);
         assert_eq!(surface.latest_turn.provider_kind.as_deref(), Some("dummy"));
-        assert_eq!(
-            surface.latest_turn.provider_name.as_deref(),
-            Some("openrouter")
-        );
+        assert_eq!(surface.latest_turn.provider_name.as_deref(), Some("dummy"));
     }
 
     #[test]
@@ -1750,6 +1936,26 @@ mod tests {
         assert!(!surface.latest_turn.provider_invoked);
         assert_eq!(surface.latest_turn.provider_kind, None);
         assert_eq!(surface.latest_turn.provider_name, None);
+    }
+
+    #[test]
+    fn agent_turn_provider_failure_surface_does_not_expose_secret_ref() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-no-secret-ref"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            base_input("provider invoke failure"),
+        )
+        .expect("agent turn should return structured failure");
+
+        let surface = output.to_conversation_surface();
+        let rendered = format!("{surface:?}");
+        assert!(!rendered.contains("secret://"));
     }
 
     #[test]
@@ -2422,6 +2628,47 @@ mod tests {
         .expect("session should succeed");
 
         assert_eq!(session.surface.turns[0].outcome, AgentTurnOutcome::Failed);
+    }
+
+    #[test]
+    fn session_surface_records_provider_invoke_failure() {
+        let memory = MemoryKernel::open(temp_paths("session-surface-provider-invoke"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            vec![base_input("provider invoke failure")],
+        )
+        .expect("session should succeed");
+
+        assert_eq!(session.surface().turns[0].outcome, AgentTurnOutcome::Failed);
+        assert_eq!(
+            session.surface().turns[0].failure_stage,
+            Some(AgentTurnFailureStage::ProviderInvoke)
+        );
+    }
+
+    #[test]
+    fn session_surface_provider_failure_does_not_expose_internal_request() {
+        let memory = MemoryKernel::open(temp_paths("session-surface-no-internal-request"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool(),
+            &runtime_config_openrouter(),
+            vec![base_input("provider invoke failure")],
+        )
+        .expect("session should succeed");
+
+        let rendered = format!("{:?}", session.surface());
+        assert!(!rendered.contains("RELEVANT MEMORY:"));
+        assert!(!rendered.contains("CURRENT USER REQUEST:"));
+        assert!(!rendered.contains("prompt"));
     }
 
     #[test]

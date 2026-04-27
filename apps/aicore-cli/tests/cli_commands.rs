@@ -342,6 +342,8 @@ fn auth_list_reads_real_config_root() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("认证池："));
+    assert!(stdout.contains("auth.dummy.main"));
+    assert!(stdout.contains("provider: dummy"));
     assert!(stdout.contains("auth.openrouter.main"));
     assert!(stdout.contains("provider: openrouter"));
     assert!(stdout.contains("kind: api_key"));
@@ -364,11 +366,11 @@ fn model_show_reads_real_config_root() {
     assert!(stdout.contains("实例模型配置："));
     assert!(stdout.contains("instance: global-main"));
     assert!(stdout.contains("primary:"));
+    assert!(stdout.contains("auth_ref: auth.dummy.main"));
+    assert!(stdout.contains("model: dummy/default-chat"));
+    assert!(stdout.contains("fallback:"));
     assert!(stdout.contains("auth_ref: auth.openrouter.main"));
     assert!(stdout.contains("model: openai/gpt-5"));
-    assert!(stdout.contains("fallback:"));
-    assert!(stdout.contains("auth_ref: auth.openai.backup"));
-    assert!(stdout.contains("model: gpt-4.1"));
 }
 
 #[test]
@@ -446,9 +448,10 @@ fn provider_smoke_reads_real_config_root() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("Provider Smoke："));
     assert!(stdout.contains("实例：global-main"));
-    assert!(stdout.contains("auth_ref：auth.openrouter.main"));
-    assert!(stdout.contains("model：openai/gpt-5"));
+    assert!(stdout.contains("auth_ref：auth.dummy.main"));
+    assert!(stdout.contains("model：dummy/default-chat"));
     assert!(stdout.contains("provider：dummy"));
+    assert!(stdout.contains("provider name：dummy"));
     assert!(stdout.contains("provider response：通过"));
     assert!(stdout.contains("runtime output：通过"));
 }
@@ -501,7 +504,7 @@ fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
     assert!(stdout.contains("ingress source：cli"));
     assert!(stdout.contains("provider invoked：yes"));
     assert!(stdout.contains("provider：dummy"));
-    assert!(stdout.contains("provider name：openrouter"));
+    assert!(stdout.contains("provider name：dummy"));
     assert!(stdout.contains("assistant output present：yes"));
     assert!(stdout.contains("failure stage：<none>"));
     assert!(stdout.contains("runtime output：已追加"));
@@ -678,6 +681,103 @@ primary_model = "openai/gpt-5"
     assert!(stderr.contains("配置命令失败"));
     assert!(stderr.contains("Agent Turn 失败"));
     assert!(stderr.contains("provider_resolve"));
+}
+
+#[test]
+fn cli_provider_smoke_reports_dummy_or_boundary_state_clearly() {
+    let root = temp_root("provider-smoke-dummy-clear");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("provider：dummy"));
+    assert!(stdout.contains("provider name：dummy"));
+}
+
+#[test]
+fn provider_smoke_real_provider_unavailable_prints_chinese_error() {
+    let root = temp_root("provider-smoke-real-provider-unavailable");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(
+        root.join("auth.toml"),
+        r#"# AICore OS auth pool
+
+[[auth]]
+auth_ref = "auth.openrouter.main"
+provider = "openrouter"
+kind = "api_key"
+secret_ref = "secret://auth.openrouter.main"
+capabilities = ["chat"]
+enabled = true
+"#,
+    )
+    .expect("auth.toml should be writable");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.openrouter.main"
+primary_model = "openai/gpt-5"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("配置命令失败"));
+    assert!(stderr.contains("provider 调用错误"));
+    assert!(stderr.contains("provider adapter unavailable"));
+}
+
+#[test]
+fn cli_agent_smoke_real_provider_unavailable_prints_chinese_error() {
+    let root = temp_root("agent-smoke-real-provider-unavailable");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(
+        root.join("auth.toml"),
+        r#"# AICore OS auth pool
+
+[[auth]]
+auth_ref = "auth.openrouter.main"
+provider = "openrouter"
+kind = "api_key"
+secret_ref = "secret://auth.openrouter.main"
+capabilities = ["chat"]
+enabled = true
+"#,
+    )
+    .expect("auth.toml should be writable");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.openrouter.main"
+primary_model = "openai/gpt-5"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "需要 provider gate 失败"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("配置命令失败"));
+    assert!(stderr.contains("Agent Turn 失败"));
+    assert!(stderr.contains("provider_invoke"));
+    assert!(stderr.contains("provider adapter unavailable"));
 }
 
 #[test]

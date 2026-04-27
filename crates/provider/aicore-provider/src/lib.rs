@@ -1,9 +1,11 @@
 mod dummy;
+mod invoker;
 mod prompt;
 mod resolver;
 mod types;
 
 pub use dummy::DummyProvider;
+pub use invoker::ProviderInvoker;
 pub use prompt::PromptBuilder;
 pub use resolver::ProviderResolver;
 pub use types::{
@@ -22,27 +24,45 @@ mod tests {
     use std::{env, fs};
 
     use crate::{
-        DummyProvider, ModelRequest, PromptBuildInput, PromptBuilder, ProviderKind,
+        ModelRequest, PromptBuildInput, PromptBuilder, ProviderInvoker, ProviderKind,
         ProviderResolver,
     };
 
     fn auth_pool() -> GlobalAuthPool {
-        GlobalAuthPool::new(vec![AuthEntry {
-            auth_ref: AuthRef::new("auth.openrouter.main"),
-            provider: "openrouter".to_string(),
-            kind: AuthKind::ApiKey,
-            secret_ref: SecretRef::new("secret://auth.openrouter.main"),
-            capabilities: vec![AuthCapability::Chat],
-            enabled: true,
-        }])
+        GlobalAuthPool::new(vec![
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.dummy.main"),
+                provider: "dummy".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.dummy.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.openrouter.main"),
+                provider: "openrouter".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.openrouter.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+            AuthEntry {
+                auth_ref: AuthRef::new("auth.openai.main"),
+                provider: "openai".to_string(),
+                kind: AuthKind::ApiKey,
+                secret_ref: SecretRef::new("secret://auth.openai.main"),
+                capabilities: vec![AuthCapability::Chat],
+                enabled: true,
+            },
+        ])
     }
 
     fn auth_pool_with_disabled_entry() -> GlobalAuthPool {
         GlobalAuthPool::new(vec![AuthEntry {
-            auth_ref: AuthRef::new("auth.openrouter.main"),
-            provider: "openrouter".to_string(),
+            auth_ref: AuthRef::new("auth.dummy.main"),
+            provider: "dummy".to_string(),
             kind: AuthKind::ApiKey,
-            secret_ref: SecretRef::new("secret://auth.openrouter.main"),
+            secret_ref: SecretRef::new("secret://auth.dummy.main"),
             capabilities: vec![AuthCapability::Chat],
             enabled: false,
         }])
@@ -52,8 +72,30 @@ mod tests {
         InstanceRuntimeConfig {
             instance_id: "global-main".to_string(),
             primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.dummy.main"),
+                model: "dummy/default-chat".to_string(),
+            },
+            fallback: None,
+        }
+    }
+
+    fn runtime_config_openrouter() -> InstanceRuntimeConfig {
+        InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
                 auth_ref: AuthRef::new("auth.openrouter.main"),
                 model: "openai/gpt-5".to_string(),
+            },
+            fallback: None,
+        }
+    }
+
+    fn runtime_config_openai() -> InstanceRuntimeConfig {
+        InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.openai.main"),
+                model: "gpt-4.1".to_string(),
             },
             fallback: None,
         }
@@ -78,10 +120,29 @@ mod tests {
         let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config())
             .expect("resolver should resolve primary model");
 
-        assert_eq!(resolved.auth_ref.as_str(), "auth.openrouter.main");
-        assert_eq!(resolved.model, "openai/gpt-5");
-        assert_eq!(resolved.provider, "openrouter");
+        assert_eq!(resolved.auth_ref.as_str(), "auth.dummy.main");
+        assert_eq!(resolved.model, "dummy/default-chat");
+        assert_eq!(resolved.provider, "dummy");
         assert_eq!(resolved.kind, ProviderKind::Dummy);
+    }
+
+    #[test]
+    fn provider_resolver_classifies_openrouter_as_real_provider_boundary() {
+        let resolved =
+            ProviderResolver::resolve_primary(&auth_pool(), &runtime_config_openrouter())
+                .expect("resolver should classify openrouter");
+
+        assert_eq!(resolved.provider, "openrouter");
+        assert_eq!(resolved.kind, ProviderKind::OpenRouter);
+    }
+
+    #[test]
+    fn provider_resolver_classifies_openai_as_real_provider_boundary() {
+        let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config_openai())
+            .expect("resolver should classify openai");
+
+        assert_eq!(resolved.provider, "openai");
+        assert_eq!(resolved.kind, ProviderKind::OpenAI);
     }
 
     #[test]
@@ -99,6 +160,30 @@ mod tests {
     }
 
     #[test]
+    fn provider_resolver_rejects_unknown_provider_or_marks_unsupported() {
+        let auth_pool = GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.unknown.main"),
+            provider: "mystery".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.unknown.main"),
+            capabilities: vec![AuthCapability::Chat],
+            enabled: true,
+        }]);
+        let runtime = InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.unknown.main"),
+                model: "mystery/model".to_string(),
+            },
+            fallback: None,
+        };
+
+        let error = ProviderResolver::resolve_primary(&auth_pool, &runtime)
+            .expect_err("unknown provider should not be silently supported");
+        assert!(matches!(error, crate::ProviderError::Resolve(_)));
+    }
+
+    #[test]
     fn provider_resolver_rejects_disabled_auth_ref() {
         assert!(
             ProviderResolver::resolve_primary(&auth_pool_with_disabled_entry(), &runtime_config())
@@ -107,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn dummy_provider_returns_assistant_response() {
+    fn provider_invoker_routes_dummy_to_dummy_provider() {
         let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config())
             .expect("resolver should resolve primary model");
         let request = ModelRequest {
@@ -117,11 +202,84 @@ mod tests {
             resolved_model: resolved,
         };
 
-        let response = DummyProvider::generate(&request);
+        let response = ProviderInvoker::invoke(&request).expect("dummy provider should run");
 
         assert_eq!(response.role, "assistant");
         assert!(response.content.contains("dummy"));
-        assert!(response.content.contains("openai/gpt-5"));
+        assert!(response.content.contains("dummy/default-chat"));
+    }
+
+    #[test]
+    fn provider_invoker_does_not_silently_dummy_real_provider() {
+        let resolved =
+            ProviderResolver::resolve_primary(&auth_pool(), &runtime_config_openrouter())
+                .expect("resolver should classify openrouter");
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolved,
+        };
+
+        let error = ProviderInvoker::invoke(&request)
+            .expect_err("real provider should not be silently routed to dummy");
+        assert!(matches!(error, crate::ProviderError::Invoke(_)));
+    }
+
+    #[test]
+    fn provider_invoker_returns_unavailable_for_real_provider_without_adapter() {
+        let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config_openai())
+            .expect("resolver should classify openai");
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "hello".to_string(),
+            resolved_model: resolved,
+        };
+
+        let error = ProviderInvoker::invoke(&request)
+            .expect_err("real provider should be gated as unavailable");
+        match error {
+            crate::ProviderError::Invoke(message) => {
+                assert!(message.contains("provider adapter unavailable"));
+                assert!(!message.contains("secret://"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provider_boundary_does_not_expose_secret_in_error() {
+        let resolved =
+            ProviderResolver::resolve_primary(&auth_pool(), &runtime_config_openrouter())
+                .expect("resolver should classify openrouter");
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "secret boundary".to_string(),
+            resolved_model: resolved,
+        };
+
+        let error = ProviderInvoker::invoke(&request)
+            .expect_err("real provider should be gated as unavailable");
+        let rendered = format!("{error:?}");
+        assert!(!rendered.contains("secret://"));
+        assert!(!rendered.contains("auth.openrouter.main"));
+    }
+
+    #[test]
+    fn model_request_keeps_prompt_and_resolved_model_boundary() {
+        let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config())
+            .expect("resolver should resolve dummy");
+        let request = ModelRequest {
+            instance_id: "global-main".to_string(),
+            conversation_id: "main".to_string(),
+            prompt: "boundary prompt".to_string(),
+            resolved_model: resolved.clone(),
+        };
+
+        assert_eq!(request.prompt, "boundary prompt");
+        assert_eq!(request.resolved_model, resolved);
     }
 
     #[test]

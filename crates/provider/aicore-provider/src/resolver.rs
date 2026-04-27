@@ -26,7 +26,18 @@ impl ProviderResolver {
             auth_ref: runtime.primary.auth_ref.clone(),
             model: runtime.primary.model.clone(),
             provider: entry.provider.clone(),
-            kind: ProviderKind::Dummy,
+            kind: classify_provider_kind(&entry.provider)?,
         })
+    }
+}
+
+fn classify_provider_kind(provider: &str) -> Result<ProviderKind, ProviderError> {
+    match provider.to_ascii_lowercase().as_str() {
+        "dummy" => Ok(ProviderKind::Dummy),
+        "openrouter" => Ok(ProviderKind::OpenRouter),
+        "openai" => Ok(ProviderKind::OpenAI),
+        other => Err(ProviderError::Resolve(format!(
+            "unsupported provider: {other}"
+        ))),
     }
 }

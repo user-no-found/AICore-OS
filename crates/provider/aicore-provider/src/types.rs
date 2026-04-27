@@ -4,6 +4,8 @@ use aicore_memory::MemoryRecord;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderKind {
     Dummy,
+    OpenRouter,
+    OpenAI,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,4 +53,5 @@ pub struct ModelResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderError {
     Resolve(String),
+    Invoke(String),
 }

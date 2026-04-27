@@ -14,7 +14,7 @@ use aicore_memory::{
     MemoryType, RememberInput, SearchQuery,
 };
 use aicore_provider::{
-    DummyProvider, ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderResolver,
+    ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
 use aicore_runtime::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
@@ -512,7 +512,7 @@ fn print_provider_smoke() -> Result<(), String> {
         prompt: prompt.prompt,
         resolved_model: resolved.clone(),
     };
-    let response = DummyProvider::generate(&request);
+    let response = ProviderInvoker::invoke(&request).map_err(provider_error)?;
 
     let mut runtime = default_runtime();
     let outputs = runtime.append_assistant_output(&response.content);
@@ -529,7 +529,8 @@ fn print_provider_smoke() -> Result<(), String> {
     println!("- 实例：{}", runtime_config.instance_id);
     println!("- auth_ref：{}", resolved.auth_ref.as_str());
     println!("- model：{}", resolved.model);
-    println!("- provider：dummy");
+    println!("- provider：{}", provider_kind_name(&resolved.kind));
+    println!("- provider name：{}", resolved.provider);
     println!("- memory pack：{}", memory_pack.len());
     println!("- prompt builder：通过");
     println!("- provider response：通过");
@@ -753,6 +754,7 @@ fn agent_turn_outcome_name(outcome: &AgentTurnOutcome) -> &'static str {
 fn agent_turn_failure_stage_name(stage: &aicore_agent::AgentTurnFailureStage) -> &'static str {
     match stage {
         aicore_agent::AgentTurnFailureStage::ProviderResolve => "provider_resolve",
+        aicore_agent::AgentTurnFailureStage::ProviderInvoke => "provider_invoke",
         aicore_agent::AgentTurnFailureStage::RuntimeAppend => "runtime_append",
     }
 }
@@ -1152,6 +1154,14 @@ fn write_runtime_if_missing(
 fn demo_auth_pool() -> GlobalAuthPool {
     GlobalAuthPool::new(vec![
         AuthEntry {
+            auth_ref: AuthRef::new("auth.dummy.main"),
+            provider: "dummy".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.dummy.main"),
+            capabilities: vec![AuthCapability::Chat],
+            enabled: true,
+        },
+        AuthEntry {
             auth_ref: AuthRef::new("auth.openrouter.main"),
             provider: "openrouter".to_string(),
             kind: AuthKind::ApiKey,
@@ -1182,12 +1192,12 @@ fn demo_runtime_config() -> InstanceRuntimeConfig {
     InstanceRuntimeConfig {
         instance_id: "global-main".to_string(),
         primary: ModelBinding {
-            auth_ref: AuthRef::new("auth.openrouter.main"),
-            model: "openai/gpt-5".to_string(),
+            auth_ref: AuthRef::new("auth.dummy.main"),
+            model: "dummy/default-chat".to_string(),
         },
         fallback: Some(ModelBinding {
-            auth_ref: AuthRef::new("auth.openai.backup"),
-            model: "gpt-4.1".to_string(),
+            auth_ref: AuthRef::new("auth.openrouter.main"),
+            model: "openai/gpt-5".to_string(),
         }),
     }
 }
@@ -1234,6 +1244,15 @@ fn memory_error(error: aicore_memory::MemoryError) -> String {
 fn provider_error(error: ProviderError) -> String {
     match error {
         ProviderError::Resolve(message) => format!("provider 解析错误：{message}"),
+        ProviderError::Invoke(message) => format!("provider 调用错误：{message}"),
+    }
+}
+
+fn provider_kind_name(kind: &aicore_provider::ProviderKind) -> &'static str {
+    match kind {
+        aicore_provider::ProviderKind::Dummy => "dummy",
+        aicore_provider::ProviderKind::OpenRouter => "openrouter",
+        aicore_provider::ProviderKind::OpenAI => "openai",
     }
 }
 
