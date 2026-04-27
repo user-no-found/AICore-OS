@@ -22,6 +22,37 @@ fn run_cli_with_config_root(args: &[&str], root: &PathBuf) -> std::process::Outp
         .expect("aicore-cli should run")
 }
 
+fn run_cli_with_config_root_and_env(
+    args: &[&str],
+    root: &PathBuf,
+    envs: &[(&str, &str)],
+) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aicore-cli"));
+    command.args(args).env("AICORE_CONFIG_ROOT", root);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("aicore-cli should run")
+}
+
+fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::process::Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_aicore-cli"));
+    command.args(args);
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    command.output().expect("aicore-cli should run")
+}
+
+fn assert_json_lines(stdout: &str) -> Vec<serde_json::Value> {
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert!(!lines.is_empty(), "json output should contain lines");
+    lines
+        .into_iter()
+        .map(|line| serde_json::from_str(line).expect("stdout line should be valid json"))
+        .collect()
+}
+
 fn memory_paths_for_root(root: &PathBuf) -> MemoryPaths {
     MemoryPaths::new(root.join("instances").join("global-main").join("memory"))
 }
@@ -127,6 +158,28 @@ fn renders_status_command() {
     assert!(stdout.contains("组件数量："));
     assert!(stdout.contains("实例数量："));
     assert!(stdout.contains("Runtime：global-main/main"));
+}
+
+#[test]
+fn cli_status_uses_terminal_document_in_rich_mode() {
+    let output = run_cli_with_env(&["status"], &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ AICore CLI"));
+    assert!(stdout.contains("主实例：global-main"));
+}
+
+#[test]
+fn cli_status_json_outputs_valid_json() {
+    let output = run_cli_with_env(&["status"], &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("AICore CLI\n"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -446,7 +499,7 @@ fn provider_smoke_reads_real_config_root() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Provider Smoke："));
+    assert!(stdout.contains("Provider Smoke"));
     assert!(stdout.contains("实例：global-main"));
     assert!(stdout.contains("auth_ref：auth.dummy.main"));
     assert!(stdout.contains("model：dummy/default-chat"));
@@ -460,6 +513,83 @@ fn provider_smoke_reads_real_config_root() {
     assert!(stdout.contains("runtime output：通过"));
     assert!(!stdout.contains("secret://"));
     assert!(!stdout.contains("credential_lease_ref"));
+}
+
+#[test]
+fn cli_provider_smoke_rich_uses_terminal_panel() {
+    let root = temp_root("provider-smoke-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Provider Smoke"));
+    assert!(stdout.contains("provider：dummy"));
+    assert!(!stdout.contains("secret://"));
+}
+
+#[test]
+fn cli_provider_smoke_plain_has_no_ansi() {
+    let root = temp_root("provider-smoke-plain-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Provider Smoke"));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_provider_smoke_json_outputs_valid_json() {
+    let root = temp_root("provider-smoke-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("Provider Smoke："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains("secret://"));
+}
+
+#[test]
+fn cli_provider_smoke_no_color_has_no_ansi() {
+    let root = temp_root("provider-smoke-no-color-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke"],
+        &root,
+        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Provider Smoke"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -483,7 +613,8 @@ fn cli_agent_smoke_outputs_chinese_status() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Agent Loop：通过"));
+    assert!(stdout.contains("Agent Loop"));
+    assert!(stdout.contains("status：通过"));
     assert!(stdout.contains("实例：global-main"));
     assert!(stdout.contains("runtime output：已追加"));
 }
@@ -540,6 +671,43 @@ fn cli_agent_smoke_does_not_print_prompt() {
 }
 
 #[test]
+fn cli_agent_smoke_rich_uses_terminal_summary() {
+    let root = temp_root("agent-smoke-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "smoke", "hello"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Agent Loop"));
+    assert!(stdout.contains("outcome：completed"));
+    assert!(!stdout.contains("SYSTEM:"));
+}
+
+#[test]
+fn cli_agent_smoke_plain_has_no_ansi() {
+    let root = temp_root("agent-smoke-plain-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "smoke", "hello"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Agent Loop"));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
 fn cli_agent_session_smoke_runs() {
     let root = temp_root("agent-session-smoke-runs");
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
@@ -551,6 +719,44 @@ fn cli_agent_session_smoke_runs() {
     );
 
     assert!(output.status.success());
+}
+
+#[test]
+fn cli_agent_session_smoke_rich_uses_terminal_summary() {
+    let root = temp_root("agent-session-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "session-smoke", "first", "second"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Agent Session"));
+    assert!(stdout.contains("turn 1 outcome：completed"));
+    assert!(stdout.contains("turn 2 outcome：completed"));
+    assert!(!stdout.contains("SYSTEM:"));
+}
+
+#[test]
+fn cli_agent_session_smoke_plain_has_no_ansi() {
+    let root = temp_root("agent-session-plain-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "session-smoke", "first", "second"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Agent Session"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -566,7 +772,8 @@ fn cli_agent_session_smoke_outputs_chinese_summary() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Agent Session：通过"));
+    assert!(stdout.contains("Agent Session"));
+    assert!(stdout.contains("status：通过"));
     assert!(stdout.contains("conversation："));
     assert!(stdout.contains("turns：2"));
     assert!(stdout.contains("completed all inputs：yes"));
@@ -574,9 +781,9 @@ fn cli_agent_session_smoke_outputs_chinese_summary() {
     assert!(stdout.contains("latest outcome：completed"));
     assert!(stdout.contains("conversation status：idle"));
     assert!(stdout.contains("turn 1 outcome：completed"));
-    assert!(stdout.contains("provider invoked: yes"));
-    assert!(stdout.contains("assistant output present: yes"));
-    assert!(stdout.contains("failure stage: <none>"));
+    assert!(stdout.contains("turn 1 provider invoked：yes"));
+    assert!(stdout.contains("turn 1 assistant output present：yes"));
+    assert!(stdout.contains("turn 1 failure stage：<none>"));
     assert!(stdout.contains("turn 2 outcome：completed"));
 }
 
@@ -616,8 +823,9 @@ fn cli_agent_session_summary_consumes_public_surface() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Agent Session：通过"));
-    assert!(stdout.contains("assistant output present: yes"));
+    assert!(stdout.contains("Agent Session"));
+    assert!(stdout.contains("status：通过"));
+    assert!(stdout.contains("turn 1 assistant output present：yes"));
     assert!(!stdout.contains("session raw memory should stay internal"));
     assert!(!stdout.contains("SYSTEM:"));
     assert!(!stdout.contains("CURRENT USER REQUEST:"));

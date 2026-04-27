@@ -20,6 +20,7 @@ use aicore_memory::{
 use aicore_provider::{
     ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
+use aicore_terminal::{Block, Document, TerminalConfig, render_document};
 
 pub fn run_from_args(args: Vec<String>) -> i32 {
     match args.as_slice() {
@@ -128,14 +129,38 @@ fn print_status() {
     let main_instance = control_plane.main_instance_summary();
     let runtime_summary = runtime.summary();
 
-    println!("AICore CLI");
-    println!("主实例：{}", main_instance.id);
-    println!("组件数量：{}", control_summary.component_count);
-    println!("实例数量：{}", control_summary.instance_count);
-    println!(
-        "Runtime：{}/{}",
-        runtime_summary.instance_id, runtime_summary.conversation_id
+    emit_cli_panel(
+        "AICore CLI",
+        vec![
+            cli_row("主实例", main_instance.id.as_str()),
+            cli_row("组件数量", control_summary.component_count.to_string()),
+            cli_row("实例数量", control_summary.instance_count.to_string()),
+            cli_row(
+                "Runtime",
+                format!(
+                    "{}/{}",
+                    runtime_summary.instance_id, runtime_summary.conversation_id
+                ),
+            ),
+        ],
     );
+}
+
+fn emit_cli_panel(title: &str, rows: Vec<(String, String)>) {
+    let body = rows
+        .into_iter()
+        .map(|(key, value)| format!("{key}：{value}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    emit_document(Document::new(vec![Block::panel(title, &body)]));
+}
+
+fn emit_document(document: Document) {
+    print!("{}", render_document(&document, &TerminalConfig::current()));
+}
+
+fn cli_row(key: impl Into<String>, value: impl Into<String>) -> (String, String) {
+    (key.into(), value.into())
 }
 
 fn print_instance_list() {
@@ -525,23 +550,27 @@ fn print_provider_smoke() -> Result<(), String> {
         return Err("runtime 未收到 provider 输出".to_string());
     }
 
-    println!("Provider Smoke：");
-    println!("- 实例：{}", runtime_config.instance_id);
-    println!("- auth_ref：{}", resolved.auth_ref.as_str());
-    println!("- model：{}", resolved.model);
-    println!("- provider：{}", provider_kind_name(&resolved.kind));
-    println!("- provider name：{}", resolved.provider);
-    println!("- adapter：{}", resolved.runtime.adapter_id);
-    println!("- api mode：{}", resolved.runtime.api_mode.as_str());
-    println!("- engine：{}", resolved.runtime.engine_id);
-    println!(
-        "- engine status：{}",
-        provider_availability_name(&resolved.availability)
+    emit_cli_panel(
+        "Provider Smoke",
+        vec![
+            cli_row("实例", runtime_config.instance_id),
+            cli_row("auth_ref", resolved.auth_ref.as_str()),
+            cli_row("model", resolved.model),
+            cli_row("provider", provider_kind_name(&resolved.kind)),
+            cli_row("provider name", resolved.provider),
+            cli_row("adapter", resolved.runtime.adapter_id),
+            cli_row("api mode", resolved.runtime.api_mode.as_str()),
+            cli_row("engine", resolved.runtime.engine_id),
+            cli_row(
+                "engine status",
+                provider_availability_name(&resolved.availability),
+            ),
+            cli_row("memory pack", memory_pack.len().to_string()),
+            cli_row("prompt builder", "通过"),
+            cli_row("provider response", "通过"),
+            cli_row("runtime output", "通过"),
+        ],
     );
-    println!("- memory pack：{}", memory_pack.len());
-    println!("- prompt builder：通过");
-    println!("- provider response：通过");
-    println!("- runtime output：通过");
 
     Ok(())
 }
@@ -596,39 +625,41 @@ fn print_agent_smoke(content: &str) -> Result<(), String> {
         return Err(format!("Agent Turn 失败：阶段={stage}，错误={message}"));
     }
 
-    println!("Agent Loop：通过");
-    println!("- 实例：{}", runtime_config.instance_id);
-    println!("- outcome：{}", agent_turn_outcome_name(&turn.outcome));
-    println!("- memory pack：{} 条", turn.memory_count);
-    println!("- prompt builder：通过");
-    println!("- ingress source：{}", turn.accepted_source);
-    println!(
-        "- provider invoked：{}",
-        bool_status_name(turn.provider_invoked)
+    emit_cli_panel(
+        "Agent Loop",
+        vec![
+            cli_row("status", "通过"),
+            cli_row("实例", runtime_config.instance_id),
+            cli_row("outcome", agent_turn_outcome_name(&turn.outcome)),
+            cli_row("memory pack", format!("{} 条", turn.memory_count)),
+            cli_row("prompt builder", "通过"),
+            cli_row("ingress source", turn.accepted_source.as_str()),
+            cli_row("provider invoked", bool_status_name(turn.provider_invoked)),
+            cli_row(
+                "provider",
+                turn.provider_kind.as_deref().unwrap_or("<none>"),
+            ),
+            cli_row(
+                "provider name",
+                turn.provider_name.as_deref().unwrap_or("<none>"),
+            ),
+            cli_row(
+                "assistant output present",
+                bool_status_name(turn.assistant_output_present),
+            ),
+            cli_row(
+                "failure stage",
+                turn.failure_stage
+                    .as_ref()
+                    .map(agent_turn_failure_stage_name)
+                    .unwrap_or("<none>"),
+            ),
+            cli_row("runtime output", "已追加"),
+            cli_row("conversation", surface.conversation_id),
+            cli_row("event count", turn.event_count.to_string()),
+            cli_row("queue len", turn.queue_len.to_string()),
+        ],
     );
-    println!(
-        "- provider：{}",
-        turn.provider_kind.as_deref().unwrap_or("<none>")
-    );
-    println!(
-        "- provider name：{}",
-        turn.provider_name.as_deref().unwrap_or("<none>")
-    );
-    println!(
-        "- assistant output present：{}",
-        bool_status_name(turn.assistant_output_present)
-    );
-    println!(
-        "- failure stage：{}",
-        turn.failure_stage
-            .as_ref()
-            .map(agent_turn_failure_stage_name)
-            .unwrap_or("<none>")
-    );
-    println!("- runtime output：已追加");
-    println!("- conversation：{}", surface.conversation_id);
-    println!("- event count：{}", turn.event_count);
-    println!("- queue len：{}", turn.queue_len);
 
     Ok(())
 }
@@ -696,54 +727,56 @@ fn print_agent_session_smoke(first: &str, second: &str) -> Result<(), String> {
 
     let surface = session.surface();
 
-    println!("Agent Session：通过");
-    println!("- conversation：{}", surface.conversation_id);
-    println!("- turns：{}", surface.turn_count);
-    println!(
-        "- completed all inputs：{}",
-        bool_status_name(surface.completed_all_inputs)
-    );
-    println!(
-        "- stop reason：{}",
-        surface
-            .stop_reason
-            .as_ref()
-            .map(agent_session_stop_reason_name)
-            .unwrap_or("<none>")
-    );
-    println!(
-        "- latest outcome：{}",
-        surface
-            .latest_turn
-            .as_ref()
-            .map(|turn| agent_turn_outcome_name(&turn.outcome))
-            .unwrap_or("<none>")
-    );
-    println!("- conversation status：{}", surface.conversation_status);
-    println!("- event count：{}", surface.event_count);
-    println!("- queue len：{}", surface.queue_len);
+    let mut rows = vec![
+        cli_row("status", "通过"),
+        cli_row("conversation", surface.conversation_id.as_str()),
+        cli_row("turns", surface.turn_count.to_string()),
+        cli_row(
+            "completed all inputs",
+            bool_status_name(surface.completed_all_inputs),
+        ),
+        cli_row(
+            "stop reason",
+            surface
+                .stop_reason
+                .as_ref()
+                .map(agent_session_stop_reason_name)
+                .unwrap_or("<none>"),
+        ),
+        cli_row(
+            "latest outcome",
+            surface
+                .latest_turn
+                .as_ref()
+                .map(|turn| agent_turn_outcome_name(&turn.outcome))
+                .unwrap_or("<none>"),
+        ),
+        cli_row("conversation status", surface.conversation_status.as_str()),
+        cli_row("event count", surface.event_count.to_string()),
+        cli_row("queue len", surface.queue_len.to_string()),
+    ];
     for (index, turn) in surface.turns.iter().enumerate() {
-        println!(
-            "- turn {} outcome：{}",
-            index + 1,
-            agent_turn_outcome_name(&turn.outcome)
-        );
-        println!(
-            "  provider invoked: {}",
-            bool_status_name(turn.provider_invoked)
-        );
-        println!(
-            "  assistant output present: {}",
-            bool_status_name(turn.assistant_output_present)
-        );
-        println!(
-            "  failure stage: {}",
+        rows.push(cli_row(
+            format!("turn {} outcome", index + 1),
+            agent_turn_outcome_name(&turn.outcome),
+        ));
+        rows.push(cli_row(
+            format!("turn {} provider invoked", index + 1),
+            bool_status_name(turn.provider_invoked),
+        ));
+        rows.push(cli_row(
+            format!("turn {} assistant output present", index + 1),
+            bool_status_name(turn.assistant_output_present),
+        ));
+        rows.push(cli_row(
+            format!("turn {} failure stage", index + 1),
             turn.failure_stage
                 .as_ref()
                 .map(agent_turn_failure_stage_name)
-                .unwrap_or("<none>")
-        );
+                .unwrap_or("<none>"),
+        ));
     }
+    emit_cli_panel("Agent Session", rows);
 
     Ok(())
 }

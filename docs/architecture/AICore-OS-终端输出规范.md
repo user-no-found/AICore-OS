@@ -33,7 +33,7 @@ crates/foundation/aicore-terminal
 
 - `aicore-foundation` 提供 ID、错误、路径、时间、取消、队列、租约、redaction 等基础 primitive。
 - `aicore-terminal` 提供 terminal rendering、输出模式、状态符号、panel、table、diagnostic、warning summary、final summary、redaction 与 sanitization。
-- `aicore-workflow`、未来 CLI 或其他 terminal-facing consumer 通过 `aicore-terminal` 渲染输出。
+- `aicore-workflow`、`aicore-cli` 或其他 terminal-facing consumer 通过 `aicore-terminal` 渲染输出。
 
 允许依赖方向：
 
@@ -226,6 +226,37 @@ rich mode 的 section symbol 使用轻量线性字符，不使用彩色 emoji。
 - Text 必须做 sanitization 与 redaction。
 - 所有 block 都必须支持 plain fallback。
 - json mode 输出结构化 event，不输出人类 panel 字符串。
+
+## CLI 输出接入
+
+`aicore-cli` 的 terminal-facing 命令可以通过 `aicore-terminal` 输出结构化 document。
+
+应用层命令应先构造语义化 view data，再转换为 terminal document：
+
+- `Document`
+- `Block::Panel`
+- `Block::KeyValue`
+- `Block::Diagnostic`
+- `Block::FinalSummary`
+- `Block::Table`
+
+CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 ANSI 风格。需要 rich / plain / json 的命令输出应复用 `aicore-terminal`。
+
+已接入 terminal document 的 CLI 入口包括：
+
+- `aicore-cli status`
+- `aicore-cli provider smoke`
+- `aicore-cli agent smoke <内容>`
+- `aicore-cli agent session-smoke <第一轮内容> <第二轮内容>`
+
+这些命令的输出规则：
+
+- rich mode 输出 panel 或 summary 形态。
+- plain mode 输出无 ANSI、无 Unicode 边框的文本。
+- json mode 输出 JSON Lines，不混入 logo、人类文本或 ANSI。
+- `NO_COLOR=1` 禁用 ANSI，但不改变输出语义。
+- 用户说明使用中文；命令名、字段名、provider_id、api_mode、engine_id、machine code 保持英文。
+- public surface 不暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request 或 raw provider payload。
 
 ## Workflow 输出
 
