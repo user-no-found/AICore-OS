@@ -531,6 +531,13 @@ fn print_provider_smoke() -> Result<(), String> {
     println!("- model：{}", resolved.model);
     println!("- provider：{}", provider_kind_name(&resolved.kind));
     println!("- provider name：{}", resolved.provider);
+    println!("- adapter：{}", resolved.runtime.adapter_id);
+    println!("- api mode：{}", resolved.runtime.api_mode.as_str());
+    println!("- engine：{}", resolved.runtime.engine_id);
+    println!(
+        "- engine status：{}",
+        provider_availability_name(&resolved.availability)
+    );
     println!("- memory pack：{}", memory_pack.len());
     println!("- prompt builder：通过");
     println!("- provider response：通过");
@@ -1264,6 +1271,15 @@ fn provider_kind_name(kind: &aicore_provider::ProviderKind) -> &'static str {
         aicore_provider::ProviderKind::CustomOpenAICompatible => "custom-openai-compatible",
         aicore_provider::ProviderKind::CustomAnthropicCompatible => "custom-anthropic-compatible",
         aicore_provider::ProviderKind::Xiaomi => "xiaomi",
+    }
+}
+
+fn provider_availability_name(
+    availability: &aicore_provider::ProviderAvailability,
+) -> &'static str {
+    match availability {
+        aicore_provider::ProviderAvailability::Available => "available",
+        aicore_provider::ProviderAvailability::AdapterUnavailable => "boundary",
     }
 }
 

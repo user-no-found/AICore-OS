@@ -452,8 +452,14 @@ fn provider_smoke_reads_real_config_root() {
     assert!(stdout.contains("model：dummy/default-chat"));
     assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("provider name：dummy"));
+    assert!(stdout.contains("adapter：dummy"));
+    assert!(stdout.contains("api mode：dummy"));
+    assert!(stdout.contains("engine：dummy"));
+    assert!(stdout.contains("engine status：available"));
     assert!(stdout.contains("provider response：通过"));
     assert!(stdout.contains("runtime output：通过"));
+    assert!(!stdout.contains("secret://"));
+    assert!(!stdout.contains("credential_lease_ref"));
 }
 
 #[test]
@@ -738,6 +744,10 @@ fn cli_provider_smoke_reports_dummy_or_boundary_state_clearly() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("provider name：dummy"));
+    assert!(stdout.contains("adapter：dummy"));
+    assert!(stdout.contains("api mode：dummy"));
+    assert!(stdout.contains("engine：dummy"));
+    assert!(stdout.contains("engine status：available"));
 }
 
 #[test]
