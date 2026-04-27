@@ -152,7 +152,11 @@ fn emit_cli_panel(title: &str, rows: Vec<(String, String)>) {
         .map(|(key, value)| format!("{key}：{value}"))
         .collect::<Vec<_>>()
         .join("\n");
-    emit_document(Document::new(vec![Block::panel(title, &body)]));
+    emit_cli_panel_body(title, &body);
+}
+
+fn emit_cli_panel_body(title: &str, body: &str) {
+    emit_document(Document::new(vec![Block::panel(title, body)]));
 }
 
 fn emit_document(document: Document) {
@@ -825,29 +829,33 @@ fn print_memory_status() -> Result<(), String> {
     let paths = real_memory_paths()?;
     let kernel = MemoryKernel::open(paths.clone()).map_err(memory_error)?;
 
-    println!("Memory Status：");
-    println!("- instance: global-main");
-    println!("- root: {}", paths.root.display());
-    println!("- records: {}", kernel.records().len());
-    println!("- proposals: {}", kernel.proposals().len());
-    println!("- events: {}", kernel.events().len());
-    println!("- projection stale: {}", kernel.projection_state().stale);
-    println!(
-        "- projection warning: {}",
-        kernel
-            .projection_state()
-            .warning
-            .as_deref()
-            .unwrap_or("<none>")
-    );
-    println!(
-        "- last rebuild at: {}",
-        kernel
-            .projection_state()
-            .last_rebuild_at
-            .as_deref()
-            .unwrap_or("<none>")
-    );
+    let body = [
+        "- instance: global-main".to_string(),
+        format!("- root: {}", paths.root.display()),
+        format!("- records: {}", kernel.records().len()),
+        format!("- proposals: {}", kernel.proposals().len()),
+        format!("- events: {}", kernel.events().len()),
+        format!("- projection stale: {}", kernel.projection_state().stale),
+        format!(
+            "- projection warning: {}",
+            kernel
+                .projection_state()
+                .warning
+                .as_deref()
+                .unwrap_or("<none>")
+        ),
+        format!(
+            "- last rebuild at: {}",
+            kernel
+                .projection_state()
+                .last_rebuild_at
+                .as_deref()
+                .unwrap_or("<none>")
+        ),
+    ]
+    .join("\n");
+
+    emit_cli_panel_body("Memory Status：", &body);
 
     Ok(())
 }
@@ -865,11 +873,11 @@ fn print_memory_proposals() -> Result<(), String> {
     let proposals = kernel.list_open_proposals();
 
     if proposals.is_empty() {
-        println!("暂无待审阅记忆提案。");
+        emit_cli_panel_body("Memory Proposals：", "暂无待审阅记忆提案。");
         return Ok(());
     }
 
-    println!("Memory Proposals：");
+    let mut lines = Vec::new();
     for proposal in proposals {
         let display_text = if !proposal.localized_summary.is_empty() {
             proposal.localized_summary
@@ -878,13 +886,15 @@ fn print_memory_proposals() -> Result<(), String> {
         } else {
             proposal.normalized_content
         };
-        println!(
+        lines.push(format!(
             "- {} [{}] {}",
             proposal.proposal_id,
             memory_type_name(&proposal.memory_type),
             display_text
-        );
+        ));
     }
+
+    emit_cli_panel_body("Memory Proposals：", &lines.join("\n"));
 
     Ok(())
 }
@@ -905,14 +915,14 @@ fn print_memory_wiki_page(page: &str) -> Result<(), String> {
     let content = fs::read_to_string(&page_path)
         .map_err(|error| format!("无法读取 Wiki Projection {}: {error}", page_path.display()))?;
 
-    println!("记忆 Wiki Projection：");
-    for line in wiki_projection_status_lines(kernel.projection_state()) {
-        println!("{line}");
-    }
-    println!("- page: {page_name}");
-    println!("- path: {}", page_path.display());
-    println!();
-    print!("{content}");
+    let mut metadata = wiki_projection_status_lines(kernel.projection_state());
+    metadata.push(format!("- page: {page_name}"));
+    metadata.push(format!("- path: {}", page_path.display()));
+
+    emit_document(Document::new(vec![
+        Block::panel("记忆 Wiki Projection：", &metadata.join("\n")),
+        Block::markdown(&content),
+    ]));
 
     Ok(())
 }
@@ -977,41 +987,46 @@ fn print_memory_search(query: &str, options: MemorySearchOptions) -> Result<(), 
         })
         .map_err(memory_error)?;
 
-    println!("记忆搜索：");
+    let mut lines = Vec::new();
     if results.is_empty() {
-        println!("- 无匹配记忆");
+        lines.push("- 无匹配记忆".to_string());
     } else {
         for result in results {
             let record = result.record;
-            println!(
+            lines.push(format!(
                 "- {} [{}] {}",
                 record.memory_id,
                 memory_type_name(&record.memory_type),
                 record.content
-            );
-            println!("  source: {}", memory_source_name(&record.source));
-            println!(
+            ));
+            lines.push(format!("  source: {}", memory_source_name(&record.source)));
+            lines.push(format!(
                 "  permanence: {}",
                 memory_permanence_name(&record.permanence)
-            );
-            println!("  score: {}", result.score);
-            println!("  matched: {}", result.matched_fields.join(","));
+            ));
+            lines.push(format!("  score: {}", result.score));
+            lines.push(format!("  matched: {}", result.matched_fields.join(",")));
         }
     }
+
+    emit_cli_panel_body("记忆搜索：", &lines.join("\n"));
 
     Ok(())
 }
 
 fn render_memory_audit(report: &MemoryAuditReport) {
-    println!("Memory Audit：");
-    println!("- checked events: {}", report.checked_events);
-    println!("- status: {}", if report.ok { "ok" } else { "failed" });
+    let mut lines = vec![
+        format!("- checked events: {}", report.checked_events),
+        format!("- status: {}", if report.ok { "ok" } else { "failed" }),
+    ];
 
     if !report.ok {
         for issue in &report.issues {
-            println!("- issue: {issue}");
+            lines.push(format!("- issue: {issue}"));
         }
     }
+
+    emit_cli_panel_body("Memory Audit：", &lines.join("\n"));
 }
 
 fn output_target_name(target: &OutputTarget) -> &'static str {

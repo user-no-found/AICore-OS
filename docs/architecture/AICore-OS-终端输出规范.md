@@ -239,6 +239,9 @@ rich mode 的 section symbol 使用轻量线性字符，不使用彩色 emoji。
 - `Block::Diagnostic`
 - `Block::FinalSummary`
 - `Block::Table`
+- `Block::Markdown`
+- `Block::Text`
+- `Block::WarningSummary`
 
 CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 ANSI 风格。需要 rich / plain / json 的命令输出应复用 `aicore-terminal`。
 
@@ -251,6 +254,11 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - `aicore-cli auth list`
 - `aicore-cli model show`
 - `aicore-cli service list`
+- `aicore-cli memory status`
+- `aicore-cli memory search <关键词>`
+- `aicore-cli memory proposals`
+- `aicore-cli memory audit`
+- `aicore-cli memory wiki [page]`
 - `aicore-cli provider smoke`
 - `aicore-cli agent smoke <内容>`
 - `aicore-cli agent session-smoke <第一轮内容> <第二轮内容>`
@@ -264,6 +272,34 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - 用户说明使用中文；命令名、字段名、provider_id、api_mode、engine_id、machine code 保持英文。
 - public surface 不暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request 或 raw provider payload。
 - `auth list` 可以显示 `auth_ref` 和 secret 配置状态，但不显示完整 `secret_ref`。
+
+## Memory Read Surface 输出
+
+Memory 只读 CLI 命令可以作为 terminal-facing consumer 使用 `aicore-terminal`：
+
+- `memory status` 展示 memory root、record / proposal / event 统计、projection stale / warning / last rebuild metadata。
+- `memory search <关键词>` 展示 search result、`memory_id`、`memory_type`、`source`、`permanence`、`score` 与 `matched_fields`。
+- `memory proposals` 展示 open proposal 列表或空列表提示。
+- `memory audit` 展示 ledger consistency 检查结果与 issue 列表。
+- `memory wiki [page]` 展示只读 wiki projection metadata 与 Markdown 内容。
+
+Memory read surface 输出只负责呈现，不改变：
+
+- MemoryRecord 生命周期
+- memory db schema
+- Memory Event Ledger
+- proposal review 状态机
+- search/filter/ranking 语义
+- FTS fallback 语义
+- wiki projection 生成逻辑
+- wiki page 白名单
+- path traversal 拒绝逻辑
+
+`memory wiki [page]` 的 Markdown 内容来自 wiki projection。该 projection 是派生读面，不是事实来源；事实来源仍是 `memory.db`、`MemoryRecord` 与 Memory Event Ledger。CLI 输出不得将 wiki projection 解析、重写或反向同步回事实源。
+
+rich mode 可以将 wiki metadata 渲染为 panel，并将 Markdown projection 渲染为 Markdown block。plain mode 保留可读文本。json mode 使用 JSON Lines event，Markdown 内容作为 payload 字段输出，不混入人类 panel、ANSI 或 logo。
+
+Memory 内容是用户数据。终端输出层不得擅自翻译、摘要或隐藏用户原始记忆内容；敏感输出边界仍适用于 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request、raw provider payload、API key、token 与 cookie。
 
 ## Workflow 输出
 
