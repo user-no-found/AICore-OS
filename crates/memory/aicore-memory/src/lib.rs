@@ -10,7 +10,7 @@ mod store;
 mod types;
 
 pub use agent::RuleBasedMemoryAgent;
-pub use ids::{MemoryEventId, MemoryId, MemoryProposalId, MemorySnapshotRev};
+pub use ids::{MemoryEventId, MemoryId, MemoryProposalId};
 pub use kernel::{
     MemoryKernel, build_core_projection_for_tests, build_decisions_projection_for_tests,
     build_permanent_projection_for_tests, build_status_projection_for_tests, default_memory_kernel,

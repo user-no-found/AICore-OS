@@ -1,4 +1,4 @@
-use crate::ids::{MemoryEventId, MemoryId, MemoryProposalId, MemorySnapshotRev};
+use crate::ids::{MemoryEventId, MemoryId, MemoryProposalId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryScope {
@@ -114,13 +114,6 @@ pub struct MemoryEvent {
     pub reason: Option<String>,
     pub evidence_json: String,
     pub created_at: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemorySnapshot {
-    pub rev: MemorySnapshotRev,
-    pub core_markdown: String,
-    pub status_markdown: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
