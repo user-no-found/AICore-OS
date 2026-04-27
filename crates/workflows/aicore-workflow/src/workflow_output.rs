@@ -11,7 +11,7 @@ use crate::cargo_runner::CommandReport;
 const RICH_PANEL_WIDTH: usize = 58;
 const ANSI_RESET: &str = "\u{1b}[0m";
 const ANSI_DIM: &str = "\u{1b}[2m";
-const ANSI_LABEL: &str = "\u{1b}[90m";
+const ANSI_LABEL: &str = "\u{1b}[37m";
 const ANSI_CYAN: &str = "\u{1b}[96m";
 const ANSI_GREEN: &str = "\u{1b}[32m";
 const ANSI_YELLOW: &str = "\u{1b}[33m";
@@ -362,6 +362,15 @@ fn render_table(headers: &[&str], rows: &[Vec<String>], config: &TerminalConfig)
     for row in rows {
         for (index, cell) in row.iter().enumerate() {
             widths[index] = widths[index].max(visible_width(cell));
+        }
+    }
+    if config.mode == TerminalMode::Rich {
+        let current_width = widths.iter().sum::<usize>() + widths.len().saturating_sub(1) * 2;
+        let target_width = RICH_PANEL_WIDTH.saturating_sub(2);
+        if current_width < target_width {
+            if let Some(last_width) = widths.last_mut() {
+                *last_width += target_width - current_width;
+            }
         }
     }
 
@@ -1087,11 +1096,12 @@ mod tests {
         let output = render_run_started_for_tests("core", &rich_color_config());
         let summary = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
 
-        assert!(output.contains("\u{1b}[90mWorkflow"));
-        assert!(output.contains("\u{1b}[90mTarget"));
-        assert!(output.contains("\u{1b}[90mRoot"));
-        assert!(summary.contains("\u{1b}[90mWorkflow"));
-        assert!(summary.contains("\u{1b}[90mResult"));
+        assert!(output.contains("\u{1b}[37mWorkflow"));
+        assert!(output.contains("\u{1b}[37mTarget"));
+        assert!(output.contains("\u{1b}[37mRoot"));
+        assert!(summary.contains("\u{1b}[37mWorkflow"));
+        assert!(summary.contains("\u{1b}[37mResult"));
+        assert!(!output.contains("\u{1b}[90mWorkflow"));
         assert!(!output.contains("\u{1b}[2mWorkflow"));
         assert!(!summary.contains("\u{1b}[2mResult"));
     }
@@ -1119,6 +1129,21 @@ mod tests {
         assert!(
             widths.iter().all(|width| *width <= 68),
             "{widths:?}\n{output}"
+        );
+    }
+
+    #[test]
+    fn workflow_rich_table_separator_extends_to_panel_edge() {
+        let output = render_workflow_steps_for_tests(&rich_color_config());
+        let separator = output
+            .lines()
+            .map(strip_ansi)
+            .find(|line| line.starts_with("│ ─"))
+            .expect("rich table separator");
+
+        assert!(
+            trailing_spaces_before_right_border(&separator) <= 1,
+            "{separator:?}\n{output}"
         );
     }
 
@@ -1234,5 +1259,14 @@ mod tests {
                 }
             })
             .sum()
+    }
+
+    fn trailing_spaces_before_right_border(line: &str) -> usize {
+        let right_border = line.rfind('│').expect("right border");
+        line[..right_border]
+            .chars()
+            .rev()
+            .take_while(|ch| *ch == ' ')
+            .count()
     }
 }

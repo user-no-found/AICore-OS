@@ -127,7 +127,7 @@ RUNNING               cyan
 SKIPPED               dim gray
 section title         bold cyan
 brand / accent        cyan
-label                 readable gray
+label                 light gray
 border / separator    dim gray
 command               dim / neutral
 path                  blue
@@ -255,11 +255,11 @@ step table 使用英文技术字段：
 ```text
 ╭─ ☷ Workflow Steps ───────────────────────────────────────╮
 │ #  Layer       Step     Status  Warn  Time               │
-│ ───────────────────────────────────────────              │
+│ ──────────────────────────────────────────────────────── │
 │ 1  foundation  fmt      ✓ OK    0     0.08s              │
-│ ───────────────────────────────────────────              │
+│ ──────────────────────────────────────────────────────── │
 │ 2  foundation  test     ✓ OK    0     0.31s              │
-│ ───────────────────────────────────────────              │
+│ ──────────────────────────────────────────────────────── │
 │ 3  foundation  build    ✓ OK    0     0.12s              │
 ╰──────────────────────────────────────────────────────────╯
 ```
