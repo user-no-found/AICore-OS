@@ -279,6 +279,58 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - public surface 不暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request 或 raw provider payload。
 - `auth list` 可以显示 `auth_ref` 和 secret 配置状态，但不显示完整 `secret_ref`。
 
+## App Entry 输出
+
+`aicore` 顶层入口是 application entry / system summary，不是 TUI 入口。
+
+`aicore` 输出可以作为 terminal-facing surface 使用 `aicore-terminal`：
+
+- rich mode 输出 system summary panel。
+- plain mode 输出无 ANSI、无 Unicode 边框的文本。
+- json mode 输出 JSON Lines event，不混入 logo、人类 panel 或 ANSI。
+- `NO_COLOR=1` 禁用 ANSI。
+
+`aicore` summary 至少展示：
+
+- 主实例
+- 主实例工作目录
+- 主实例状态目录
+- 组件数量
+- 实例数量
+- Runtime
+
+`aicore-tui` 是 TUI entry。顶层 `aicore` 不承载 TUI 菜单，也不承担产品化 TUI 交互。
+
+## Install Visibility 输出
+
+应用 workflow 的 install step 使用 canonical install dir：
+
+```text
+~/.aicore/bin
+```
+
+安装完成后，如果 `~/.aicore/bin` 不在当前 `PATH`，workflow 必须输出中文 warning，说明：
+
+- `~/.aicore/bin` 当前不在 `PATH`
+- 当前安装的二进制路径
+- 临时生效命令：`export PATH="$HOME/.aicore/bin:$PATH"`
+- 建议加入 shell rc 的命令
+
+安装完成后，workflow 会检查这些命令当前会被 shell 解析到哪里：
+
+- `aicore`
+- `aicore-cli`
+- `aicore-tui`
+
+如果当前解析路径不是 canonical install dir 下的新二进制，workflow 必须输出 shadowing warning，说明：
+
+- 被 shadow 的命令名
+- 当前 shell 实际执行路径
+- 新安装二进制路径
+- 修正 PATH 顺序或清理旧文件的建议
+
+Install visibility warning 只负责提示，不自动删除旧文件，不自动覆盖非 managed 文件，不自动修改用户 shell rc。
+
 ## Utility Surface 输出
 
 轻量 utility CLI 命令可以作为 terminal-facing consumer 使用 `aicore-terminal`：

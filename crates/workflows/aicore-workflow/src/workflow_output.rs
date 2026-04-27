@@ -145,17 +145,29 @@ impl WorkflowOutput {
         status: Status,
         duration: Duration,
     ) {
+        self.record_local_step_with_warning_count(layer, step, command, status, duration, 0);
+    }
+
+    pub fn record_local_step_with_warning_count(
+        &mut self,
+        layer: &str,
+        step: &str,
+        command: &str,
+        status: Status,
+        duration: Duration,
+        warning_count: usize,
+    ) {
         self.steps.push(WorkflowStepRecord {
             layer: layer.to_string(),
             step: step.to_string(),
             command: command.to_string(),
             status,
-            warning_count: 0,
+            warning_count,
             duration,
         });
 
         if self.config.mode == TerminalMode::Json {
-            let summary = StepSummary::new(step, status, 0);
+            let summary = StepSummary::new(step, status, warning_count);
             print!(
                 "{}",
                 render_document(
@@ -164,6 +176,19 @@ impl WorkflowOutput {
                 )
             );
         }
+    }
+
+    pub fn record_warning(&mut self, warning: WarningDiagnostic) {
+        if self.config.mode == TerminalMode::Json {
+            print!(
+                "{}",
+                render_document(
+                    &Document::new(vec![Block::warning(warning.clone())]),
+                    &self.config
+                )
+            );
+        }
+        self.warnings.push(warning);
     }
 
     pub fn message(&self, message: &str) {

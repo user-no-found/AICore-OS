@@ -9,3 +9,7 @@ authors.workspace = true
 
 [dependencies]
 aicore-kernel.workspace = true
+aicore-terminal.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

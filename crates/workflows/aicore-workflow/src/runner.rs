@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -5,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use aicore_foundation::AicoreLayout;
-use aicore_terminal::Status;
+use aicore_terminal::{Status, WarningDiagnostic};
 
 use crate::cargo_runner::{CommandReport, run_cargo_capture};
 use crate::layers::Workflow;
@@ -65,14 +66,29 @@ fn run_single(
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "build")?;
     output.step_started(&format!("{} / install", workflow.id()));
     let install_started_at = Instant::now();
-    install_layer(workflow, &target_dir)?;
-    output.record_local_step(
-        workflow.id(),
-        "install",
-        "install",
-        Status::Ok,
-        install_started_at.elapsed(),
-    );
+    let install_warnings = install_layer(workflow, &target_dir)?;
+    let install_warning_count = install_warnings.len();
+    for warning in install_warnings {
+        output.record_warning(warning);
+    }
+    if install_warning_count > 0 {
+        output.record_local_step_with_warning_count(
+            workflow.id(),
+            "install",
+            "install",
+            Status::Warn,
+            install_started_at.elapsed(),
+            install_warning_count,
+        );
+    } else {
+        output.record_local_step(
+            workflow.id(),
+            "install",
+            "install",
+            Status::Ok,
+            install_started_at.elapsed(),
+        );
+    }
     Ok(())
 }
 
@@ -190,12 +206,13 @@ fn find_repo_root() -> Result<PathBuf, String> {
     }
 }
 
-fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
+fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<Vec<WarningDiagnostic>, String> {
+    let mut warnings = Vec::new();
     if matches!(
         workflow,
         Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui
     ) {
-        install_app_binary(workflow, target_dir)?;
+        warnings.extend(install_app_binary(workflow, target_dir)?);
     }
 
     let manifest_path = install_manifest_for(target_dir);
@@ -207,7 +224,7 @@ fn install_layer(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
     let content = render_install_manifest(workflow, target_dir);
     fs::write(&manifest_path, content)
         .map_err(|error| format!("写入安装记录 {} 失败: {error}", manifest_path.display()))?;
-    Ok(())
+    Ok(warnings)
 }
 
 fn install_manifest_for(target_dir: &Path) -> PathBuf {
@@ -237,7 +254,12 @@ fn binary_name_for(workflow: Workflow) -> &'static str {
     }
 }
 
-fn install_app_binary(workflow: Workflow, target_dir: &Path) -> Result<(), String> {
+const INSTALLED_COMMANDS: [&str; 3] = ["aicore", "aicore-cli", "aicore-tui"];
+
+fn install_app_binary(
+    workflow: Workflow,
+    target_dir: &Path,
+) -> Result<Vec<WarningDiagnostic>, String> {
     let layout = AicoreLayout::from_system_home();
     let install_dir = install_bin_dir_for(&layout.home_root);
     fs::create_dir_all(&install_dir)
@@ -267,7 +289,83 @@ fn install_app_binary(workflow: Workflow, target_dir: &Path) -> Result<(), Strin
             .map_err(|error| format!("设置二进制可执行权限失败: {error}"))?;
     }
 
-    Ok(())
+    let path_env = std::env::var("PATH").unwrap_or_default();
+    Ok(install_visibility_warnings(
+        &layout.home_root,
+        &path_env,
+        Path::exists,
+    ))
+}
+
+fn install_visibility_warnings(
+    home_root: &Path,
+    path_env: &str,
+    exists: impl Fn(&Path) -> bool,
+) -> Vec<WarningDiagnostic> {
+    let install_dir = install_bin_dir_for(home_root);
+    let installed = INSTALLED_COMMANDS
+        .iter()
+        .map(|command| (*command, install_dir.join(command)))
+        .filter(|(_, path)| exists(path))
+        .collect::<Vec<_>>();
+    let mut warnings = Vec::new();
+
+    if !path_contains_dir(path_env, &install_dir) {
+        let installed_paths = if installed.is_empty() {
+            format!("- {}", install_dir.display())
+        } else {
+            installed
+                .iter()
+                .map(|(_, path)| format!("- {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        warnings.push(WarningDiagnostic::new(
+            "install",
+            &format!(
+                "~/.aicore/bin 当前不在 PATH。\n当前安装的二进制路径：\n{installed_paths}\n临时生效命令：export PATH=\"$HOME/.aicore/bin:$PATH\"\n建议加入 shell rc：echo 'export PATH=\"$HOME/.aicore/bin:$PATH\"' >> ~/.bashrc"
+            ),
+        ));
+    }
+
+    for (command, installed_path) in installed {
+        if let Some(resolved_path) = resolve_command_in_path(command, path_env, &exists) {
+            if resolved_path != installed_path {
+                warnings.push(WarningDiagnostic::new(
+                    "install",
+                    &format!(
+                        "检测到命令 shadowing：\n当前 shell 的 `{command}` 指向 `{}`。\n新安装的 AICore OS 位于 `{}`。\n请将 `$HOME/.aicore/bin` 放到 PATH 前面，或清理旧的 `{}`。",
+                        resolved_path.display(),
+                        installed_path.display(),
+                        resolved_path.display()
+                    ),
+                ));
+            }
+        }
+    }
+
+    warnings
+}
+
+fn path_contains_dir(path_env: &str, expected_dir: &Path) -> bool {
+    path_entries(path_env)
+        .iter()
+        .any(|entry| entry == expected_dir)
+}
+
+fn resolve_command_in_path(
+    command: &str,
+    path_env: &str,
+    exists: impl Fn(&Path) -> bool,
+) -> Option<PathBuf> {
+    path_entries(path_env)
+        .into_iter()
+        .map(|entry| entry.join(command))
+        .find(|candidate| exists(candidate))
+}
+
+fn path_entries(path_env: &str) -> Vec<PathBuf> {
+    std::env::split_paths(&OsString::from(path_env)).collect()
 }
 
 fn render_install_manifest(workflow: Workflow, target_dir: &Path) -> String {
@@ -301,8 +399,8 @@ mod tests {
     use crate::layers::Workflow;
 
     use super::{
-        cargo_args_for_workflow, install_bin_dir_for, install_manifest_for, installed_binary_path,
-        target_dir_for,
+        cargo_args_for_workflow, install_bin_dir_for, install_manifest_for,
+        install_visibility_warnings, installed_binary_path, target_dir_for,
     };
 
     #[test]
@@ -370,6 +468,99 @@ mod tests {
             installed_binary_path(home_root, Workflow::AppCli),
             PathBuf::from("/home/demo/.aicore/bin/aicore-cli")
         );
+    }
+
+    #[test]
+    fn workflow_install_warns_when_aicore_bin_not_in_path() {
+        let home_root = Path::new("/home/demo");
+        let warnings = install_visibility_warnings(home_root, "/usr/bin:/bin", |path| {
+            matches!(
+                path.to_str(),
+                Some("/home/demo/.aicore/bin/aicore-cli")
+                    | Some("/home/demo/.aicore/bin/aicore")
+                    | Some("/home/demo/.aicore/bin/aicore-tui")
+            )
+        });
+
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(message.contains("~/.aicore/bin 当前不在 PATH"));
+        assert!(message.contains("/home/demo/.aicore/bin/aicore-cli"));
+        assert!(message.contains("export PATH=\"$HOME/.aicore/bin:$PATH\""));
+    }
+
+    #[test]
+    fn workflow_install_warns_when_command_is_shadowed_by_local_bin() {
+        let home_root = Path::new("/home/demo");
+        let warnings = install_visibility_warnings(
+            home_root,
+            "/home/demo/.local/bin:/usr/bin:/home/demo/.aicore/bin",
+            |path| {
+                matches!(
+                    path.to_str(),
+                    Some("/home/demo/.local/bin/aicore")
+                        | Some("/home/demo/.aicore/bin/aicore")
+                        | Some("/home/demo/.aicore/bin/aicore-cli")
+                        | Some("/home/demo/.aicore/bin/aicore-tui")
+                )
+            },
+        );
+
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(message.contains("检测到命令 shadowing"));
+        assert!(message.contains("当前 shell 的 `aicore` 指向 `/home/demo/.local/bin/aicore`"));
+        assert!(message.contains("新安装的 AICore OS 位于 `/home/demo/.aicore/bin/aicore`"));
+        assert!(message.contains("请将 `$HOME/.aicore/bin` 放到 PATH 前面"));
+    }
+
+    #[test]
+    fn workflow_install_reports_installed_binary_paths() {
+        let home_root = Path::new("/home/demo");
+        let warnings = install_visibility_warnings(home_root, "/usr/bin:/bin", |path| {
+            matches!(
+                path.to_str(),
+                Some("/home/demo/.aicore/bin/aicore-cli") | Some("/home/demo/.aicore/bin/aicore")
+            )
+        });
+
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(message.contains("/home/demo/.aicore/bin/aicore"));
+        assert!(message.contains("/home/demo/.aicore/bin/aicore-cli"));
+    }
+
+    #[test]
+    fn workflow_install_does_not_delete_existing_local_bin_binary() {
+        let home_root = Path::new("/home/demo");
+        let warnings = install_visibility_warnings(
+            home_root,
+            "/home/demo/.local/bin:/home/demo/.aicore/bin",
+            |path| {
+                matches!(
+                    path.to_str(),
+                    Some("/home/demo/.local/bin/aicore") | Some("/home/demo/.aicore/bin/aicore")
+                )
+            },
+        );
+
+        let message = warnings
+            .iter()
+            .map(|warning| warning.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(message.contains("/home/demo/.local/bin/aicore"));
+        assert!(!message.contains("删除"));
+        assert!(!message.contains("覆盖"));
     }
 
     #[test]

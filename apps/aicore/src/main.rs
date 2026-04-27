@@ -1,5 +1,6 @@
 use aicore_kernel::default_control_plane;
 use aicore_kernel::default_runtime;
+use aicore_terminal::{Block, Document, TerminalConfig, render_document};
 
 fn main() {
     let control_plane = default_control_plane();
@@ -8,14 +9,24 @@ fn main() {
     let main_instance = control_plane.main_instance_summary();
     let runtime_summary = runtime.summary();
 
-    println!("AICore OS");
-    println!("主实例：{}", main_instance.id);
-    println!("主实例工作目录：{}", main_instance.workspace_root);
-    println!("主实例状态目录：{}", main_instance.state_root);
-    println!("组件数量：{}", control_summary.component_count);
-    println!("实例数量：{}", control_summary.instance_count);
-    println!(
-        "Runtime：{}/{}",
-        runtime_summary.instance_id, runtime_summary.conversation_id
+    let body = [
+        format!("主实例：{}", main_instance.id),
+        format!("主实例工作目录：{}", main_instance.workspace_root),
+        format!("主实例状态目录：{}", main_instance.state_root),
+        format!("组件数量：{}", control_summary.component_count),
+        format!("实例数量：{}", control_summary.instance_count),
+        format!(
+            "Runtime：{}/{}",
+            runtime_summary.instance_id, runtime_summary.conversation_id
+        ),
+    ]
+    .join("\n");
+
+    print!(
+        "{}",
+        render_document(
+            &Document::new(vec![Block::panel("AICore OS", &body)]),
+            &TerminalConfig::current()
+        )
     );
 }
