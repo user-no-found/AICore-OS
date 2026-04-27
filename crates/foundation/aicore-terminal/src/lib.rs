@@ -221,7 +221,7 @@ impl StatusSymbols {
             ok: "✓",
             warn: "⚠",
             failed: "✗",
-            running: "⏳",
+            running: "[RUNNING]",
             info: "•",
             skipped: "–",
         }
@@ -251,7 +251,7 @@ pub enum Status {
 }
 
 impl Status {
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Self::Ok => "OK",
             Self::Warn => "WARN",
@@ -773,8 +773,18 @@ fn render_final_summary(summary: &RunSummary) -> String {
 }
 
 fn render_step_summary(summary: &StepSummary, config: &TerminalConfig) -> String {
+    let status_text = render_status_text(summary.status, config);
+    format!(
+        "{} {} | Warnings {}",
+        status_text,
+        safe_text(&summary.name),
+        summary.warning_count
+    )
+}
+
+fn render_status_text(status: Status, config: &TerminalConfig) -> String {
     let symbols = symbols_for(config);
-    let symbol = match summary.status {
+    let symbol = match status {
         Status::Ok => symbols.ok,
         Status::Warn => symbols.warn,
         Status::Failed => symbols.failed,
@@ -782,13 +792,12 @@ fn render_step_summary(summary: &StepSummary, config: &TerminalConfig) -> String
         Status::Info => symbols.info,
         Status::Skipped => symbols.skipped,
     };
-    let rendered = format!(
-        "{} {} | Warnings {}",
-        symbol,
-        safe_text(&summary.name),
-        summary.warning_count
-    );
-    match summary.status {
+    let rendered = if symbol.starts_with('[') {
+        symbol.to_string()
+    } else {
+        format!("{} {}", symbol, status.label())
+    };
+    match status {
         Status::Ok => paint(config, &rendered, "32"),
         Status::Warn => paint(config, &rendered, "33"),
         Status::Failed => paint(config, &rendered, "31"),
@@ -1012,6 +1021,30 @@ mod tests {
     fn unicode_and_ascii_symbols_render() {
         assert_eq!(StatusSymbols::unicode().ok, "✓");
         assert_eq!(StatusSymbols::ascii().ok, "[OK]");
+    }
+
+    #[test]
+    fn unicode_running_symbol_is_not_hourglass_emoji() {
+        assert_ne!(StatusSymbols::unicode().running, "⏳");
+    }
+
+    #[test]
+    fn status_color_does_not_paint_entire_step_line() {
+        let env =
+            TerminalEnv::from_pairs([("AICORE_TERMINAL", "rich"), ("AICORE_COLOR", "always")]);
+        let config =
+            TerminalConfig::from_env_and_capabilities(&env, TerminalCapabilities { is_tty: true });
+        let document = Document::new(vec![Block::step_finished(StepSummary::new(
+            "cargo test",
+            Status::Ok,
+            0,
+        ))]);
+
+        let output = render_document(&document, &config);
+
+        assert!(output.contains("\u{1b}[32m✓ OK\u{1b}[0m"));
+        assert!(output.contains("cargo test"));
+        assert!(!output.contains("\u{1b}[32m✓ cargo test | Warnings 0\u{1b}[0m"));
     }
 
     #[test]

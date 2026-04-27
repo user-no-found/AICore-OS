@@ -108,6 +108,8 @@ Provider public surface 不应暴露 raw secret、`secret_ref`、`credential_lea
 
 workflow 命令默认使用统一 terminal output kit。终端输出支持 rich、plain、json 与 auto mode。
 
+workflow alias 使用 quiet cargo run 入口，默认不显示 Cargo wrapper 的 `Finished ...` 与 `Running ...` 噪音。rich mode 会展示完整 header panel、workflow step table 和 summary panel；plain mode 保持 ASCII 日志形态；json mode 输出 JSON Lines event stream。
+
 常用环境变量：
 
 ```bash
@@ -121,7 +123,7 @@ NO_COLOR=1 cargo core
 模式说明：
 
 - `AICORE_TERMINAL=auto` 根据 TTY / CI 自动选择 rich 或 plain。
-- `AICORE_TERMINAL=rich` 使用 logo、状态符号、panel 和 summary。
+- `AICORE_TERMINAL=rich` 使用 header panel、状态符号、workflow step table 和 summary panel。
 - `AICORE_TERMINAL=plain` 使用无 ANSI、无 Unicode 边框的日志友好输出。
 - `AICORE_TERMINAL=json` 输出 JSON Lines event stream，供 automation 使用。
 - `AICORE_VERBOSE=1` 展开 cargo raw output。

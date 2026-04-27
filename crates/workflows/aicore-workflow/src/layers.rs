@@ -21,14 +21,25 @@ impl Workflow {
         }
     }
 
-    pub fn label_zh(self) -> &'static str {
+    pub fn id(self) -> &'static str {
         match self {
-            Self::Foundation => "底层",
-            Self::Kernel => "内核层",
-            Self::Core => "底层与内核层",
-            Self::AppAicore => "应用层 aicore",
-            Self::AppCli => "应用层 aicore-cli",
-            Self::AppTui => "应用层 aicore-tui",
+            Self::Foundation => "foundation",
+            Self::Kernel => "kernel",
+            Self::Core => "core",
+            Self::AppAicore => "app-aicore",
+            Self::AppCli => "app-cli",
+            Self::AppTui => "app-tui",
+        }
+    }
+
+    pub fn target_label(self) -> &'static str {
+        match self {
+            Self::Foundation => "foundation",
+            Self::Kernel => "foundation + kernel",
+            Self::Core => "foundation + kernel",
+            Self::AppAicore => "aicore",
+            Self::AppCli => "aicore-cli",
+            Self::AppTui => "aicore-tui",
         }
     }
 

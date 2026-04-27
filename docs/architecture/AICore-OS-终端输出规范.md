@@ -68,7 +68,7 @@ AICORE_TERMINAL=auto|rich|plain|json
 语义：
 
 - `auto`：根据 TTY 与 CI 环境选择 rich 或 plain。
-- `rich`：使用 logo、颜色、边框、状态符号、panel 与 summary。
+- `rich`：使用 header panel、颜色、边框、状态符号、workflow step table 与 summary panel。
 - `plain`：无 ANSI、无 Unicode 边框、无动态刷新，适合日志。
 - `json`：输出 JSON Lines event stream，适合 automation。
 
@@ -112,6 +112,7 @@ CI=1
 - CI / non-TTY 默认无颜色。
 - 颜色不能作为唯一信息来源，必须同时有文本和符号。
 - 不使用大面积背景色。
+- workflow step table 中只对状态符号与状态词着色，不对整行输出着色。
 
 颜色语义：
 
@@ -127,28 +128,39 @@ path                  blue
 secret redaction      yellow or dim
 ```
 
-## Logo
+## Header Panel
 
-Logo 由 `AICORE_LOGO` 控制：
+Header / logo 由 `AICORE_LOGO` 控制：
 
 ```text
 AICORE_LOGO=compact|full|off
 ```
 
-rich 默认使用 compact。plain 输出使用单行文本。json mode 强制关闭 logo。
+rich 默认使用 compact header panel。plain 输出使用无边框文本。json mode 强制关闭 logo。
 
 compact rich 示例：
 
 ```text
-╭─ AICore OS ─────────────────────────────────────╮
-│ Composable Rust AgentOS Platform                │
-╰─────────────────────────────────────────────────╯
+╭─ AICore OS ───────────────────────────────────────────────╮
+│ Composable Rust AgentOS Platform                          │
+│ Workflow  core                                            │
+│ Mode      rich                                            │
+│ Root      /vol1/1000/sun/aicore/AICore-OS                 │
+│ Target    foundation + kernel                             │
+│ Warnings  report                                          │
+╰────────────────────────────────────────────────────────────╯
 ```
 
 plain 示例：
 
 ```text
-AICore OS - Composable Rust AgentOS Platform
+AICore OS
+Composable Rust AgentOS Platform
+Workflow  core
+Mode      plain
+Root      /vol1/1000/sun/aicore/AICore-OS
+Target    foundation + kernel
+Warnings  report
 ```
 
 ## 状态符号
@@ -165,7 +177,7 @@ AICORE_SYMBOLS=unicode|ascii
 OK       ✓        [OK]
 WARN     ⚠        [WARN]
 FAILED   ✗        [FAILED]
-RUNNING  ⏳       [RUNNING]
+RUNNING  [RUNNING] [RUNNING]
 INFO     •        [INFO]
 SKIPPED  –        [SKIPPED]
 ```
@@ -211,7 +223,46 @@ Workflow event 至少包括：
 - `warning`
 - `run.finished`
 
-每个 step 输出状态与 warning 数量。最终 summary 输出总 step 数与本次扫描到的 warning 数量。summary 文案使用：
+Cargo workflow alias 使用 quiet run 入口，不显示 Cargo wrapper 的 `Finished ...` 与 `Running ...` 噪音。
+
+rich mode 的 workflow 输出包含：
+
+- header panel
+- workflow step table
+- warning panel
+- summary panel
+
+成功结束后的 workflow step table 汇总所有 step，不保留散乱 running 行。
+
+step table 使用英文技术字段：
+
+```text
+╭─ Workflow Steps ─────────────────────────────────────────────╮
+│ #  Layer       Step     Status  Warnings  Duration           │
+│ 1  foundation  fmt      ✓ OK    0         0.08s              │
+│ 2  foundation  test     ✓ OK    0         0.31s              │
+│ 3  foundation  build    ✓ OK    0         0.12s              │
+│ 4  foundation  install  ✓ OK    0         0.01s              │
+│ 5  kernel      fmt      ✓ OK    0         0.03s              │
+│ 6  kernel      test     ✓ OK    0         0.42s              │
+│ 7  kernel      build    ✓ OK    0         0.09s              │
+│ 8  kernel      install  ✓ OK    0         0.01s              │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+最终 summary 输出 workflow、状态、step 统计、warning 统计和 duration：
+
+```text
+╭─ Summary ────────────────────────────────────────────────────╮
+│ Workflow  core                                               │
+│ Status    ✓ OK                                               │
+│ Steps     8 total / 8 ok / 0 failed                          │
+│ Warnings  0 scanned this run                                 │
+│ Duration  1.42s                                              │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+summary 文案使用：
 
 ```text
 Warnings 0 scanned this run

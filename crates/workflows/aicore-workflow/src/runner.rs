@@ -2,6 +2,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use aicore_foundation::AicoreLayout;
 use aicore_terminal::Status;
@@ -14,7 +15,8 @@ const TARGET_LIMIT_BYTES: u64 = 30 * 1024 * 1024 * 1024;
 
 pub fn run(workflow: Workflow) -> Result<(), String> {
     let repo_root = find_repo_root()?;
-    let mut output = WorkflowOutput::from_current(workflow.label_zh());
+    let mut output =
+        WorkflowOutput::from_current(workflow.id(), &repo_root, workflow.target_label());
     output.start();
 
     let result = match workflow {
@@ -54,14 +56,23 @@ fn run_single(
         output,
         repo_root,
         None,
+        workflow.id(),
+        "fmt",
         "cargo fmt --check",
         &["fmt", "--check"],
     )?;
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "test")?;
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "build")?;
-    output.step_started(&format!("install {}", workflow.label_zh()));
+    output.step_started(&format!("{} / install", workflow.id()));
+    let install_started_at = Instant::now();
     install_layer(workflow, &target_dir)?;
-    output.record_local_step(&format!("install {}", workflow.label_zh()), Status::Ok);
+    output.record_local_step(
+        workflow.id(),
+        "install",
+        "install",
+        Status::Ok,
+        install_started_at.elapsed(),
+    );
     Ok(())
 }
 
@@ -74,8 +85,16 @@ fn run_cargo_for_workflow(
 ) -> Result<(), String> {
     let args = cargo_args_for_workflow(workflow, subcommand);
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    let step_name = format!("cargo {subcommand} {}", workflow.label_zh());
-    run_cargo_step(output, repo_root, Some(target_dir), &step_name, &arg_refs)
+    let command = format!("cargo {}", arg_refs.join(" "));
+    run_cargo_step(
+        output,
+        repo_root,
+        Some(target_dir),
+        workflow.id(),
+        subcommand,
+        &command,
+        &arg_refs,
+    )
 }
 
 fn cargo_args_for_workflow(workflow: Workflow, subcommand: &str) -> Vec<String> {
@@ -92,13 +111,15 @@ fn run_cargo_step(
     output: &mut WorkflowOutput,
     repo_root: &Path,
     target_dir: Option<&Path>,
-    step_name: &str,
+    layer: &str,
+    step: &str,
+    command: &str,
     args: &[&str],
 ) -> Result<(), String> {
-    output.step_started(step_name);
+    output.step_started(&format!("{layer} / {step}"));
     let report = run_cargo_capture(repo_root, target_dir, args)?;
     let succeeded = report.succeeded();
-    output.record_command_report(step_name, &report, !succeeded);
+    output.record_command_report(layer, step, command, &report, !succeeded);
     if succeeded {
         Ok(())
     } else {
@@ -388,5 +409,32 @@ mod tests {
             .join("AICore-OS-终端输出规范.md");
 
         assert!(doc.exists());
+    }
+
+    #[test]
+    fn cargo_workflow_aliases_use_quiet_run() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .ancestors()
+            .nth(3)
+            .expect("workflow crate should live under crates/workflows");
+        let config = std::fs::read_to_string(repo_root.join(".cargo/config.toml"))
+            .expect("cargo config should be readable");
+
+        for alias in [
+            "foundation",
+            "kernel",
+            "core",
+            "app-aicore",
+            "app-cli",
+            "app-tui",
+        ] {
+            assert!(
+                config.contains(&format!(
+                    "{alias} = \"run --quiet -p aicore-workflow -- {alias}\""
+                )),
+                "{alias} alias should use cargo run --quiet"
+            );
+        }
     }
 }
