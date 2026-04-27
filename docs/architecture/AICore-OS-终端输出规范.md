@@ -245,6 +245,12 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 已接入 terminal document 的 CLI 入口包括：
 
 - `aicore-cli status`
+- `aicore-cli config path`
+- `aicore-cli config init`
+- `aicore-cli config validate`
+- `aicore-cli auth list`
+- `aicore-cli model show`
+- `aicore-cli service list`
 - `aicore-cli provider smoke`
 - `aicore-cli agent smoke <内容>`
 - `aicore-cli agent session-smoke <第一轮内容> <第二轮内容>`
@@ -257,6 +263,7 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - `NO_COLOR=1` 禁用 ANSI，但不改变输出语义。
 - 用户说明使用中文；命令名、字段名、provider_id、api_mode、engine_id、machine code 保持英文。
 - public surface 不暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request 或 raw provider payload。
+- `auth list` 可以显示 `auth_ref` 和 secret 配置状态，但不显示完整 `secret_ref`。
 
 ## Workflow 输出
 

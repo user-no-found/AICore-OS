@@ -394,15 +394,81 @@ fn auth_list_reads_real_config_root() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("认证池："));
+    assert!(stdout.contains("认证池"));
     assert!(stdout.contains("auth.dummy.main"));
-    assert!(stdout.contains("provider: dummy"));
+    assert!(stdout.contains("provider：dummy"));
     assert!(stdout.contains("auth.openrouter.main"));
-    assert!(stdout.contains("provider: openrouter"));
-    assert!(stdout.contains("kind: api_key"));
-    assert!(stdout.contains("enabled: true"));
-    assert!(stdout.contains("capabilities: chat, vision"));
-    assert!(stdout.contains("secret_ref: secret://auth.openrouter.main"));
+    assert!(stdout.contains("provider：openrouter"));
+    assert!(stdout.contains("kind：api-key"));
+    assert!(stdout.contains("enabled：true"));
+    assert!(stdout.contains("capabilities：chat, vision"));
+    assert!(stdout.contains("secret：configured"));
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!stdout.contains("secret://"));
+}
+
+#[test]
+fn cli_auth_list_rich_uses_terminal_table_or_panel() {
+    let root = temp_root("auth-list-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output =
+        run_cli_with_config_root_and_env(&["auth", "list"], &root, &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 认证池"));
+    assert!(stdout.contains("auth.dummy.main"));
+    assert!(stdout.contains("secret：configured"));
+}
+
+#[test]
+fn cli_auth_list_json_outputs_valid_json() {
+    let root = temp_root("auth-list-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output =
+        run_cli_with_config_root_and_env(&["auth", "list"], &root, &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("认证池："));
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!stdout.contains("secret://"));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_auth_list_does_not_expose_secret_material() {
+    let root = temp_root("auth-list-no-secret-material");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["auth", "list"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("secret：configured"));
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!stdout.contains("secret://"));
+}
+
+#[test]
+fn cli_auth_list_does_not_print_secret_ref() {
+    let root = temp_root("auth-list-no-secret-ref");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root(&["auth", "list"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!stdout.contains("secret://auth.openrouter.main"));
 }
 
 #[test]
@@ -416,14 +482,44 @@ fn model_show_reads_real_config_root() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("实例模型配置："));
-    assert!(stdout.contains("instance: global-main"));
-    assert!(stdout.contains("primary:"));
-    assert!(stdout.contains("auth_ref: auth.dummy.main"));
-    assert!(stdout.contains("model: dummy/default-chat"));
-    assert!(stdout.contains("fallback:"));
-    assert!(stdout.contains("auth_ref: auth.openrouter.main"));
-    assert!(stdout.contains("model: openai/gpt-5"));
+    assert!(stdout.contains("实例模型配置"));
+    assert!(stdout.contains("instance：global-main"));
+    assert!(stdout.contains("primary auth_ref：auth.dummy.main"));
+    assert!(stdout.contains("primary model：dummy/default-chat"));
+    assert!(stdout.contains("fallback auth_ref：auth.openrouter.main"));
+    assert!(stdout.contains("fallback model：openai/gpt-5"));
+}
+
+#[test]
+fn cli_model_show_rich_uses_terminal_panel() {
+    let root = temp_root("model-show-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output =
+        run_cli_with_config_root_and_env(&["model", "show"], &root, &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 实例模型配置"));
+    assert!(stdout.contains("primary auth_ref：auth.dummy.main"));
+}
+
+#[test]
+fn cli_model_show_json_outputs_valid_json() {
+    let root = temp_root("model-show-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output =
+        run_cli_with_config_root_and_env(&["model", "show"], &root, &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("实例模型配置："));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -437,15 +533,51 @@ fn service_list_reads_real_config_root() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("服务角色配置："));
-    assert!(stdout.contains("memory_dreamer"));
-    assert!(stdout.contains("mode: inherit_instance"));
-    assert!(stdout.contains("evolution_reviewer"));
-    assert!(stdout.contains("mode: disabled"));
-    assert!(stdout.contains("search"));
-    assert!(stdout.contains("mode: explicit"));
-    assert!(stdout.contains("auth_ref: auth.openrouter.search"));
-    assert!(stdout.contains("model: perplexity/sonar"));
+    assert!(stdout.contains("服务角色配置"));
+    assert!(stdout.contains("memory_dreamer mode：inherit_instance"));
+    assert!(stdout.contains("evolution_reviewer mode：disabled"));
+    assert!(stdout.contains("search mode：explicit"));
+    assert!(stdout.contains("search auth_ref：auth.openrouter.search"));
+    assert!(stdout.contains("search model：perplexity/sonar"));
+}
+
+#[test]
+fn cli_service_list_rich_uses_terminal_panel_or_table() {
+    let root = temp_root("service-list-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["service", "list"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 服务角色配置"));
+    assert!(stdout.contains("memory_dreamer mode：inherit_instance"));
+    assert!(stdout.contains("search auth_ref：auth.openrouter.search"));
+}
+
+#[test]
+fn cli_service_list_json_outputs_valid_json() {
+    let root = temp_root("service-list-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["service", "list"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("服务角色配置："));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -1720,18 +1852,81 @@ fn renders_config_path_command() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("配置路径："));
-    assert!(stdout.contains(&format!("root: {}", root.display())));
-    assert!(stdout.contains(&format!("auth.toml: {}", root.join("auth.toml").display())));
+    assert!(stdout.contains("配置路径"));
+    assert!(stdout.contains(&format!("root：{}", root.display())));
+    assert!(stdout.contains(&format!("auth.toml：{}", root.join("auth.toml").display())));
     assert!(stdout.contains(&format!(
-        "services.toml: {}",
+        "services.toml：{}",
         root.join("services.toml").display()
     )));
-    assert!(stdout.contains(&format!("instances: {}", root.join("instances").display())));
+    assert!(stdout.contains(&format!("instances：{}", root.join("instances").display())));
     assert!(stdout.contains(&format!(
-        "global-main runtime: {}",
+        "global-main runtime：{}",
         root.join("instances").join("global-main").join("runtime.toml").display()
     )));
+}
+
+#[test]
+fn cli_config_path_rich_uses_terminal_panel() {
+    let root = temp_root("config-path-rich-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "path"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 配置路径"));
+    assert!(stdout.contains(&format!("root：{}", root.display())));
+}
+
+#[test]
+fn cli_config_path_plain_has_no_ansi() {
+    let root = temp_root("config-path-plain-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "path"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置路径"));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_config_path_json_outputs_valid_json() {
+    let root = temp_root("config-path-json-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "path"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("配置路径："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_config_path_no_color_has_no_ansi() {
+    let root = temp_root("config-path-no-color-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "path"],
+        &root,
+        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置路径"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -1748,7 +1943,39 @@ fn config_path_uses_default_home_root_without_override() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains(&format!("root: {}", expected_root.display())));
+    assert!(stdout.contains(&format!("root：{}", expected_root.display())));
+}
+
+#[test]
+fn cli_config_init_rich_uses_terminal_panel() {
+    let root = temp_root("config-init-rich-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "init"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 配置初始化"));
+    assert!(stdout.contains("auth.toml：已创建"));
+}
+
+#[test]
+fn cli_config_init_json_outputs_valid_json() {
+    let root = temp_root("config-init-json-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["config", "init"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("配置初始化："));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
@@ -1815,6 +2042,44 @@ fn config_init_does_not_overwrite_existing_files() {
 }
 
 #[test]
+fn cli_config_validate_rich_uses_terminal_panel() {
+    let root = temp_root("config-validate-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["config", "validate"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 配置校验"));
+    assert!(stdout.contains("实例运行配置：通过"));
+}
+
+#[test]
+fn cli_config_validate_json_outputs_valid_json() {
+    let root = temp_root("config-validate-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["config", "validate"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(!stdout.contains("配置校验："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
 fn config_validate_accepts_initialized_config() {
     let root = temp_root("config-validate-ok");
 
@@ -1834,7 +2099,7 @@ fn config_validate_accepts_initialized_config() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("配置校验："));
+    assert!(stdout.contains("配置校验"));
     assert!(stdout.contains("认证池：已读取"));
     assert!(stdout.contains("实例运行配置：通过"));
     assert!(stdout.contains("服务角色配置：通过"));

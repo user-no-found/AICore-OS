@@ -617,20 +617,17 @@ fn render_block_human(block: &Block, config: &TerminalConfig, rich: bool) -> Opt
 fn render_panel_rich(title: &str, body: &str) -> String {
     let title = safe_text(title);
     let body = safe_text(body);
-    let width = 53usize.max(display_width(&title) + 6);
+    let body_width = body.lines().map(display_width).max().unwrap_or(0);
+    let inner_width = 51usize.max(display_width(&title) + 1).max(body_width);
     let title_line = format!(
         "╭─ {title} {}",
-        "─".repeat(width.saturating_sub(display_width(&title) + 4))
+        "─".repeat(inner_width.saturating_sub(display_width(&title) + 1))
     );
     let mut output = format!("{title_line}╮\n");
     for line in body.lines() {
-        output.push_str(&format!(
-            "│ {}{} │\n",
-            line,
-            " ".repeat(width.saturating_sub(display_width(line) + 2))
-        ));
+        output.push_str(&format!("│ {} │\n", pad_display(line, inner_width)));
     }
-    output.push_str(&format!("╰{}╯", "─".repeat(width)));
+    output.push_str(&format!("╰{}╯", "─".repeat(inner_width + 2)));
     output
 }
 
@@ -1057,6 +1054,39 @@ mod tests {
         assert!(rich.contains("╭─ AICore OS"));
         assert!(plain.contains("AICore OS"));
         assert!(!plain.contains('╭'));
+    }
+
+    #[test]
+    fn panel_renderer_expands_to_long_body_lines() {
+        let document = Document::new(vec![Block::panel(
+            "配置路径",
+            "auth.toml：/tmp/aicore-cli-m14-smoke-20260427-758b991/auth.toml",
+        )]);
+
+        let rich = render_document(&document, &TerminalConfig::rich_for_tests());
+        let top_width =
+            terminal_width_for_test(rich.lines().next().expect("panel should have top line"));
+        let content_width = terminal_width_for_test(
+            rich.lines()
+                .find(|line| line.contains("auth.toml"))
+                .expect("panel should have content line"),
+        );
+
+        assert_eq!(
+            top_width, content_width,
+            "panel top width should match long body lines"
+        );
+    }
+
+    fn terminal_width_for_test(value: &str) -> usize {
+        value
+            .chars()
+            .map(|ch| match ch {
+                '╭' | '╮' | '╰' | '╯' | '│' | '─' => 1,
+                _ if ch as u32 >= 0x1100 => 2,
+                _ => 1,
+            })
+            .sum()
     }
 
     #[test]

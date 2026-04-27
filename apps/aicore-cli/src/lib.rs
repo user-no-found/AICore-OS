@@ -379,14 +379,18 @@ fn print_config_smoke() -> Result<(), String> {
 fn print_config_path() -> Result<(), String> {
     let paths = real_config_paths()?;
 
-    println!("配置路径：");
-    println!("root: {}", paths.root.display());
-    println!("auth.toml: {}", paths.auth_toml.display());
-    println!("services.toml: {}", paths.services_toml.display());
-    println!("instances: {}", paths.instances_dir.display());
-    println!(
-        "global-main runtime: {}",
-        paths.runtime_toml_for("global-main").display()
+    emit_cli_panel(
+        "配置路径",
+        vec![
+            cli_row("root", paths.root.display().to_string()),
+            cli_row("auth.toml", paths.auth_toml.display().to_string()),
+            cli_row("services.toml", paths.services_toml.display().to_string()),
+            cli_row("instances", paths.instances_dir.display().to_string()),
+            cli_row(
+                "global-main runtime",
+                paths.runtime_toml_for("global-main").display().to_string(),
+            ),
+        ],
     );
 
     Ok(())
@@ -396,16 +400,17 @@ fn print_config_init() -> Result<(), String> {
     let store = real_config_store()?;
     let status = initialize_real_config(&store)?;
 
-    println!("配置初始化：");
-    println!("- root: {}", store.paths.root.display());
-    println!("- auth.toml: {}", init_status_name(status.auth_created));
-    println!(
-        "- services.toml: {}",
-        init_status_name(status.services_created)
-    );
-    println!(
-        "- global-main runtime.toml: {}",
-        init_status_name(status.runtime_created)
+    emit_cli_panel(
+        "配置初始化",
+        vec![
+            cli_row("root", store.paths.root.display().to_string()),
+            cli_row("auth.toml", init_status_name(status.auth_created)),
+            cli_row("services.toml", init_status_name(status.services_created)),
+            cli_row(
+                "global-main runtime.toml",
+                init_status_name(status.runtime_created),
+            ),
+        ],
     );
 
     Ok(())
@@ -422,10 +427,14 @@ fn print_config_validate() -> Result<(), String> {
     ConfigStore::validate_runtime_config(&runtime, &auth_pool).map_err(config_error)?;
     ConfigStore::validate_service_profiles(&services, &auth_pool).map_err(config_error)?;
 
-    println!("配置校验：");
-    println!("- 认证池：已读取");
-    println!("- 实例运行配置：通过");
-    println!("- 服务角色配置：通过");
+    emit_cli_panel(
+        "配置校验",
+        vec![
+            cli_row("认证池", "已读取"),
+            cli_row("实例运行配置", "通过"),
+            cli_row("服务角色配置", "通过"),
+        ],
+    );
 
     Ok(())
 }
@@ -434,23 +443,24 @@ fn print_auth_list() -> Result<(), String> {
     let store = real_config_store()?;
     let auth_pool = load_real_auth_pool(&store)?;
 
-    println!("认证池：");
+    let mut rows = Vec::new();
     for entry in auth_pool.available_entries() {
-        println!("- {}", entry.auth_ref.as_str());
-        println!("  provider: {}", entry.provider);
-        println!("  kind: {}", auth_kind_name(&entry.kind));
-        println!("  enabled: {}", entry.enabled);
-        println!(
-            "  capabilities: {}",
+        rows.push(cli_row("auth_ref", entry.auth_ref.as_str()));
+        rows.push(cli_row("provider", entry.provider.as_str()));
+        rows.push(cli_row("kind", auth_kind_name(&entry.kind)));
+        rows.push(cli_row("enabled", entry.enabled.to_string()));
+        rows.push(cli_row(
+            "capabilities",
             entry
                 .capabilities
                 .iter()
                 .map(auth_capability_name)
                 .collect::<Vec<_>>()
-                .join(", ")
-        );
-        println!("  secret_ref: {}", entry.secret_ref.as_str());
+                .join(", "),
+        ));
+        rows.push(cli_row("secret", secret_config_status(&entry.secret_ref)));
     }
+    emit_cli_panel("认证池", rows);
 
     Ok(())
 }
@@ -461,21 +471,18 @@ fn print_model_show() -> Result<(), String> {
         .load_instance_runtime("global-main")
         .map_err(map_runtime_load_error)?;
 
-    println!("实例模型配置：");
-    println!("instance: {}", runtime.instance_id);
-    println!();
-    println!("primary:");
-    println!("  auth_ref: {}", runtime.primary.auth_ref.as_str());
-    println!("  model: {}", runtime.primary.model);
-    println!();
-    println!("fallback:");
-
+    let mut rows = vec![
+        cli_row("instance", runtime.instance_id),
+        cli_row("primary auth_ref", runtime.primary.auth_ref.as_str()),
+        cli_row("primary model", runtime.primary.model),
+    ];
     if let Some(fallback) = runtime.fallback {
-        println!("  auth_ref: {}", fallback.auth_ref.as_str());
-        println!("  model: {}", fallback.model);
+        rows.push(cli_row("fallback auth_ref", fallback.auth_ref.as_str()));
+        rows.push(cli_row("fallback model", fallback.model));
     } else {
-        println!("  未配置");
+        rows.push(cli_row("fallback", "未配置"));
     }
+    emit_cli_panel("实例模型配置", rows);
 
     Ok(())
 }
@@ -484,21 +491,23 @@ fn print_service_list() -> Result<(), String> {
     let store = real_config_store()?;
     let services = load_real_services(&store)?;
 
-    println!("服务角色配置：");
+    let mut rows = Vec::new();
     for profile in services.profiles {
-        println!("- {}", service_role_name(&profile.role));
-        println!("  mode: {}", service_mode_name(&profile.mode));
+        let role = service_role_name(&profile.role);
+        rows.push(cli_row(
+            format!("{role} mode"),
+            service_mode_name(&profile.mode),
+        ));
 
         if let Some(auth_ref) = profile.auth_ref {
-            println!("  auth_ref: {}", auth_ref.as_str());
+            rows.push(cli_row(format!("{role} auth_ref"), auth_ref.as_str()));
         }
 
         if let Some(model) = profile.model {
-            println!("  model: {}", model);
+            rows.push(cli_row(format!("{role} model"), model));
         }
-
-        println!();
     }
+    emit_cli_panel("服务角色配置", rows);
 
     Ok(())
 }
@@ -1333,9 +1342,17 @@ fn init_status_name(created: bool) -> &'static str {
     }
 }
 
+fn secret_config_status(secret_ref: &SecretRef) -> &'static str {
+    if secret_ref.as_str().is_empty() {
+        "missing"
+    } else {
+        "configured"
+    }
+}
+
 fn auth_kind_name(kind: &AuthKind) -> &'static str {
     match kind {
-        AuthKind::ApiKey => "api_key",
+        AuthKind::ApiKey => "api-key",
         AuthKind::OAuth => "oauth",
         AuthKind::Session => "session",
         AuthKind::Token => "token",
