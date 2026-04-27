@@ -259,6 +259,9 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - `aicore-cli memory proposals`
 - `aicore-cli memory audit`
 - `aicore-cli memory wiki [page]`
+- `aicore-cli memory remember <内容>`
+- `aicore-cli memory accept <proposal_id>`
+- `aicore-cli memory reject <proposal_id>`
 - `aicore-cli provider smoke`
 - `aicore-cli agent smoke <内容>`
 - `aicore-cli agent session-smoke <第一轮内容> <第二轮内容>`
@@ -300,6 +303,26 @@ Memory read surface 输出只负责呈现，不改变：
 rich mode 可以将 wiki metadata 渲染为 panel，并将 Markdown projection 渲染为 Markdown block。plain mode 保留可读文本。json mode 使用 JSON Lines event，Markdown 内容作为 payload 字段输出，不混入人类 panel、ANSI 或 logo。
 
 Memory 内容是用户数据。终端输出层不得擅自翻译、摘要或隐藏用户原始记忆内容；敏感输出边界仍适用于 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request、raw provider payload、API key、token 与 cookie。
+
+## Memory Write Surface 输出
+
+Memory 写入类 CLI 命令可以作为 terminal-facing consumer 使用 `aicore-terminal`：
+
+- `memory remember <内容>` 展示写入结果、`memory_id`、`type` 与 `status`。
+- `memory accept <proposal_id>` 展示 proposal 接受结果、`proposal_id` 与生成的 `memory_id`。
+- `memory reject <proposal_id>` 展示 proposal 拒绝结果与 `proposal_id`。
+
+Memory write surface 输出只负责呈现，不改变：
+
+- MemoryRecord 写入语义
+- proposal review 状态机
+- Memory Event Ledger
+- projection rebuild 行为
+- accept / reject 错误语义
+
+写入类命令应在业务操作完成后渲染 user-facing result。rich mode 可以使用 panel 展示结果；plain mode 保留可读文本；json mode 使用 JSON Lines event 输出结构化 payload，不混入人类 panel、ANSI 或 logo。
+
+写入类命令不得为了输出迁移改变用户原始记忆内容。`proposal_id`、`memory_id`、`type`、`status` 等字段可以按技术字段原样展示。
 
 ## Workflow 输出
 

@@ -941,10 +941,15 @@ fn print_memory_remember(content: &str) -> Result<(), String> {
         })
         .map_err(memory_error)?;
 
-    println!("记忆已写入：");
-    println!("- id: {memory_id}");
-    println!("- type: core");
-    println!("- status: active");
+    emit_cli_panel_body(
+        "记忆已写入：",
+        &[
+            format!("- id: {memory_id}"),
+            "- type: core".to_string(),
+            "- status: active".to_string(),
+        ]
+        .join("\n"),
+    );
 
     Ok(())
 }
@@ -955,9 +960,14 @@ fn print_memory_accept(proposal_id: &str) -> Result<(), String> {
         .accept_proposal(proposal_id, "user", Some("cli accept"))
         .map_err(memory_error)?;
 
-    println!("记忆提案已接受：");
-    println!("- proposal: {proposal_id}");
-    println!("- memory: {memory_id}");
+    emit_cli_panel_body(
+        "记忆提案已接受：",
+        &[
+            format!("- proposal: {proposal_id}"),
+            format!("- memory: {memory_id}"),
+        ]
+        .join("\n"),
+    );
 
     Ok(())
 }
@@ -968,8 +978,7 @@ fn print_memory_reject(proposal_id: &str) -> Result<(), String> {
         .reject_proposal(proposal_id, "user", Some("cli reject"))
         .map_err(memory_error)?;
 
-    println!("记忆提案已拒绝：");
-    println!("- proposal: {proposal_id}");
+    emit_cli_panel_body("记忆提案已拒绝：", &format!("- proposal: {proposal_id}"));
 
     Ok(())
 }

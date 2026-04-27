@@ -1413,6 +1413,73 @@ fn memory_remember_writes_active_record() {
 }
 
 #[test]
+fn cli_memory_remember_rich_uses_terminal_panel() {
+    let root = temp_root("memory-remember-rich-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "remember", "rich remember memory"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆已写入"));
+    assert!(stdout.contains("id: mem_"));
+    assert!(stdout.contains("type: core"));
+    assert!(stdout.contains("status: active"));
+}
+
+#[test]
+fn cli_memory_remember_plain_has_no_ansi() {
+    let root = temp_root("memory-remember-plain-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "remember", "plain remember memory"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆已写入："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_memory_remember_json_outputs_valid_json() {
+    let root = temp_root("memory-remember-json-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "remember", "json remember memory"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("id: mem_"));
+    assert!(stdout.contains("status: active"));
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_remember_no_color_has_no_ansi() {
+    let root = temp_root("memory-remember-no-color-terminal");
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "remember", "no color remember memory"],
+        &root,
+        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆已写入"));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
 fn memory_search_returns_remembered_record() {
     let root = temp_root("memory-search");
     let remember_output = run_cli_with_config_root(
@@ -1964,6 +2031,67 @@ fn memory_accept_proposal_creates_record() {
 }
 
 #[test]
+fn cli_memory_accept_rich_uses_terminal_panel() {
+    let root = temp_root("memory-accept-rich-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Core, "rich accept memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "accept", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆提案已接受"));
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+    assert!(stdout.contains("memory: mem_"));
+}
+
+#[test]
+fn cli_memory_accept_plain_has_no_ansi() {
+    let root = temp_root("memory-accept-plain-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Core, "plain accept memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "accept", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已接受："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_memory_accept_json_outputs_valid_json_and_creates_record() {
+    let root = temp_root("memory-accept-json-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Core, "json accept memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "accept", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+    assert!(stdout.contains("memory: mem_"));
+    assert!(!stdout.contains("\u{1b}["));
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "json accept"], &root);
+    assert!(search_output.status.success());
+    let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(search_stdout.contains("json accept memory"));
+}
+
+#[test]
 fn memory_accept_proposal_removes_from_open_list() {
     let root = temp_root("memory-accept-removes-open");
     let proposal_id = seed_open_proposal(&root, MemoryType::Status, "accept removes open");
@@ -1994,6 +2122,64 @@ fn memory_reject_proposal_does_not_create_record() {
     assert!(search_output.status.success());
     let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(search_stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn cli_memory_reject_rich_uses_terminal_panel() {
+    let root = temp_root("memory-reject-rich-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Working, "rich reject memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "reject", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆提案已拒绝"));
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+}
+
+#[test]
+fn cli_memory_reject_json_outputs_valid_json_and_does_not_create_record() {
+    let root = temp_root("memory-reject-json-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Working, "json reject memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "reject", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+    assert!(!stdout.contains("\u{1b}["));
+
+    let search_output = run_cli_with_config_root(&["memory", "search", "json reject"], &root);
+    assert!(search_output.status.success());
+    let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
+    assert!(search_stdout.contains("无匹配记忆"));
+}
+
+#[test]
+fn cli_memory_reject_no_color_has_no_ansi() {
+    let root = temp_root("memory-reject-no-color-terminal");
+    let proposal_id = seed_open_proposal(&root, MemoryType::Working, "no color reject memory");
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "reject", &proposal_id],
+        &root,
+        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已拒绝"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
