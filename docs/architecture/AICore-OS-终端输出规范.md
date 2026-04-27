@@ -248,12 +248,15 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 已接入 terminal document 的 CLI 入口包括：
 
 - `aicore-cli status`
+- `aicore-cli config smoke`
 - `aicore-cli config path`
 - `aicore-cli config init`
 - `aicore-cli config validate`
 - `aicore-cli auth list`
 - `aicore-cli model show`
 - `aicore-cli service list`
+- `aicore-cli runtime smoke`
+- `aicore-cli instance list`
 - `aicore-cli memory status`
 - `aicore-cli memory search <关键词>`
 - `aicore-cli memory proposals`
@@ -275,6 +278,24 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 - 用户说明使用中文；命令名、字段名、provider_id、api_mode、engine_id、machine code 保持英文。
 - public surface 不暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw SDK request 或 raw provider payload。
 - `auth list` 可以显示 `auth_ref` 和 secret 配置状态，但不显示完整 `secret_ref`。
+
+## Utility Surface 输出
+
+轻量 utility CLI 命令可以作为 terminal-facing consumer 使用 `aicore-terminal`：
+
+- `config smoke` 展示配置存储读写、默认配置文件与配置校验结果。
+- `runtime smoke` 展示 CLI、external origin 与 followed external 的 runtime 投递检查结果。
+- `instance list` 展示 instance id、instance kind 与 workspace root。
+
+Utility surface 输出只负责呈现，不改变：
+
+- ConfigStore 读写规则
+- config root 选择规则
+- runtime ingress / output routing 语义
+- instance registry 内容
+- control plane 行为
+
+rich mode 可以使用 panel 展示 utility summary。plain mode 保留可读文本。json mode 使用 JSON Lines event 输出结构化 payload，不混入人类 panel、ANSI 或 logo。
 
 ## Memory Read Surface 输出
 

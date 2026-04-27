@@ -205,6 +205,41 @@ fn renders_instance_list_command() {
 }
 
 #[test]
+fn cli_instance_list_rich_uses_terminal_panel() {
+    let output = run_cli_with_env(&["instance", "list"], &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 实例列表"));
+    assert!(stdout.contains("global-main"));
+    assert!(stdout.contains("global_main"));
+}
+
+#[test]
+fn cli_instance_list_plain_has_no_ansi() {
+    let output = run_cli_with_env(&["instance", "list"], &[("AICORE_TERMINAL", "plain")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("实例列表："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_instance_list_json_outputs_valid_json() {
+    let output = run_cli_with_env(&["instance", "list"], &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("global-main"));
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
 fn renders_runtime_smoke_command() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
         .args(["runtime", "smoke"])
@@ -229,6 +264,42 @@ fn renders_runtime_smoke_command() {
 }
 
 #[test]
+fn cli_runtime_smoke_rich_uses_terminal_panel() {
+    let output = run_cli_with_env(&["runtime", "smoke"], &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Runtime Smoke"));
+    assert!(stdout.contains("CLI 场景"));
+    assert!(stdout.contains("接收决策：StartTurn"));
+    assert!(stdout.contains("Follow 场景"));
+}
+
+#[test]
+fn cli_runtime_smoke_plain_has_no_ansi() {
+    let output = run_cli_with_env(&["runtime", "smoke"], &[("AICORE_TERMINAL", "plain")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Runtime Smoke："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_runtime_smoke_json_outputs_valid_json() {
+    let output = run_cli_with_env(&["runtime", "smoke"], &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("StartTurn"));
+    assert!(stdout.contains("followed-external"));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
 fn renders_config_smoke_command() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
         .args(["config", "smoke"])
@@ -244,6 +315,54 @@ fn renders_config_smoke_command() {
     assert!(stdout.contains("实例运行配置保存/读取：通过"));
     assert!(stdout.contains("服务角色配置保存/读取：通过"));
     assert!(stdout.contains("配置校验：通过"));
+}
+
+#[test]
+fn cli_config_smoke_rich_uses_terminal_panel() {
+    let output = run_cli_with_env(&["config", "smoke"], &[("AICORE_TERMINAL", "rich")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 配置 Smoke Test"));
+    assert!(stdout.contains("默认配置文件：通过"));
+    assert!(stdout.contains("配置校验：通过"));
+}
+
+#[test]
+fn cli_config_smoke_plain_has_no_ansi() {
+    let output = run_cli_with_env(&["config", "smoke"], &[("AICORE_TERMINAL", "plain")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置 Smoke Test："));
+    assert!(!stdout.contains("\u{1b}["));
+    assert!(!stdout.contains('╭'));
+}
+
+#[test]
+fn cli_config_smoke_json_outputs_valid_json() {
+    let output = run_cli_with_env(&["config", "smoke"], &[("AICORE_TERMINAL", "json")]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("默认配置文件"));
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_config_smoke_no_color_has_no_ansi() {
+    let output = run_cli_with_env(
+        &["config", "smoke"],
+        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("配置 Smoke Test"));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]

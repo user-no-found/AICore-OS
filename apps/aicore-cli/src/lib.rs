@@ -169,21 +169,23 @@ fn cli_row(key: impl Into<String>, value: impl Into<String>) -> (String, String)
 
 fn print_instance_list() {
     let control_plane = default_control_plane();
+    let mut lines = Vec::new();
 
-    println!("实例列表：");
     for instance in control_plane.instance_registry().list() {
         let kind = match instance.kind {
             aicore_kernel::InstanceKind::GlobalMain => "global_main",
             aicore_kernel::InstanceKind::Workspace => "workspace",
         };
 
-        println!(
+        lines.push(format!(
             "- {} [{}] {}",
             instance.id.as_str(),
             kind,
             instance.workspace_root.display()
-        );
+        ));
     }
+
+    emit_cli_panel_body("实例列表：", &lines.join("\n"));
 }
 
 fn print_runtime_smoke() {
@@ -242,33 +244,36 @@ fn print_runtime_smoke() {
         .find(|event| event.target == OutputTarget::FollowedExternal)
         .expect("follow smoke must include followed external output");
 
-    println!("Runtime Smoke：");
-    println!("CLI 场景：");
-    println!("  接收决策：{:?}", cli_ingress.decision);
-    println!("  账本消息数：{}", cli_runtime.summary().event_count);
-    println!("  输出目标：{}", output_target_name(&cli_first.target));
-    println!(
-        "  投递身份：{}",
-        delivery_identity_name(&cli_first.identity)
-    );
-    println!("External Origin 场景：");
-    println!(
-        "  输出目标：{}",
-        output_target_name(&external_origin.target)
-    );
-    println!(
-        "  投递身份：{}",
-        delivery_identity_name(&external_origin.identity)
-    );
-    println!("Follow 场景：");
-    println!(
-        "  输出目标：{}",
-        output_target_name(&followed_external.target)
-    );
-    println!(
-        "  投递身份：{}",
-        delivery_identity_name(&followed_external.identity)
-    );
+    let body = vec![
+        "CLI 场景：".to_string(),
+        format!("  接收决策：{:?}", cli_ingress.decision),
+        format!("  账本消息数：{}", cli_runtime.summary().event_count),
+        format!("  输出目标：{}", output_target_name(&cli_first.target)),
+        format!(
+            "  投递身份：{}",
+            delivery_identity_name(&cli_first.identity)
+        ),
+        "External Origin 场景：".to_string(),
+        format!(
+            "  输出目标：{}",
+            output_target_name(&external_origin.target)
+        ),
+        format!(
+            "  投递身份：{}",
+            delivery_identity_name(&external_origin.identity)
+        ),
+        "Follow 场景：".to_string(),
+        format!(
+            "  输出目标：{}",
+            output_target_name(&followed_external.target)
+        ),
+        format!(
+            "  投递身份：{}",
+            delivery_identity_name(&followed_external.identity)
+        ),
+    ];
+
+    emit_cli_panel_body("Runtime Smoke：", &body.join("\n"));
 }
 
 fn run_config_command(command: fn() -> Result<(), String>) -> i32 {
@@ -370,12 +375,10 @@ fn print_config_smoke() -> Result<(), String> {
     ConfigStore::validate_service_profiles(&loaded_services, &loaded_auth_pool)
         .map_err(config_error)?;
 
-    println!("配置 Smoke Test：");
-    println!("- 默认配置文件：通过");
-    println!("- 认证池保存/读取：通过");
-    println!("- 实例运行配置保存/读取：通过");
-    println!("- 服务角色配置保存/读取：通过");
-    println!("- 配置校验：通过");
+    emit_cli_panel_body(
+        "配置 Smoke Test：",
+        "- 默认配置文件：通过\n- 认证池保存/读取：通过\n- 实例运行配置保存/读取：通过\n- 服务角色配置保存/读取：通过\n- 配置校验：通过",
+    );
 
     Ok(())
 }
