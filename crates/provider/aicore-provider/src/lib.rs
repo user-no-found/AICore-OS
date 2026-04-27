@@ -1,11 +1,13 @@
 mod dummy;
 mod invoker;
+mod profile;
 mod prompt;
 mod resolver;
 mod types;
 
 pub use dummy::DummyProvider;
 pub use invoker::ProviderInvoker;
+pub use profile::ProviderRegistry;
 pub use prompt::PromptBuilder;
 pub use resolver::ProviderResolver;
 pub use types::{
@@ -27,7 +29,7 @@ mod tests {
     use crate::{
         ModelRequest, PromptBuildInput, PromptBuilder, ProviderAdapterStatus, ProviderApiMode,
         ProviderAuthMode, ProviderAvailability, ProviderInvoker, ProviderKind, ProviderProfile,
-        ProviderResolver, ProviderRuntime,
+        ProviderRegistry, ProviderResolver, ProviderRuntime,
     };
 
     fn auth_pool() -> GlobalAuthPool {
@@ -189,6 +191,99 @@ mod tests {
 
         assert!(!rendered.contains("sk-live-secret-value"));
         assert!(!rendered.contains("secret://"));
+    }
+
+    #[test]
+    fn provider_registry_resolves_openai() {
+        let registry = ProviderRegistry::builtin();
+        let profile = registry
+            .profile("openai")
+            .expect("openai profile should exist");
+
+        assert_eq!(profile.provider_id, "openai");
+        assert_eq!(profile.default_api_mode, ProviderApiMode::OpenAiResponses);
+        assert_eq!(profile.preferred_engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_registry_resolves_openrouter() {
+        let registry = ProviderRegistry::builtin();
+        let profile = registry
+            .profile("openrouter")
+            .expect("openrouter profile should exist");
+
+        assert_eq!(profile.provider_id, "openrouter");
+        assert_eq!(
+            profile.default_api_mode,
+            ProviderApiMode::OpenAiChatCompletions
+        );
+        assert_eq!(profile.preferred_engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_registry_resolves_anthropic() {
+        let registry = ProviderRegistry::builtin();
+        let profile = registry
+            .profile("anthropic")
+            .expect("anthropic profile should exist");
+
+        assert_eq!(profile.provider_id, "anthropic");
+        assert_eq!(profile.default_api_mode, ProviderApiMode::AnthropicMessages);
+        assert_eq!(profile.preferred_engine_id, "python.anthropic");
+    }
+
+    #[test]
+    fn provider_registry_resolves_kimi_alias() {
+        let registry = ProviderRegistry::builtin();
+
+        assert_eq!(registry.canonical_provider_id("moonshot"), "kimi");
+        assert_eq!(
+            registry
+                .profile("moonshot")
+                .expect("moonshot alias should resolve")
+                .provider_id,
+            "kimi"
+        );
+    }
+
+    #[test]
+    fn provider_registry_resolves_glm_aliases() {
+        let registry = ProviderRegistry::builtin();
+
+        assert_eq!(registry.canonical_provider_id("zai"), "glm");
+        assert_eq!(registry.canonical_provider_id("zhipu"), "glm");
+    }
+
+    #[test]
+    fn provider_registry_keeps_codex_login_separate_from_openai() {
+        let registry = ProviderRegistry::builtin();
+        let profile = registry
+            .profile("codex")
+            .expect("codex alias should resolve");
+
+        assert_eq!(profile.provider_id, "openai-codex-login");
+        assert_eq!(profile.default_api_mode, ProviderApiMode::CodexResponses);
+        assert_ne!(profile.provider_id, "openai");
+    }
+
+    #[test]
+    fn provider_registry_marks_xiaomi_profile_required_without_base_url() {
+        let registry = ProviderRegistry::builtin();
+        let profile = registry.profile("xiaomi").expect("xiaomi skeleton exists");
+
+        assert_eq!(profile.provider_id, "xiaomi");
+        assert_eq!(profile.status, ProviderAdapterStatus::ProfileRequired);
+        assert_eq!(profile.default_base_url, None);
+    }
+
+    #[test]
+    fn unknown_provider_returns_resolve_error() {
+        let registry = ProviderRegistry::builtin();
+        let error = registry
+            .profile("mystery")
+            .expect_err("unknown provider should fail");
+
+        assert!(matches!(error, crate::ProviderError::Resolve(_)));
     }
 
     #[test]
