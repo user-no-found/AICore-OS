@@ -4,6 +4,9 @@ use std::io::IsTerminal;
 use serde::Serialize;
 use serde_json::json;
 
+const RICH_PANEL_MIN_WIDTH: usize = 51;
+const RICH_PANEL_MAX_WIDTH: usize = 78;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalEnv {
     values: BTreeMap<String, String>,
@@ -617,18 +620,65 @@ fn render_block_human(block: &Block, config: &TerminalConfig, rich: bool) -> Opt
 fn render_panel_rich(title: &str, body: &str) -> String {
     let title = safe_text(title);
     let body = safe_text(body);
-    let body_width = body.lines().map(display_width).max().unwrap_or(0);
-    let inner_width = 51usize.max(display_width(&title) + 1).max(body_width);
+    let lines = wrap_body_lines(&body, RICH_PANEL_MAX_WIDTH);
+    let body_width = lines
+        .iter()
+        .map(|line| display_width(line))
+        .max()
+        .unwrap_or(0);
+    let inner_width = RICH_PANEL_MIN_WIDTH
+        .max(display_width(&title) + 1)
+        .max(body_width)
+        .min(RICH_PANEL_MAX_WIDTH);
     let title_line = format!(
         "╭─ {title} {}",
         "─".repeat(inner_width.saturating_sub(display_width(&title) + 1))
     );
     let mut output = format!("{title_line}╮\n");
-    for line in body.lines() {
-        output.push_str(&format!("│ {} │\n", pad_display(line, inner_width)));
+    for line in lines {
+        output.push_str(&format!("│ {} │\n", pad_display(&line, inner_width)));
     }
     output.push_str(&format!("╰{}╯", "─".repeat(inner_width + 2)));
     output
+}
+
+fn wrap_body_lines(body: &str, max_width: usize) -> Vec<String> {
+    let source_lines = body.lines().collect::<Vec<_>>();
+    if source_lines.is_empty() {
+        return vec![String::new()];
+    }
+
+    source_lines
+        .into_iter()
+        .flat_map(|line| wrap_display_line(line, max_width))
+        .collect()
+}
+
+fn wrap_display_line(line: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 || display_width(line) <= max_width {
+        return vec![line.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut width = 0usize;
+    for ch in line.chars() {
+        let ch_width = display_width(&ch.to_string());
+        if width > 0 && width + ch_width > max_width {
+            lines.push(current.trim_end().to_string());
+            current.clear();
+            width = 0;
+            if ch.is_whitespace() {
+                continue;
+            }
+        }
+        current.push(ch);
+        width += ch_width;
+    }
+    if !current.is_empty() {
+        lines.push(current.trim_end().to_string());
+    }
+    lines
 }
 
 fn render_key_value(rows: &[(String, String)]) -> String {
@@ -1057,25 +1107,23 @@ mod tests {
     }
 
     #[test]
-    fn panel_renderer_expands_to_long_body_lines() {
+    fn rich_panel_wraps_long_body_lines() {
         let document = Document::new(vec![Block::panel(
-            "配置路径",
-            "auth.toml：/tmp/aicore-cli-m14-smoke-20260427-758b991/auth.toml",
+            "Warnings",
+            "fix: echo 'export PATH=\"$HOME/.aicore/bin:$PATH\"' >> ~/.bashrc && then restart the shell before running aicore-cli again",
         )]);
 
         let rich = render_document(&document, &TerminalConfig::rich_for_tests());
-        let top_width =
-            terminal_width_for_test(rich.lines().next().expect("panel should have top line"));
-        let content_width = terminal_width_for_test(
-            rich.lines()
-                .find(|line| line.contains("auth.toml"))
-                .expect("panel should have content line"),
-        );
+        let widths = rich
+            .lines()
+            .map(terminal_width_for_test)
+            .collect::<Vec<_>>();
 
-        assert_eq!(
-            top_width, content_width,
-            "panel top width should match long body lines"
+        assert!(
+            widths.iter().all(|width| *width <= 82),
+            "{widths:?}\n{rich}"
         );
+        assert!(rich.lines().count() > 3, "long body should wrap\n{rich}");
     }
 
     fn terminal_width_for_test(value: &str) -> usize {

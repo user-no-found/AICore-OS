@@ -9,6 +9,7 @@ use aicore_terminal::{
 use crate::cargo_runner::CommandReport;
 
 const RICH_PANEL_WIDTH: usize = 58;
+const RICH_PANEL_MAX_WIDTH: usize = 78;
 const ANSI_RESET: &str = "\u{1b}[0m";
 const ANSI_DIM: &str = "\u{1b}[2m";
 const ANSI_LABEL: &str = "\u{1b}[38;2;167;139;250m";
@@ -183,7 +184,7 @@ impl WorkflowOutput {
             print!(
                 "{}",
                 render_document(
-                    &Document::new(vec![Block::warning(warning.clone())]),
+                    &Document::new(vec![Block::warning(warning_for_json(&warning))]),
                     &self.config
                 )
             );
@@ -333,9 +334,21 @@ fn render_warnings(warnings: Vec<WarningDiagnostic>, config: &TerminalConfig) ->
         return String::new();
     }
 
-    let mut lines = vec![format!("Warnings {}", warnings.len())];
-    for warning in warnings.iter().take(20) {
-        lines.push(render_warning_line(warning));
+    if config.mode == TerminalMode::Json {
+        let blocks = warnings
+            .into_iter()
+            .take(20)
+            .map(|warning| Block::warning(warning_for_json(&warning)))
+            .collect::<Vec<_>>();
+        return render_document(&Document::new(blocks), config);
+    }
+
+    let mut lines = vec![warning_summary_count_line(warnings.len(), config)];
+    for (index, warning) in warnings.iter().take(20).enumerate() {
+        if index > 0 {
+            lines.push(String::new());
+        }
+        lines.extend(render_warning_block(index + 1, warning, config));
     }
     if warnings.len() > 20 {
         lines.push(format!("... 还有 {} 条 warning", warnings.len() - 20));
@@ -367,16 +380,236 @@ fn render_workflow_steps(steps: &[WorkflowStepRecord], config: &TerminalConfig) 
     render_panel("Workflow Steps", &table, config)
 }
 
-fn render_warning_line(warning: &WarningDiagnostic) -> String {
-    let mut output = format!(
-        "[WARN] {}: {}",
-        safe_text(&warning.step),
-        safe_text(&warning.message)
-    );
-    if let Some(path) = &warning.path {
-        output.push_str(&format!(" ({})", safe_text(path)));
+fn warning_summary_count_line(count: usize, config: &TerminalConfig) -> String {
+    if config.mode == TerminalMode::Rich {
+        render_warning_field("Warnings", &count.to_string(), config)
+    } else {
+        format!("Warnings: {count} scanned this run")
     }
-    output
+}
+
+fn warning_for_json(warning: &WarningDiagnostic) -> WarningDiagnostic {
+    let surface = parse_warning_surface(warning);
+    let mut raw_lines = vec![format!("message: {}", surface.message)];
+    if !surface.paths.is_empty() {
+        raw_lines.push("paths:".to_string());
+        raw_lines.extend(surface.paths.iter().map(|path| format!("- {path}")));
+    }
+    if let Some(current) = &surface.current {
+        raw_lines.push(format!("current: {current}"));
+    }
+    if let Some(expected) = &surface.expected {
+        raw_lines.push(format!("expected: {expected}"));
+    }
+    if let Some(fix) = &surface.fix {
+        raw_lines.push(format!("fix: {fix}"));
+    }
+    if let Some(persist) = &surface.persist {
+        raw_lines.push(format!("persist: {persist}"));
+    }
+    raw_lines.extend(
+        surface
+            .details
+            .iter()
+            .map(|detail| format!("detail: {detail}")),
+    );
+
+    WarningDiagnostic {
+        step: warning.step.clone(),
+        message: surface.message,
+        path: warning.path.clone(),
+        line: warning.line,
+        column: warning.column,
+        source: warning.source.clone(),
+        raw_lines,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WarningSurface {
+    message: String,
+    paths: Vec<String>,
+    current: Option<String>,
+    expected: Option<String>,
+    fix: Option<String>,
+    persist: Option<String>,
+    details: Vec<String>,
+}
+
+fn render_warning_block(
+    index: usize,
+    warning: &WarningDiagnostic,
+    config: &TerminalConfig,
+) -> Vec<String> {
+    let surface = parse_warning_surface(warning);
+    if config.mode == TerminalMode::Rich {
+        let mut lines = vec![
+            accent(&format!("#{index} {}", safe_text(&warning.step)), config),
+            render_warning_field("Level", &status_text(Status::Warn, config), config),
+            render_warning_field("Message", &surface.message, config),
+        ];
+        if !surface.paths.is_empty() {
+            lines.push(render_warning_field("Paths", "", config));
+            lines.extend(
+                surface
+                    .paths
+                    .iter()
+                    .map(|path| format!("  - {}", safe_text(path))),
+            );
+        }
+        if let Some(current) = surface.current {
+            lines.push(render_warning_field("Current", &current, config));
+        }
+        if let Some(expected) = surface.expected {
+            lines.push(render_warning_field("Expected", &expected, config));
+        }
+        if let Some(fix) = surface.fix {
+            lines.push(render_warning_field("Fix", &fix, config));
+        }
+        if let Some(persist) = surface.persist {
+            lines.push(render_warning_field("Persist", &persist, config));
+        }
+        for detail in surface.details {
+            lines.push(render_warning_field("Detail", &detail, config));
+        }
+        return lines;
+    }
+
+    let mut lines = vec![
+        format!("[WARN] {}", safe_text(&warning.step)),
+        format!("message: {}", safe_text(&surface.message)),
+    ];
+    if !surface.paths.is_empty() {
+        lines.push("paths:".to_string());
+        lines.extend(
+            surface
+                .paths
+                .iter()
+                .map(|path| format!("- {}", safe_text(path))),
+        );
+    }
+    if let Some(current) = surface.current {
+        lines.push(format!("current: {}", safe_text(&current)));
+    }
+    if let Some(expected) = surface.expected {
+        lines.push(format!("expected: {}", safe_text(&expected)));
+    }
+    if let Some(fix) = surface.fix {
+        lines.push(format!("fix: {}", safe_text(&fix)));
+    }
+    if let Some(persist) = surface.persist {
+        lines.push(format!("persist: {}", safe_text(&persist)));
+    }
+    for detail in surface.details {
+        lines.push(format!("detail: {}", safe_text(&detail)));
+    }
+    lines
+}
+
+fn render_warning_field(key: &str, value: &str, config: &TerminalConfig) -> String {
+    let label = format!("{:<8}", safe_text(key));
+    if value.is_empty() {
+        if config.mode == TerminalMode::Rich {
+            format!("{} :", label_style(&label, config))
+        } else {
+            format!("{} :", label.trim_end())
+        }
+    } else if config.mode == TerminalMode::Rich {
+        format!("{} : {}", label_style(&label, config), value)
+    } else {
+        format!("{} : {}", label.trim_end(), safe_text(value))
+    }
+}
+
+fn parse_warning_surface(warning: &WarningDiagnostic) -> WarningSurface {
+    let lines = warning
+        .message
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let first = lines.first().copied().unwrap_or("");
+
+    if first.contains("~/.aicore/bin 当前不在 PATH") {
+        let mut paths = Vec::new();
+        let mut fix = None;
+        let mut persist = None;
+        let mut details = Vec::new();
+        for line in lines.iter().skip(1) {
+            if let Some(path) = line.strip_prefix("- ") {
+                paths.push(path.to_string());
+            } else if let Some(value) = line.strip_prefix("临时生效命令：") {
+                fix = Some(value.to_string());
+            } else if let Some(value) = line.strip_prefix("建议加入 shell rc：") {
+                persist = Some(value.to_string());
+            } else if !line.ends_with('：') {
+                details.push((*line).to_string());
+            }
+        }
+        return WarningSurface {
+            message: first.trim_end_matches('。').to_string() + "。",
+            paths,
+            current: None,
+            expected: None,
+            fix,
+            persist,
+            details,
+        };
+    }
+
+    if first.contains("检测到命令 shadowing") {
+        let mut current = None;
+        let mut expected = None;
+        let mut fix = None;
+        let mut details = Vec::new();
+        for line in lines.iter().skip(1) {
+            if line.contains("指向") {
+                current = backtick_values(line).get(1).cloned();
+            } else if line.contains("位于") {
+                expected = backtick_values(line).first().cloned();
+            } else if line.starts_with("请将") {
+                fix = Some("将 $HOME/.aicore/bin 放到 PATH 前面".to_string());
+            } else {
+                details.push((*line).to_string());
+            }
+        }
+        return WarningSurface {
+            message: "检测到命令 shadowing".to_string(),
+            paths: Vec::new(),
+            current,
+            expected,
+            fix,
+            persist: None,
+            details,
+        };
+    }
+
+    WarningSurface {
+        message: first.to_string(),
+        paths: Vec::new(),
+        current: warning.path.clone(),
+        expected: None,
+        fix: None,
+        persist: None,
+        details: lines
+            .iter()
+            .skip(1)
+            .map(|line| (*line).to_string())
+            .collect(),
+    }
+}
+
+fn backtick_values(line: &str) -> Vec<String> {
+    line.split('`')
+        .enumerate()
+        .filter_map(|(index, part)| {
+            if index % 2 == 1 {
+                Some(part.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn render_table(headers: &[&str], rows: &[Vec<String>], config: &TerminalConfig) -> String {
@@ -496,15 +729,16 @@ fn render_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
 
 fn render_rich_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
     let title = render_section_title(title, config);
-    let lines = body.lines().collect::<Vec<_>>();
+    let lines = wrap_visible_body_lines(body, RICH_PANEL_MAX_WIDTH.saturating_sub(2));
     let body_width = lines
         .iter()
-        .map(|line| visible_width(line))
+        .map(|line| visible_width(line.as_str()))
         .max()
         .unwrap_or(0);
     let inner_width = body_width
         .max(visible_width(&title) + 4)
-        .max(RICH_PANEL_WIDTH);
+        .max(RICH_PANEL_WIDTH)
+        .min(RICH_PANEL_MAX_WIDTH);
     let dash_count = inner_width.saturating_sub(visible_width(&title) + 3);
 
     let mut output = format!(
@@ -520,7 +754,7 @@ fn render_rich_panel(title: &str, body: &str, config: &TerminalConfig) -> String
             "{} {}{} {}\n",
             border("│", config),
             line,
-            " ".repeat(inner_width.saturating_sub(visible_width(line) + 2)),
+            " ".repeat(inner_width.saturating_sub(visible_width(&line) + 2)),
             border("│", config)
         ));
     }
@@ -531,6 +765,58 @@ fn render_rich_panel(title: &str, body: &str, config: &TerminalConfig) -> String
         border("╯", config)
     ));
     output
+}
+
+fn wrap_visible_body_lines(body: &str, max_width: usize) -> Vec<String> {
+    let source_lines = body.lines().collect::<Vec<_>>();
+    if source_lines.is_empty() {
+        return vec![String::new()];
+    }
+
+    source_lines
+        .into_iter()
+        .flat_map(|line| wrap_visible_line(line, max_width))
+        .collect()
+}
+
+fn wrap_visible_line(line: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 || visible_width(line) <= max_width {
+        return vec![line.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut width = 0usize;
+    let mut chars = line.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            current.push(ch);
+            current.push(chars.next().expect("peeked ansi introducer"));
+            for next in chars.by_ref() {
+                current.push(next);
+                if next == 'm' {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        let ch_width = char_width(ch);
+        if width > 0 && width + ch_width > max_width {
+            lines.push(current.trim_end().to_string());
+            current.clear();
+            width = 0;
+            if ch.is_whitespace() {
+                continue;
+            }
+        }
+        current.push(ch);
+        width += ch_width;
+    }
+    if !current.is_empty() {
+        lines.push(current.trim_end().to_string());
+    }
+    lines
 }
 
 fn render_header_panel(
@@ -1219,8 +1505,99 @@ mod tests {
         let warning = WarningDiagnostic::new("cargo test", "unused variable");
         let output = render_warnings_for_tests(vec![warning], &TerminalConfig::plain_for_tests());
 
-        assert!(output.contains("Warnings 1"));
+        assert!(output.contains("Warnings: 1 scanned this run"));
         assert!(output.contains("unused variable"));
+    }
+
+    #[test]
+    fn workflow_warning_summary_formats_multiline_warning_as_structured_blocks() {
+        let output =
+            render_warnings_for_tests(install_warnings(), &TerminalConfig::rich_for_tests());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("#1 install"));
+        assert!(plain.contains("Level"));
+        assert!(plain.contains("Message"));
+        assert!(plain.contains("Paths"));
+        assert!(plain.contains("Fix"));
+        assert!(plain.contains("Persist"));
+        assert!(plain.contains("#2 install"));
+        assert!(plain.contains("Current"));
+        assert!(plain.contains("Expected"));
+        assert!(!plain.contains("[WARN] install: ~/.aicore/bin 当前不在 PATH。"));
+        assert!(!plain.contains("[WARN] install: 检测到命令 shadowing"));
+    }
+
+    #[test]
+    fn workflow_warning_summary_wraps_long_shell_rc_command() {
+        let output =
+            render_warnings_for_tests(install_warnings(), &TerminalConfig::rich_for_tests());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Persist"));
+        for line in plain
+            .lines()
+            .filter(|line| line.contains("echo 'export PATH"))
+        {
+            assert!(
+                test_terminal_width(line) <= 82,
+                "long shell rc command should be wrapped: {line:?}\n{plain}"
+            );
+        }
+    }
+
+    #[test]
+    fn workflow_warning_summary_rich_panel_does_not_exceed_width() {
+        let output =
+            render_warnings_for_tests(install_warnings(), &TerminalConfig::rich_for_tests());
+        let widths = output
+            .lines()
+            .map(strip_ansi)
+            .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
+            .map(|line| test_terminal_width(&line))
+            .collect::<Vec<_>>();
+
+        assert!(!widths.is_empty());
+        assert!(
+            widths.iter().all(|width| *width <= 82),
+            "{widths:?}\n{output}"
+        );
+    }
+
+    #[test]
+    fn workflow_warning_summary_plain_is_readable_without_ansi() {
+        let output =
+            render_warnings_for_tests(install_warnings(), &TerminalConfig::plain_for_tests());
+
+        assert!(output.contains("Warnings"));
+        assert!(output.contains("[WARN] install"));
+        assert!(output.contains("message: ~/.aicore/bin 当前不在 PATH。"));
+        assert!(output.contains("paths:"));
+        assert!(output.contains("fix: export PATH=\"$HOME/.aicore/bin:$PATH\""));
+        assert!(output.contains("current: /home/sun/.local/bin/aicore"));
+        assert!(output.contains("expected: /home/sun/.aicore/bin/aicore"));
+        assert!(!output.contains("\u{1b}["));
+        assert!(!output.contains('╭'));
+    }
+
+    #[test]
+    fn workflow_warning_summary_json_outputs_structured_warning_events() {
+        let output =
+            render_warnings_for_tests(install_warnings(), &TerminalConfig::json_for_tests());
+
+        for line in output.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).expect("json line");
+            assert_eq!(value["schema"], "aicore.terminal.v1");
+            assert_eq!(value["event"], "warning");
+            assert!(!line.contains('╭'));
+            assert!(!line.contains("\u{1b}["));
+        }
+        assert!(output.contains("~/.aicore/bin 当前不在 PATH。"));
+        assert!(output.contains("检测到命令 shadowing"));
+        assert!(output.contains("fix: export PATH"));
+        assert!(output.contains("current: /home/sun/.local/bin/aicore"));
+        assert!(!output.contains("当前安装的二进制路径"));
+        assert!(!output.contains("当前 shell 的"));
     }
 
     #[test]
@@ -1271,6 +1648,19 @@ mod tests {
 
         assert!(output.contains("stdout text"));
         assert!(output.contains("stderr text"));
+    }
+
+    fn install_warnings() -> Vec<WarningDiagnostic> {
+        vec![
+            WarningDiagnostic::new(
+                "install",
+                "~/.aicore/bin 当前不在 PATH。\n当前安装的二进制路径：\n- /home/sun/.aicore/bin/aicore\n- /home/sun/.aicore/bin/aicore-cli\n- /home/sun/.aicore/bin/aicore-tui\n临时生效命令：export PATH=\"$HOME/.aicore/bin:$PATH\"\n建议加入 shell rc：echo 'export PATH=\"$HOME/.aicore/bin:$PATH\"' >> ~/.bashrc",
+            ),
+            WarningDiagnostic::new(
+                "install",
+                "检测到命令 shadowing：\n当前 shell 的 `aicore` 指向 `/home/sun/.local/bin/aicore`。\n新安装的 AICore OS 位于 `/home/sun/.aicore/bin/aicore`。\n请将 `$HOME/.aicore/bin` 放到 PATH 前面，或清理旧的 `/home/sun/.local/bin/aicore`。",
+            ),
+        ]
     }
 
     fn assert_panel_lines_have_equal_width(output: &str) {

@@ -479,6 +479,21 @@ step + path + line + column + normalized message
 
 warning summary 必须展示 warning 总数，并在数量较多时截断明细。
 
+rich mode 的 warning panel 必须结构化展示 warning，不把 multiline message 作为 raw blob 直接塞入 panel。安装可见性类 warning 使用字段化输出：
+
+- `Message`
+- `Paths`
+- `Current`
+- `Expected`
+- `Fix`
+- `Persist`
+
+rich warning panel 必须限制宽度，长 path、command、shell rc 建议需要 wrap，右边框不得被长行撑出终端可视区域。warning 状态可以用黄色强调，但不能整段染色。
+
+plain mode 的 warning 输出不使用边框和 ANSI，仍应使用 `message / paths / current / expected / fix / persist` 等可读标签。
+
+json mode 的 warning 输出仍是 JSON Lines event，不输出 rich panel、人类格式字符串或 ANSI。
+
 ## Strict Warning Mode
 
 `AICORE_WORKFLOW_DENY_WARNINGS=1` 启用 strict warning mode。
