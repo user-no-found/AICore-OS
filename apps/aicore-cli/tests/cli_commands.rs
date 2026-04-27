@@ -684,6 +684,49 @@ primary_model = "openai/gpt-5"
 }
 
 #[test]
+fn cli_agent_smoke_non_chat_auth_prints_clear_error() {
+    let root = temp_root("agent-smoke-non-chat-auth");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(
+        root.join("auth.toml"),
+        r#"# AICore OS auth pool
+
+[[auth]]
+auth_ref = "auth.search.only"
+provider = "dummy"
+kind = "api_key"
+secret_ref = "secret://auth.search.only"
+capabilities = ["search"]
+enabled = true
+"#,
+    )
+    .expect("auth.toml should be writable");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.search.only"
+primary_model = "dummy/default-chat"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["agent", "smoke", "non chat auth"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("配置命令失败"));
+    assert!(stderr.contains("Agent Turn 失败"));
+    assert!(stderr.contains("provider_resolve"));
+    assert!(stderr.contains("chat capability"));
+    assert!(!stderr.contains("secret://"));
+}
+
+#[test]
 fn cli_provider_smoke_reports_dummy_or_boundary_state_clearly() {
     let root = temp_root("provider-smoke-dummy-clear");
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
@@ -736,6 +779,48 @@ primary_model = "openai/gpt-5"
     assert!(stderr.contains("配置命令失败"));
     assert!(stderr.contains("provider 调用错误"));
     assert!(stderr.contains("provider adapter unavailable"));
+}
+
+#[test]
+fn cli_provider_capability_failure_does_not_print_secret_ref() {
+    let root = temp_root("provider-smoke-non-chat-auth");
+    fs::create_dir_all(&root).expect("config root should be creatable");
+    fs::write(
+        root.join("auth.toml"),
+        r#"# AICore OS auth pool
+
+[[auth]]
+auth_ref = "auth.search.only"
+provider = "dummy"
+kind = "api_key"
+secret_ref = "secret://auth.search.only"
+capabilities = ["search"]
+enabled = true
+"#,
+    )
+    .expect("auth.toml should be writable");
+    fs::create_dir_all(root.join("instances").join("global-main"))
+        .expect("config directories should be creatable");
+    fs::write(
+        root.join("instances")
+            .join("global-main")
+            .join("runtime.toml"),
+        r#"instance_id = "global-main"
+primary_auth_ref = "auth.search.only"
+primary_model = "dummy/default-chat"
+"#,
+    )
+    .expect("runtime.toml should be writable");
+    fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
+
+    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("配置命令失败"));
+    assert!(stderr.contains("provider 解析错误"));
+    assert!(stderr.contains("chat capability"));
+    assert!(!stderr.contains("secret://"));
 }
 
 #[test]

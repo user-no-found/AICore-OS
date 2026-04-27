@@ -650,6 +650,17 @@ mod tests {
         ])
     }
 
+    fn auth_pool_search_only() -> GlobalAuthPool {
+        GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.search.only"),
+            provider: "dummy".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.search.only"),
+            capabilities: vec![AuthCapability::Search],
+            enabled: true,
+        }])
+    }
+
     fn runtime_config() -> InstanceRuntimeConfig {
         InstanceRuntimeConfig {
             instance_id: "global-main".to_string(),
@@ -678,6 +689,17 @@ mod tests {
             primary: ModelBinding {
                 auth_ref: AuthRef::new("auth.missing"),
                 model: "openai/gpt-5".to_string(),
+            },
+            fallback: None,
+        }
+    }
+
+    fn runtime_config_search_only() -> InstanceRuntimeConfig {
+        InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.search.only"),
+                model: "dummy/default-chat".to_string(),
             },
             fallback: None,
         }
@@ -1410,6 +1432,73 @@ mod tests {
     }
 
     #[test]
+    fn agent_turn_non_chat_auth_returns_provider_resolve_failure() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-non-chat-auth-failed"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool_search_only(),
+            &runtime_config_search_only(),
+            base_input("non chat auth"),
+        )
+        .expect("agent turn should return structured resolve failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(
+            output.failure_stage,
+            Some(AgentTurnFailureStage::ProviderResolve)
+        );
+        assert_eq!(output.provider_invoked, false);
+    }
+
+    #[test]
+    fn agent_turn_non_chat_auth_does_not_append_assistant_output() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-non-chat-auth-no-append"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let initial_event_count = runtime.summary().event_count;
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool_search_only(),
+            &runtime_config_search_only(),
+            base_input("non chat auth"),
+        )
+        .expect("agent turn should return structured resolve failure");
+
+        assert_eq!(output.event_count, initial_event_count + 1);
+        assert_eq!(runtime.summary().event_count, initial_event_count + 1);
+        assert_eq!(output.assistant_output, None);
+    }
+
+    #[test]
+    fn agent_turn_non_chat_auth_does_not_leave_turn_running() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-non-chat-auth-no-running"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool_search_only(),
+            &runtime_config_search_only(),
+            base_input("non chat auth"),
+        )
+        .expect("agent turn should return structured resolve failure");
+
+        assert_eq!(output.outcome, AgentTurnOutcome::Failed);
+        assert_eq!(runtime.turn_state().active_turn_id, None);
+        assert_eq!(
+            runtime.summary().conversation_status,
+            aicore_runtime::ConversationStatus::Idle
+        );
+    }
+
+    #[test]
     fn agent_turn_real_provider_unavailable_returns_failed_outcome() {
         let memory = MemoryKernel::open(temp_paths("agent-turn-provider-invoke-failed"))
             .expect("memory kernel should open");
@@ -1952,6 +2041,26 @@ mod tests {
             base_input("provider invoke failure"),
         )
         .expect("agent turn should return structured failure");
+
+        let surface = output.to_conversation_surface();
+        let rendered = format!("{surface:?}");
+        assert!(!rendered.contains("secret://"));
+    }
+
+    #[test]
+    fn agent_turn_provider_resolve_failure_surface_does_not_expose_secret_ref() {
+        let memory = MemoryKernel::open(temp_paths("agent-turn-resolve-no-secret-ref"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+
+        let output = AgentTurnRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool_search_only(),
+            &runtime_config_search_only(),
+            base_input("non chat auth"),
+        )
+        .expect("agent turn should return structured resolve failure");
 
         let surface = output.to_conversation_surface();
         let rendered = format!("{surface:?}");
@@ -2669,6 +2778,27 @@ mod tests {
         assert!(!rendered.contains("RELEVANT MEMORY:"));
         assert!(!rendered.contains("CURRENT USER REQUEST:"));
         assert!(!rendered.contains("prompt"));
+    }
+
+    #[test]
+    fn session_surface_provider_resolve_failure_does_not_expose_internal_request() {
+        let memory = MemoryKernel::open(temp_paths("session-surface-resolve-no-internal-request"))
+            .expect("memory kernel should open");
+        let mut runtime = default_runtime();
+        let session = AgentSessionRunner::run(
+            &mut runtime,
+            &memory,
+            &auth_pool_search_only(),
+            &runtime_config_search_only(),
+            vec![base_input("non chat auth")],
+        )
+        .expect("session should succeed");
+
+        let rendered = format!("{:?}", session.surface());
+        assert!(!rendered.contains("RELEVANT MEMORY:"));
+        assert!(!rendered.contains("CURRENT USER REQUEST:"));
+        assert!(!rendered.contains("prompt"));
+        assert!(!rendered.contains("secret://"));
     }
 
     #[test]

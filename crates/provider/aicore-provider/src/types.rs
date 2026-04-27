@@ -9,6 +9,12 @@ pub enum ProviderKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderAvailability {
+    Available,
+    AdapterUnavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderDescriptor {
     pub kind: ProviderKind,
     pub provider: String,
@@ -20,6 +26,7 @@ pub struct ResolvedModel {
     pub model: String,
     pub provider: String,
     pub kind: ProviderKind,
+    pub availability: ProviderAvailability,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

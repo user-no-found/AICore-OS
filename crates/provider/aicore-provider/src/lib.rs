@@ -9,8 +9,8 @@ pub use invoker::ProviderInvoker;
 pub use prompt::PromptBuilder;
 pub use resolver::ProviderResolver;
 pub use types::{
-    ModelRequest, ModelResponse, PromptBuildInput, PromptBuildResult, ProviderDescriptor,
-    ProviderError, ProviderKind, ResolvedModel,
+    ModelRequest, ModelResponse, PromptBuildInput, PromptBuildResult, ProviderAvailability,
+    ProviderDescriptor, ProviderError, ProviderKind, ResolvedModel,
 };
 
 #[cfg(test)]
@@ -24,8 +24,8 @@ mod tests {
     use std::{env, fs};
 
     use crate::{
-        ModelRequest, PromptBuildInput, PromptBuilder, ProviderInvoker, ProviderKind,
-        ProviderResolver,
+        ModelRequest, PromptBuildInput, PromptBuilder, ProviderAvailability, ProviderInvoker,
+        ProviderKind, ProviderResolver,
     };
 
     fn auth_pool() -> GlobalAuthPool {
@@ -124,6 +124,7 @@ mod tests {
         assert_eq!(resolved.model, "dummy/default-chat");
         assert_eq!(resolved.provider, "dummy");
         assert_eq!(resolved.kind, ProviderKind::Dummy);
+        assert_eq!(resolved.availability, ProviderAvailability::Available);
     }
 
     #[test]
@@ -134,6 +135,10 @@ mod tests {
 
         assert_eq!(resolved.provider, "openrouter");
         assert_eq!(resolved.kind, ProviderKind::OpenRouter);
+        assert_eq!(
+            resolved.availability,
+            ProviderAvailability::AdapterUnavailable
+        );
     }
 
     #[test]
@@ -143,6 +148,89 @@ mod tests {
 
         assert_eq!(resolved.provider, "openai");
         assert_eq!(resolved.kind, ProviderKind::OpenAI);
+        assert_eq!(
+            resolved.availability,
+            ProviderAvailability::AdapterUnavailable
+        );
+    }
+
+    #[test]
+    fn provider_resolver_accepts_chat_capability() {
+        let resolved = ProviderResolver::resolve_primary(&auth_pool(), &runtime_config())
+            .expect("chat capability should pass");
+        assert_eq!(resolved.auth_ref.as_str(), "auth.dummy.main");
+    }
+
+    #[test]
+    fn provider_resolver_rejects_search_only_auth_for_chat_model() {
+        let auth_pool = GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.search.only"),
+            provider: "dummy".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.search.only"),
+            capabilities: vec![AuthCapability::Search],
+            enabled: true,
+        }]);
+        let runtime = InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.search.only"),
+                model: "dummy/default-chat".to_string(),
+            },
+            fallback: None,
+        };
+
+        let error = ProviderResolver::resolve_primary(&auth_pool, &runtime)
+            .expect_err("search-only auth should fail for chat");
+        assert!(matches!(error, crate::ProviderError::Resolve(_)));
+    }
+
+    #[test]
+    fn provider_resolver_rejects_embedding_only_auth_for_chat_model() {
+        let auth_pool = GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.embedding.only"),
+            provider: "dummy".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.embedding.only"),
+            capabilities: vec![AuthCapability::Embedding],
+            enabled: true,
+        }]);
+        let runtime = InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.embedding.only"),
+                model: "dummy/default-chat".to_string(),
+            },
+            fallback: None,
+        };
+
+        let error = ProviderResolver::resolve_primary(&auth_pool, &runtime)
+            .expect_err("embedding-only auth should fail for chat");
+        assert!(matches!(error, crate::ProviderError::Resolve(_)));
+    }
+
+    #[test]
+    fn provider_resolver_rejects_non_chat_auth_for_chat_model() {
+        let auth_pool = GlobalAuthPool::new(vec![AuthEntry {
+            auth_ref: AuthRef::new("auth.vision.only"),
+            provider: "dummy".to_string(),
+            kind: AuthKind::ApiKey,
+            secret_ref: SecretRef::new("secret://auth.vision.only"),
+            capabilities: vec![AuthCapability::Vision],
+            enabled: true,
+        }]);
+        let runtime = InstanceRuntimeConfig {
+            instance_id: "global-main".to_string(),
+            primary: ModelBinding {
+                auth_ref: AuthRef::new("auth.vision.only"),
+                model: "dummy/default-chat".to_string(),
+            },
+            fallback: None,
+        };
+
+        let error = ProviderResolver::resolve_primary(&auth_pool, &runtime)
+            .expect_err("non-chat auth should fail for chat");
+        assert!(matches!(error, crate::ProviderError::Resolve(_)));
     }
 
     #[test]

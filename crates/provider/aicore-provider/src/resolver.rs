@@ -1,7 +1,7 @@
-use aicore_auth::GlobalAuthPool;
+use aicore_auth::{AuthCapability, GlobalAuthPool};
 use aicore_config::InstanceRuntimeConfig;
 
-use crate::{ProviderError, ProviderKind, ResolvedModel};
+use crate::{ProviderAvailability, ProviderError, ProviderKind, ResolvedModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderResolver;
@@ -22,11 +22,19 @@ impl ProviderResolver {
                 ))
             })?;
 
+        if !entry.capabilities.contains(&AuthCapability::Chat) {
+            return Err(ProviderError::Resolve(format!(
+                "auth_ref missing required chat capability: {}",
+                runtime.primary.auth_ref.as_str()
+            )));
+        }
+
         Ok(ResolvedModel {
             auth_ref: runtime.primary.auth_ref.clone(),
             model: runtime.primary.model.clone(),
             provider: entry.provider.clone(),
             kind: classify_provider_kind(&entry.provider)?,
+            availability: classify_provider_availability(&entry.provider)?,
         })
     }
 }
@@ -36,6 +44,16 @@ fn classify_provider_kind(provider: &str) -> Result<ProviderKind, ProviderError>
         "dummy" => Ok(ProviderKind::Dummy),
         "openrouter" => Ok(ProviderKind::OpenRouter),
         "openai" => Ok(ProviderKind::OpenAI),
+        other => Err(ProviderError::Resolve(format!(
+            "unsupported provider: {other}"
+        ))),
+    }
+}
+
+fn classify_provider_availability(provider: &str) -> Result<ProviderAvailability, ProviderError> {
+    match provider.to_ascii_lowercase().as_str() {
+        "dummy" => Ok(ProviderAvailability::Available),
+        "openrouter" | "openai" => Ok(ProviderAvailability::AdapterUnavailable),
         other => Err(ProviderError::Resolve(format!(
             "unsupported provider: {other}"
         ))),
