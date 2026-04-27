@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use aicore_terminal::{
     Block, Document, RunSummary, Status, StatusSymbols, StepSummary, SymbolMode, TerminalConfig,
-    TerminalMode, WarningDiagnostic, display_width, render_document, safe_text,
+    TerminalMode, WarningDiagnostic, render_document, safe_text,
 };
 
 use crate::cargo_runner::CommandReport;
@@ -241,14 +241,7 @@ fn render_run_started(
         );
     }
 
-    let body = render_key_rows(&[
-        ("Composable Rust AgentOS Platform", ""),
-        ("Workflow", workflow_id),
-        ("Mode", terminal_mode_label(config.mode)),
-        ("Root", repo_root),
-        ("Target", target),
-        ("Warnings", warning_policy_label(config)),
-    ]);
+    let body = render_header_body(workflow_id, repo_root, target, config);
     render_panel("AICore OS", &body, config)
 }
 
@@ -292,6 +285,7 @@ fn render_finished(
         ),
         ("Warnings", &format!("{warning_count} scanned this run")),
         ("Duration", &format_duration(duration)),
+        ("Result", result_label(status)),
     ]);
     render_panel("Summary", &body, config)
 }
@@ -316,7 +310,7 @@ fn render_workflow_steps(steps: &[WorkflowStepRecord], config: &TerminalConfig) 
         return String::new();
     }
 
-    let headers = ["#", "Layer", "Step", "Status", "Warnings", "Duration"];
+    let headers = ["#", "Layer", "Step", "Status", "Warn", "Time"];
     let rows = steps
         .iter()
         .enumerate()
@@ -331,7 +325,7 @@ fn render_workflow_steps(steps: &[WorkflowStepRecord], config: &TerminalConfig) 
             ]
         })
         .collect::<Vec<_>>();
-    let table = render_table(&headers, &rows);
+    let table = render_table(&headers, &rows, config);
     render_panel("Workflow Steps", &table, config)
 }
 
@@ -347,10 +341,10 @@ fn render_warning_line(warning: &WarningDiagnostic) -> String {
     output
 }
 
-fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
+fn render_table(headers: &[&str], rows: &[Vec<String>], config: &TerminalConfig) -> String {
     let mut widths = headers
         .iter()
-        .map(|header| display_width(header))
+        .map(|header| terminal_width(header))
         .collect::<Vec<_>>();
     for row in rows {
         for (index, cell) in row.iter().enumerate() {
@@ -365,6 +359,18 @@ fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
             .collect::<Vec<_>>(),
         &widths,
     )];
+    let separator_char = if config.mode == TerminalMode::Rich {
+        "─"
+    } else {
+        "-"
+    };
+    lines.push(render_table_row(
+        &widths
+            .iter()
+            .map(|width| separator_char.repeat(*width))
+            .collect::<Vec<_>>(),
+        &widths,
+    ));
     for row in rows {
         lines.push(render_table_row(row, &widths));
     }
@@ -383,7 +389,7 @@ fn render_key_rows(rows: &[(&str, &str)]) -> String {
     let key_width = rows
         .iter()
         .filter(|(_, value)| !value.is_empty())
-        .map(|(key, _)| display_width(key))
+        .map(|(key, _)| terminal_width(key))
         .max()
         .unwrap_or(0);
 
@@ -395,7 +401,7 @@ fn render_key_rows(rows: &[(&str, &str)]) -> String {
                 format!(
                     "{}{}  {}",
                     safe_text(key),
-                    " ".repeat(key_width.saturating_sub(display_width(key))),
+                    " ".repeat(key_width.saturating_sub(terminal_width(key))),
                     safe_text(value)
                 )
             }
@@ -420,8 +426,8 @@ fn render_rich_panel(title: &str, body: &str) -> String {
         .map(|line| visible_width(line))
         .max()
         .unwrap_or(0);
-    let inner_width = body_width.max(display_width(&title) + 4).max(62);
-    let dash_count = inner_width.saturating_sub(display_width(&title) + 3);
+    let inner_width = body_width.max(terminal_width(&title) + 4).max(62);
+    let dash_count = inner_width.saturating_sub(terminal_width(&title) + 3);
 
     let mut output = format!("╭─ {title} {}╮\n", "─".repeat(dash_count));
     for line in lines {
@@ -489,12 +495,75 @@ fn warning_policy_label(config: &TerminalConfig) -> &'static str {
     }
 }
 
+fn result_label(status: Status) -> &'static str {
+    match status {
+        Status::Ok => "workflow completed successfully",
+        Status::Warn => "workflow completed with warnings",
+        Status::Failed => "workflow failed",
+        Status::Running => "workflow running",
+        Status::Info => "workflow reported information",
+        Status::Skipped => "workflow skipped",
+    }
+}
+
+fn render_header_body(
+    workflow_id: &str,
+    repo_root: &str,
+    target: &str,
+    config: &TerminalConfig,
+) -> String {
+    let workflow = render_inline_pair("Workflow", workflow_id);
+    let mode = render_inline_pair("Mode", terminal_mode_label(config.mode));
+    let target = render_inline_pair("Target", target);
+    let warnings = render_inline_pair("Warnings", warning_policy_label(config));
+    let root = render_inline_pair("Root", repo_root);
+
+    format!(
+        "Composable Rust AgentOS Platform\n\n{}  {}\n{}  {}\n{}",
+        pad_visible(&workflow, 30),
+        mode,
+        pad_visible(&target, 30),
+        warnings,
+        root
+    )
+}
+
+fn render_inline_pair(key: &str, value: &str) -> String {
+    format!(
+        "{key:<10}{value}",
+        key = safe_text(key),
+        value = safe_text(value)
+    )
+}
+
 fn format_duration(duration: Duration) -> String {
     format!("{:.2}s", duration.as_secs_f64())
 }
 
 fn visible_width(value: &str) -> usize {
-    display_width(&strip_ansi(value))
+    terminal_width(&strip_ansi(value))
+}
+
+fn terminal_width(value: &str) -> usize {
+    value.chars().map(char_width).sum()
+}
+
+fn char_width(ch: char) -> usize {
+    if matches!(
+        ch,
+        '\u{1100}'..='\u{115f}'
+            | '\u{2e80}'..='\u{a4cf}'
+            | '\u{ac00}'..='\u{d7a3}'
+            | '\u{f900}'..='\u{faff}'
+            | '\u{fe10}'..='\u{fe19}'
+            | '\u{fe30}'..='\u{fe6f}'
+            | '\u{ff00}'..='\u{ff60}'
+            | '\u{ffe0}'..='\u{ffe6}'
+    ) {
+        2
+    } else {
+        1
+    }
 }
 
 fn pad_visible(value: &str, width: usize) -> String {
@@ -554,7 +623,7 @@ fn render_warnings_for_tests(warnings: Vec<WarningDiagnostic>, config: &Terminal
 
 #[cfg(test)]
 fn render_workflow_steps_for_tests(config: &TerminalConfig) -> String {
-    render_workflow_steps(&sample_step_records(2), config)
+    render_workflow_steps(&sample_step_records(8), config)
 }
 
 #[cfg(test)]
@@ -657,11 +726,47 @@ mod tests {
         assert!(output.contains("Layer"));
         assert!(output.contains("Step"));
         assert!(output.contains("Status"));
-        assert!(output.contains("Warnings"));
-        assert!(output.contains("Duration"));
+        assert!(output.contains("Warn"));
+        assert!(output.contains("Time"));
         assert!(output.contains("foundation"));
         assert!(output.contains("test"));
         assert!(!output.contains('⏳'));
+    }
+
+    #[test]
+    fn workflow_rich_table_has_header_separator() {
+        let output = render_workflow_steps_for_tests(&TerminalConfig::rich_for_tests());
+
+        assert!(output.contains("─  ──────────  ───────"));
+    }
+
+    #[test]
+    fn workflow_rich_header_uses_two_column_summary_layout() {
+        let output = render_run_started_for_tests("core", &TerminalConfig::rich_for_tests());
+
+        assert!(output.contains("Workflow  core"));
+        assert!(output.contains("Mode      rich"));
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("Workflow") && line.contains("Mode"))
+        );
+        assert!(
+            output
+                .lines()
+                .any(|line| line.contains("Target") && line.contains("Warnings"))
+        );
+    }
+
+    #[test]
+    fn workflow_rich_panels_have_aligned_right_border() {
+        for output in [
+            render_run_started_for_tests("core", &TerminalConfig::rich_for_tests()),
+            render_workflow_steps_for_tests(&TerminalConfig::rich_for_tests()),
+            render_finished_for_tests("core", Status::Ok, 8, 0, &TerminalConfig::rich_for_tests()),
+        ] {
+            assert_panel_lines_have_equal_width(&output);
+        }
     }
 
     #[test]
@@ -684,9 +789,11 @@ mod tests {
     #[test]
     fn workflow_plain_mode_has_no_ansi_or_unicode_border() {
         let output = render_run_started_for_tests("kernel", &TerminalConfig::plain_for_tests());
+        let steps = render_workflow_steps_for_tests(&TerminalConfig::plain_for_tests());
 
         assert!(!output.contains("\u{1b}"));
         assert!(!output.contains('╭'));
+        assert!(!steps.contains('─'));
     }
 
     #[test]
@@ -717,5 +824,41 @@ mod tests {
 
         assert!(output.contains("stdout text"));
         assert!(output.contains("stderr text"));
+    }
+
+    fn assert_panel_lines_have_equal_width(output: &str) {
+        let widths = output
+            .lines()
+            .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
+            .map(test_terminal_width)
+            .collect::<Vec<_>>();
+        assert!(!widths.is_empty());
+        assert!(
+            widths.windows(2).all(|pair| pair[0] == pair[1]),
+            "panel line widths differ: {widths:?}\n{output}"
+        );
+    }
+
+    fn test_terminal_width(line: &str) -> usize {
+        strip_ansi(line)
+            .chars()
+            .map(|ch| {
+                if matches!(
+                    ch,
+                    '\u{1100}'..='\u{115f}'
+                        | '\u{2e80}'..='\u{a4cf}'
+                        | '\u{ac00}'..='\u{d7a3}'
+                        | '\u{f900}'..='\u{faff}'
+                        | '\u{fe10}'..='\u{fe19}'
+                        | '\u{fe30}'..='\u{fe6f}'
+                        | '\u{ff00}'..='\u{ff60}'
+                        | '\u{ffe0}'..='\u{ffe6}'
+                ) {
+                    2
+                } else {
+                    1
+                }
+            })
+            .sum()
     }
 }

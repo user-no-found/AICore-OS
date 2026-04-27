@@ -143,11 +143,10 @@ compact rich 示例：
 ```text
 ╭─ AICore OS ───────────────────────────────────────────────╮
 │ Composable Rust AgentOS Platform                          │
-│ Workflow  core                                            │
-│ Mode      rich                                            │
-│ Root      /vol1/1000/sun/aicore/AICore-OS                 │
-│ Target    foundation + kernel                             │
-│ Warnings  report                                          │
+│                                                          │
+│ Workflow  core                  Mode      rich           │
+│ Target    foundation + kernel   Warnings  report         │
+│ Root      /vol1/1000/sun/aicore/AICore-OS                │
 ╰────────────────────────────────────────────────────────────╯
 ```
 
@@ -238,19 +237,20 @@ step table 使用英文技术字段：
 
 ```text
 ╭─ Workflow Steps ─────────────────────────────────────────────╮
-│ #  Layer       Step     Status  Warnings  Duration           │
-│ 1  foundation  fmt      ✓ OK    0         0.08s              │
-│ 2  foundation  test     ✓ OK    0         0.31s              │
-│ 3  foundation  build    ✓ OK    0         0.12s              │
-│ 4  foundation  install  ✓ OK    0         0.01s              │
-│ 5  kernel      fmt      ✓ OK    0         0.03s              │
-│ 6  kernel      test     ✓ OK    0         0.42s              │
-│ 7  kernel      build    ✓ OK    0         0.09s              │
-│ 8  kernel      install  ✓ OK    0         0.01s              │
+│ #  Layer       Step     Status  Warn  Time                  │
+│ ─  ──────────  ───────  ──────  ────  ─────                 │
+│ 1  foundation  fmt      ✓ OK    0     0.08s                 │
+│ 2  foundation  test     ✓ OK    0     0.31s                 │
+│ 3  foundation  build    ✓ OK    0     0.12s                 │
+│ 4  foundation  install  ✓ OK    0     0.01s                 │
+│ 5  kernel      fmt      ✓ OK    0     0.03s                 │
+│ 6  kernel      test     ✓ OK    0     0.42s                 │
+│ 7  kernel      build    ✓ OK    0     0.09s                 │
+│ 8  kernel      install  ✓ OK    0     0.01s                 │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
-最终 summary 输出 workflow、状态、step 统计、warning 统计和 duration：
+最终 summary 输出 workflow、状态、step 统计、warning 统计、duration 和 result：
 
 ```text
 ╭─ Summary ────────────────────────────────────────────────────╮
@@ -259,6 +259,7 @@ step table 使用英文技术字段：
 │ Steps     8 total / 8 ok / 0 failed                          │
 │ Warnings  0 scanned this run                                 │
 │ Duration  1.42s                                              │
+│ Result    workflow completed successfully                    │
 ╰──────────────────────────────────────────────────────────────╯
 ```
 
