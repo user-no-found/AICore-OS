@@ -2,45 +2,71 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use aicore_foundation::AicoreLayout;
+use aicore_terminal::Status;
 
+use crate::cargo_runner::{CommandReport, run_cargo_capture};
 use crate::layers::Workflow;
+use crate::workflow_output::WorkflowOutput;
 
 const TARGET_LIMIT_BYTES: u64 = 30 * 1024 * 1024 * 1024;
 
 pub fn run(workflow: Workflow) -> Result<(), String> {
     let repo_root = find_repo_root()?;
-    match workflow {
+    let mut output = WorkflowOutput::from_current(workflow.label_zh());
+    output.start();
+
+    let result = match workflow {
         Workflow::Core => {
-            println!("开始执行{} workflow。", workflow.label_zh());
-            run_single(&repo_root, Workflow::Foundation)?;
-            run_single(&repo_root, Workflow::Kernel)?;
-            println!("{} workflow 执行完成。", workflow.label_zh());
+            run_single(&repo_root, Workflow::Foundation, &mut output)?;
+            run_single(&repo_root, Workflow::Kernel, &mut output)?;
             Ok(())
         }
         Workflow::Foundation
         | Workflow::Kernel
         | Workflow::AppAicore
         | Workflow::AppCli
-        | Workflow::AppTui => run_single(&repo_root, workflow),
+        | Workflow::AppTui => run_single(&repo_root, workflow, &mut output),
+    };
+
+    let final_status = match result {
+        Ok(()) if output.warning_count() > 0 => Status::Warn,
+        Ok(()) => Status::Ok,
+        Err(_) => Status::Failed,
+    };
+    let finish_result = output.finish(final_status);
+    match (result, finish_result) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
     }
 }
 
-fn run_single(repo_root: &Path, workflow: Workflow) -> Result<(), String> {
-    println!("开始执行{} workflow。", workflow.label_zh());
+fn run_single(
+    repo_root: &Path,
+    workflow: Workflow,
+    output: &mut WorkflowOutput,
+) -> Result<(), String> {
     let target_dir = target_dir_for(repo_root, workflow);
-    cleanup_target_if_needed(&target_dir)?;
-    run_cargo(repo_root, None, &["fmt", "--check"])?;
-    run_cargo_for_workflow(repo_root, workflow, &target_dir, "test")?;
-    run_cargo_for_workflow(repo_root, workflow, &target_dir, "build")?;
+    cleanup_target_if_needed(&target_dir, output)?;
+    run_cargo_step(
+        output,
+        repo_root,
+        None,
+        "cargo fmt --check",
+        &["fmt", "--check"],
+    )?;
+    run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "test")?;
+    run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "build")?;
+    output.step_started(&format!("install {}", workflow.label_zh()));
     install_layer(workflow, &target_dir)?;
-    println!("{} workflow 执行完成。", workflow.label_zh());
+    output.record_local_step(&format!("install {}", workflow.label_zh()), Status::Ok);
     Ok(())
 }
 
 fn run_cargo_for_workflow(
+    output: &mut WorkflowOutput,
     repo_root: &Path,
     workflow: Workflow,
     target_dir: &Path,
@@ -48,7 +74,8 @@ fn run_cargo_for_workflow(
 ) -> Result<(), String> {
     let args = cargo_args_for_workflow(workflow, subcommand);
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
-    run_cargo(repo_root, Some(target_dir), &arg_refs)
+    let step_name = format!("cargo {subcommand} {}", workflow.label_zh());
+    run_cargo_step(output, repo_root, Some(target_dir), &step_name, &arg_refs)
 }
 
 fn cargo_args_for_workflow(workflow: Workflow, subcommand: &str) -> Vec<String> {
@@ -61,31 +88,39 @@ fn cargo_args_for_workflow(workflow: Workflow, subcommand: &str) -> Vec<String> 
     args
 }
 
-fn run_cargo(repo_root: &Path, target_dir: Option<&Path>, args: &[&str]) -> Result<(), String> {
-    let mut command = Command::new("cargo");
-    command.args(args).current_dir(repo_root);
-    if let Some(target_dir) = target_dir {
-        command.env("CARGO_TARGET_DIR", target_dir);
-    }
-    let status = command
-        .status()
-        .map_err(|error| format!("执行 cargo {:?} 失败: {error}", args))?;
-
-    if status.success() {
+fn run_cargo_step(
+    output: &mut WorkflowOutput,
+    repo_root: &Path,
+    target_dir: Option<&Path>,
+    step_name: &str,
+    args: &[&str],
+) -> Result<(), String> {
+    output.step_started(step_name);
+    let report = run_cargo_capture(repo_root, target_dir, args)?;
+    let succeeded = report.succeeded();
+    output.record_command_report(step_name, &report, !succeeded);
+    if succeeded {
         Ok(())
     } else {
-        Err(format!("cargo {:?} 执行失败。", args))
+        Err(render_cargo_failure(&report))
     }
 }
 
-fn cleanup_target_if_needed(target_dir: &Path) -> Result<(), String> {
+fn render_cargo_failure(report: &CommandReport) -> String {
+    format!("{} 执行失败。", report.command)
+}
+
+fn cleanup_target_if_needed(target_dir: &Path, output: &WorkflowOutput) -> Result<(), String> {
     if !target_dir.exists() {
         return Ok(());
     }
 
     let size = dir_size(target_dir)?;
     if size > TARGET_LIMIT_BYTES {
-        println!("{} 超过 30GiB，正在清理后重新编译。", target_dir.display());
+        output.message(&format!(
+            "{} 超过 30GiB，正在清理后重新编译。",
+            target_dir.display()
+        ));
         fs::remove_dir_all(target_dir)
             .map_err(|error| format!("删除 {} 失败: {error}", target_dir.display()))?;
     }
@@ -336,6 +371,21 @@ mod tests {
             .join("docs")
             .join("architecture")
             .join("AICore-OS-Provider请求应用规范.md");
+
+        assert!(doc.exists());
+    }
+
+    #[test]
+    fn formal_terminal_doc_exists() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .ancestors()
+            .nth(3)
+            .expect("workflow crate should live under crates/workflows");
+        let doc = repo_root
+            .join("docs")
+            .join("architecture")
+            .join("AICore-OS-终端输出规范.md");
 
         assert!(doc.exists());
     }

@@ -1,5 +1,8 @@
+mod cargo_diagnostics;
+mod cargo_runner;
 mod layers;
 mod runner;
+mod workflow_output;
 
 use std::env;
 use std::process::ExitCode;

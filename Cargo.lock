@@ -92,6 +92,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-terminal"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-tools"
 version = "0.1.0"
 
@@ -108,6 +116,8 @@ name = "aicore-workflow"
 version = "0.1.0"
 dependencies = [
  "aicore-foundation",
+ "aicore-terminal",
+ "serde_json",
 ]
 
 [[package]]

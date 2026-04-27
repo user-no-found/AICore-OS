@@ -34,7 +34,7 @@ impl Workflow {
 
     pub fn crates(self) -> &'static [&'static str] {
         match self {
-            Self::Foundation => &["aicore-foundation"],
+            Self::Foundation => &["aicore-foundation", "aicore-terminal"],
             Self::Kernel => &["aicore-foundation", "aicore-kernel"],
             Self::Core => &[],
             Self::AppAicore => &["aicore"],
@@ -89,6 +89,14 @@ mod tests {
         assert_eq!(
             Workflow::Kernel.crates(),
             &["aicore-foundation", "aicore-kernel"]
+        );
+    }
+
+    #[test]
+    fn foundation_workflow_includes_terminal_kit() {
+        assert_eq!(
+            Workflow::Foundation.crates(),
+            &["aicore-foundation", "aicore-terminal"]
         );
     }
 
