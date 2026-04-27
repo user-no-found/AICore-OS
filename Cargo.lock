@@ -73,6 +73,8 @@ dependencies = [
  "aicore-auth",
  "aicore-config",
  "aicore-memory",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

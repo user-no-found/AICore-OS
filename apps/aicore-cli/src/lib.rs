@@ -1253,6 +1253,17 @@ fn provider_kind_name(kind: &aicore_provider::ProviderKind) -> &'static str {
         aicore_provider::ProviderKind::Dummy => "dummy",
         aicore_provider::ProviderKind::OpenRouter => "openrouter",
         aicore_provider::ProviderKind::OpenAI => "openai",
+        aicore_provider::ProviderKind::Anthropic => "anthropic",
+        aicore_provider::ProviderKind::Kimi => "kimi",
+        aicore_provider::ProviderKind::KimiCoding => "kimi-coding",
+        aicore_provider::ProviderKind::DeepSeek => "deepseek",
+        aicore_provider::ProviderKind::Glm => "glm",
+        aicore_provider::ProviderKind::MiniMax => "minimax",
+        aicore_provider::ProviderKind::MiniMaxOpenAI => "minimax-openai",
+        aicore_provider::ProviderKind::OpenAICodexLogin => "openai-codex-login",
+        aicore_provider::ProviderKind::CustomOpenAICompatible => "custom-openai-compatible",
+        aicore_provider::ProviderKind::CustomAnthropicCompatible => "custom-anthropic-compatible",
+        aicore_provider::ProviderKind::Xiaomi => "xiaomi",
     }
 }
 

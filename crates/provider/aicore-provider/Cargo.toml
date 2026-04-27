@@ -11,3 +11,5 @@ authors.workspace = true
 aicore-auth.workspace = true
 aicore-config.workspace = true
 aicore-memory.workspace = true
+serde.workspace = true
+serde_json.workspace = true

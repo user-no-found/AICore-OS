@@ -9,8 +9,9 @@ pub use invoker::ProviderInvoker;
 pub use prompt::PromptBuilder;
 pub use resolver::ProviderResolver;
 pub use types::{
-    ModelRequest, ModelResponse, PromptBuildInput, PromptBuildResult, ProviderAvailability,
-    ProviderDescriptor, ProviderError, ProviderKind, ResolvedModel,
+    ModelRequest, ModelResponse, PromptBuildInput, PromptBuildResult, ProviderAdapterStatus,
+    ProviderApiMode, ProviderAuthMode, ProviderAvailability, ProviderDescriptor, ProviderError,
+    ProviderKind, ProviderProfile, ProviderRuntime, RequestEngineKind, ResolvedModel,
 };
 
 #[cfg(test)]
@@ -24,8 +25,9 @@ mod tests {
     use std::{env, fs};
 
     use crate::{
-        ModelRequest, PromptBuildInput, PromptBuilder, ProviderAvailability, ProviderInvoker,
-        ProviderKind, ProviderResolver,
+        ModelRequest, PromptBuildInput, PromptBuilder, ProviderAdapterStatus, ProviderApiMode,
+        ProviderAuthMode, ProviderAvailability, ProviderInvoker, ProviderKind, ProviderProfile,
+        ProviderResolver, ProviderRuntime,
     };
 
     fn auth_pool() -> GlobalAuthPool {
@@ -125,6 +127,68 @@ mod tests {
         assert_eq!(resolved.provider, "dummy");
         assert_eq!(resolved.kind, ProviderKind::Dummy);
         assert_eq!(resolved.availability, ProviderAvailability::Available);
+        assert_eq!(resolved.runtime.provider_id, "dummy");
+        assert_eq!(resolved.runtime.api_mode, ProviderApiMode::Dummy);
+        assert_eq!(resolved.runtime.engine_id, "dummy");
+    }
+
+    #[test]
+    fn provider_profile_declares_adapter_engine_and_api_mode() {
+        let profile = ProviderProfile {
+            provider_id: "openai".to_string(),
+            adapter_id: "openai".to_string(),
+            display_name_zh: "OpenAI".to_string(),
+            default_base_url: Some("https://api.openai.com/v1".to_string()),
+            base_url_env_var: Some("OPENAI_BASE_URL".to_string()),
+            default_api_mode: ProviderApiMode::OpenAiResponses,
+            preferred_engine_id: "python.openai".to_string(),
+            fallback_engine_ids: vec!["rust.openai_compatible_http".to_string()],
+            auth_modes: vec![ProviderAuthMode::ApiKey],
+            capabilities: vec!["chat".to_string()],
+            status: ProviderAdapterStatus::Available,
+        };
+
+        assert_eq!(profile.provider_id, "openai");
+        assert_eq!(profile.adapter_id, "openai");
+        assert_eq!(profile.default_api_mode, ProviderApiMode::OpenAiResponses);
+        assert_eq!(profile.preferred_engine_id, "python.openai");
+    }
+
+    #[test]
+    fn provider_runtime_carries_provider_adapter_engine_and_model() {
+        let runtime = ProviderRuntime {
+            provider_id: "openrouter".to_string(),
+            adapter_id: "openrouter".to_string(),
+            engine_id: "python.openai".to_string(),
+            api_mode: ProviderApiMode::OpenAiChatCompletions,
+            auth_mode: ProviderAuthMode::ApiKey,
+            model: "openai/gpt-5".to_string(),
+            base_url: Some("https://openrouter.ai/api/v1".to_string()),
+            auth_ref: Some(AuthRef::new("auth.openrouter.main")),
+        };
+
+        assert_eq!(runtime.provider_id, "openrouter");
+        assert_eq!(runtime.adapter_id, "openrouter");
+        assert_eq!(runtime.engine_id, "python.openai");
+        assert_eq!(runtime.model, "openai/gpt-5");
+    }
+
+    #[test]
+    fn provider_runtime_does_not_carry_raw_secret() {
+        let runtime = ProviderRuntime {
+            provider_id: "openai".to_string(),
+            adapter_id: "openai".to_string(),
+            engine_id: "python.openai".to_string(),
+            api_mode: ProviderApiMode::OpenAiResponses,
+            auth_mode: ProviderAuthMode::ApiKey,
+            model: "gpt-4.1".to_string(),
+            base_url: None,
+            auth_ref: Some(AuthRef::new("auth.openai.main")),
+        };
+        let rendered = format!("{runtime:?}");
+
+        assert!(!rendered.contains("sk-live-secret-value"));
+        assert!(!rendered.contains("secret://"));
     }
 
     #[test]

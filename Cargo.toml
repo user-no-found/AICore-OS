@@ -37,3 +37,5 @@ aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-surface = { path = "crates/surface/aicore-surface" }
 aicore-skills = { path = "crates/skills/aicore-skills" }
 aicore-tools = { path = "crates/tools/aicore-tools" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
