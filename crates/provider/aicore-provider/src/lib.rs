@@ -1,5 +1,6 @@
 mod adapter;
 mod dummy;
+mod engine_ipc;
 mod invoker;
 mod profile;
 mod prompt;
@@ -9,6 +10,9 @@ mod types;
 
 pub use adapter::ProviderAdapter;
 pub use dummy::DummyProvider;
+pub use engine_ipc::{
+    ProviderEngineEvent, ProviderEngineEventKind, ProviderEngineMessage, ProviderEngineRequest,
+};
 pub use invoker::ProviderInvoker;
 pub use profile::ProviderRegistry;
 pub use prompt::PromptBuilder;
@@ -36,9 +40,10 @@ mod tests {
 
     use crate::{
         ModelRequest, PromptBuildInput, PromptBuilder, ProviderAdapterStatus, ProviderApiMode,
-        ProviderAuthMode, ProviderAvailability, ProviderInvoker, ProviderKind, ProviderProfile,
-        ProviderRegistry, ProviderResolver, ProviderRuntime, ProviderRuntimeResolveInput,
-        ProviderRuntimeResolver,
+        ProviderAuthMode, ProviderAvailability, ProviderEngineEvent, ProviderEngineEventKind,
+        ProviderEngineMessage, ProviderEngineRequest, ProviderInvoker, ProviderKind,
+        ProviderProfile, ProviderRegistry, ProviderResolver, ProviderRuntime,
+        ProviderRuntimeResolveInput, ProviderRuntimeResolver,
     };
 
     fn auth_pool() -> GlobalAuthPool {
@@ -607,6 +612,104 @@ mod tests {
 
         assert!(!rendered.contains("secret://"));
         assert!(!rendered.contains("auth.test.main"));
+    }
+
+    #[test]
+    fn engine_request_serializes_without_raw_secret() {
+        let request = ProviderEngineRequest {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: "inv-1".to_string(),
+            provider_id: "openai".to_string(),
+            adapter_id: "openai".to_string(),
+            engine_id: "python.openai".to_string(),
+            api_mode: "openai_responses".to_string(),
+            model: "gpt-4.1".to_string(),
+            base_url: None,
+            credential_lease_ref: Some("lease:auth.openai.main".to_string()),
+            messages: vec![ProviderEngineMessage {
+                role: "user".to_string(),
+                content: "ping".to_string(),
+            }],
+            tools_json: None,
+            parameters_json: None,
+            stream: false,
+            timeout_ms: Some(30_000),
+        };
+
+        let rendered = serde_json::to_string(&request).expect("request should serialize");
+
+        assert!(rendered.contains("credential_lease_ref"));
+        assert!(!rendered.contains("sk-live-secret-value"));
+        assert!(!rendered.contains("secret://"));
+    }
+
+    #[test]
+    fn engine_event_round_trips_message_delta() {
+        let event = ProviderEngineEvent {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: "inv-1".to_string(),
+            kind: ProviderEngineEventKind::MessageDelta,
+            content: Some("hello".to_string()),
+            payload_json: None,
+            user_message_zh: None,
+            machine_code: None,
+        };
+
+        let encoded = serde_json::to_string(&event).expect("event should serialize");
+        let decoded: ProviderEngineEvent =
+            serde_json::from_str(&encoded).expect("event should deserialize");
+
+        assert_eq!(decoded, event);
+    }
+
+    #[test]
+    fn engine_event_round_trips_error_with_chinese_user_message() {
+        let event = ProviderEngineEvent {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: "inv-1".to_string(),
+            kind: ProviderEngineEventKind::Error,
+            content: None,
+            payload_json: None,
+            user_message_zh: Some("Provider 请求失败".to_string()),
+            machine_code: Some("provider_error".to_string()),
+        };
+
+        let encoded = serde_json::to_string(&event).expect("event should serialize");
+        let decoded: ProviderEngineEvent =
+            serde_json::from_str(&encoded).expect("event should deserialize");
+
+        assert_eq!(
+            decoded.user_message_zh.as_deref(),
+            Some("Provider 请求失败")
+        );
+        assert_eq!(decoded.machine_code.as_deref(), Some("provider_error"));
+    }
+
+    #[test]
+    fn engine_request_jsonl_is_single_line() {
+        let request = ProviderEngineRequest {
+            protocol_version: "provider.engine.v1".to_string(),
+            invocation_id: "inv-1".to_string(),
+            provider_id: "dummy".to_string(),
+            adapter_id: "dummy".to_string(),
+            engine_id: "python.fake".to_string(),
+            api_mode: "dummy".to_string(),
+            model: "dummy/default-chat".to_string(),
+            base_url: None,
+            credential_lease_ref: None,
+            messages: vec![ProviderEngineMessage {
+                role: "user".to_string(),
+                content: "ping".to_string(),
+            }],
+            tools_json: None,
+            parameters_json: None,
+            stream: false,
+            timeout_ms: None,
+        };
+
+        let encoded = serde_json::to_string(&request).expect("request should serialize");
+
+        assert!(!encoded.contains('\n'));
     }
 
     #[test]
