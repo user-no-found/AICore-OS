@@ -8,9 +8,10 @@ use aicore_terminal::{
 
 use crate::cargo_runner::CommandReport;
 
-const RICH_PANEL_WIDTH: usize = 76;
+const RICH_PANEL_WIDTH: usize = 58;
 const ANSI_RESET: &str = "\u{1b}[0m";
 const ANSI_DIM: &str = "\u{1b}[2m";
+const ANSI_LABEL: &str = "\u{1b}[90m";
 const ANSI_CYAN: &str = "\u{1b}[96m";
 const ANSI_GREEN: &str = "\u{1b}[32m";
 const ANSI_YELLOW: &str = "\u{1b}[33m";
@@ -444,7 +445,7 @@ fn render_colon_rows(rows: &[(&str, String)], config: &TerminalConfig) -> String
                     safe_text(key),
                     " ".repeat(key_width.saturating_sub(terminal_width(key)))
                 );
-                format!("{} : {}", dim(&label, config), value)
+                format!("{} : {}", label_style(&label, config), value)
             }
         })
         .collect::<Vec<_>>()
@@ -517,11 +518,7 @@ fn render_header_panel(
         .max()
         .unwrap_or(0);
     let inner_width = body_width.max(RICH_PANEL_WIDTH);
-    let top_border = if config.use_ansi() {
-        accent(&"─".repeat(inner_width), config)
-    } else {
-        "─".repeat(inner_width)
-    };
+    let top_border = border(&"─".repeat(inner_width), config);
 
     let mut output = format!(
         "{}{}{}\n",
@@ -643,14 +640,14 @@ fn render_header_body(
     let workflow = render_rich_meta_pair("⎇", "Workflow", workflow_id, config);
     let mode = render_rich_meta_pair("◈", "Mode", terminal_mode_label(config.mode), config);
     let target = render_rich_meta_pair("◎", "Target", target, config);
-    let warnings = render_rich_meta_pair("⚠", "Warnings", warning_policy_label(config), config);
+    let warnings = render_rich_meta_pair("◇", "Warnings", warning_policy_label(config), config);
     let root = render_rich_meta_pair("□", "Root", repo_root, config);
 
     format!(
         "{brand}\n\n{}  {}\n{}  {}\n{}",
-        pad_visible(&workflow, 46),
+        pad_visible(&workflow, 35),
         mode,
-        pad_visible(&target, 46),
+        pad_visible(&target, 35),
         warnings,
         root
     )
@@ -696,7 +693,7 @@ fn render_rich_meta_pair(
     format!(
         "{} {} : {}",
         accent(icon(icon_value, config), config),
-        dim(&label, config),
+        label_style(&label, config),
         safe_text(value)
     )
 }
@@ -706,7 +703,7 @@ fn render_section_title(title: &str, config: &TerminalConfig) -> String {
     let icon_value = match title.as_str() {
         "Workflow Steps" => "☷",
         "Summary" => "▥",
-        "Warnings" => "⚠",
+        "Warnings" => "◇",
         _ => "◇",
     };
     format!(
@@ -718,7 +715,7 @@ fn render_section_title(title: &str, config: &TerminalConfig) -> String {
 
 fn table_header(value: &str, config: &TerminalConfig) -> String {
     if config.mode == TerminalMode::Rich {
-        dim(value, config)
+        label_style(value, config)
     } else {
         safe_text(value)
     }
@@ -742,6 +739,10 @@ fn icon<'a>(unicode: &'a str, config: &TerminalConfig) -> &'a str {
 
 fn border(value: &str, config: &TerminalConfig) -> String {
     dim(value, config)
+}
+
+fn label_style(value: &str, config: &TerminalConfig) -> String {
+    style(value, ANSI_LABEL, config)
 }
 
 fn accent(value: &str, config: &TerminalConfig) -> String {
@@ -1025,13 +1026,16 @@ mod tests {
     #[test]
     fn workflow_rich_header_uses_accent_brand_and_metadata_icons() {
         let output = render_run_started_for_tests("core", &rich_color_config());
+        let plain = strip_ansi(&output);
 
         assert!(output.contains("\u{1b}[96mAICore OS\u{1b}[0m"));
         assert!(output.contains('⎇'));
         assert!(output.contains('◈'));
         assert!(output.contains('◎'));
         assert!(output.contains('□'));
-        assert!(output.contains('⚠'));
+        assert!(plain.contains("◇ Warnings : report"));
+        assert!(!plain.contains('⚠'));
+        assert!(!plain.contains('\u{fe0f}'));
     }
 
     #[test]
@@ -1076,6 +1080,46 @@ mod tests {
         );
 
         assert_panel_lines_have_equal_width(&output);
+    }
+
+    #[test]
+    fn workflow_rich_labels_use_readable_gray_not_dim_border_style() {
+        let output = render_run_started_for_tests("core", &rich_color_config());
+        let summary = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
+
+        assert!(output.contains("\u{1b}[90mWorkflow"));
+        assert!(output.contains("\u{1b}[90mTarget"));
+        assert!(output.contains("\u{1b}[90mRoot"));
+        assert!(summary.contains("\u{1b}[90mWorkflow"));
+        assert!(summary.contains("\u{1b}[90mResult"));
+        assert!(!output.contains("\u{1b}[2mWorkflow"));
+        assert!(!summary.contains("\u{1b}[2mResult"));
+    }
+
+    #[test]
+    fn workflow_rich_header_border_uses_consistent_dim_style() {
+        let output = render_run_started_for_tests("core", &rich_color_config());
+        let top = output.lines().next().expect("header top line");
+
+        assert!(top.contains("\u{1b}[2m"));
+        assert!(!top.contains("\u{1b}[96m"));
+    }
+
+    #[test]
+    fn workflow_rich_steps_panel_does_not_leave_orphan_right_border_space() {
+        let output = render_workflow_steps_for_tests(&TerminalConfig::rich_for_tests());
+        let widths = output
+            .lines()
+            .map(strip_ansi)
+            .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
+            .map(|line| test_terminal_width(&line))
+            .collect::<Vec<_>>();
+
+        assert!(!widths.is_empty());
+        assert!(
+            widths.iter().all(|width| *width <= 68),
+            "{widths:?}\n{output}"
+        );
     }
 
     #[test]
