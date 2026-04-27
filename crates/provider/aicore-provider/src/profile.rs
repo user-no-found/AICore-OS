@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use aicore_config::{ProviderProfileOverride, ProviderProfilesConfig};
+
 use crate::{
     ProviderAdapterStatus, ProviderApiMode, ProviderAuthMode, ProviderError, ProviderProfile,
 };
@@ -36,6 +38,12 @@ impl ProviderRegistry {
         registry
     }
 
+    pub fn with_overrides(overrides: &ProviderProfilesConfig) -> Self {
+        let mut registry = Self::builtin();
+        registry.apply_overrides(overrides);
+        registry
+    }
+
     pub fn profile(&self, provider: &str) -> Result<&ProviderProfile, ProviderError> {
         let canonical = self.canonical_provider_id(provider);
         self.profiles
@@ -52,10 +60,46 @@ impl ProviderRegistry {
         self.profiles.insert(profile.provider_id.clone(), profile);
     }
 
+    pub fn apply_overrides(&mut self, overrides: &ProviderProfilesConfig) {
+        for override_profile in &overrides.profiles {
+            self.apply_override(override_profile);
+        }
+    }
+
     fn insert_profiles(&mut self, profiles: Vec<ProviderProfile>) {
         for profile in profiles {
             self.insert_profile(profile);
         }
+    }
+
+    fn apply_override(&mut self, override_profile: &ProviderProfileOverride) {
+        let provider_id = self.canonical_provider_id(&override_profile.provider_id);
+        let Some(mut profile) = self.profiles.get(&provider_id).cloned() else {
+            return;
+        };
+
+        if let Some(base_url) = &override_profile.base_url {
+            profile.default_base_url = Some(base_url.clone());
+            if profile.status == ProviderAdapterStatus::ProfileRequired {
+                profile.status = ProviderAdapterStatus::Available;
+            }
+        }
+
+        if let Some(api_mode) = &override_profile.api_mode {
+            if let Some(parsed) = parse_api_mode(api_mode) {
+                profile.default_api_mode = parsed;
+            }
+        }
+
+        if let Some(engine_id) = &override_profile.engine_id {
+            profile.preferred_engine_id = engine_id.clone();
+        }
+
+        if !override_profile.enabled {
+            profile.status = ProviderAdapterStatus::Unsupported;
+        }
+
+        self.profiles.insert(provider_id, profile);
     }
 
     fn insert_aliases<const N: usize>(&mut self, aliases: [(&str, &str); N]) {
@@ -68,6 +112,18 @@ impl ProviderRegistry {
 
 fn normalize_provider_id(provider: &str) -> String {
     provider.trim().to_ascii_lowercase().replace('_', "-")
+}
+
+fn parse_api_mode(value: &str) -> Option<ProviderApiMode> {
+    match value {
+        "dummy" => Some(ProviderApiMode::Dummy),
+        "openai_chat_completions" => Some(ProviderApiMode::OpenAiChatCompletions),
+        "openai_responses" => Some(ProviderApiMode::OpenAiResponses),
+        "anthropic_messages" => Some(ProviderApiMode::AnthropicMessages),
+        "gemini_generate_content" => Some(ProviderApiMode::GeminiGenerateContent),
+        "codex_responses" => Some(ProviderApiMode::CodexResponses),
+        _ => None,
+    }
 }
 
 fn builtin_profiles() -> Vec<ProviderProfile> {

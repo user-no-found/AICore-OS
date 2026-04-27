@@ -19,7 +19,9 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
-    use aicore_config::{InstanceRuntimeConfig, ModelBinding};
+    use aicore_config::{
+        InstanceRuntimeConfig, ModelBinding, ProviderProfileOverride, ProviderProfilesConfig,
+    };
     use aicore_memory::{
         MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemoryType, RememberInput,
         SearchQuery,
@@ -284,6 +286,68 @@ mod tests {
             .expect_err("unknown provider should fail");
 
         assert!(matches!(error, crate::ProviderError::Resolve(_)));
+    }
+
+    #[test]
+    fn provider_registry_applies_custom_openai_endpoint_override() {
+        let registry = ProviderRegistry::with_overrides(&ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "custom-openai-compatible".to_string(),
+                base_url: Some("http://localhost:11434/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: true,
+            }],
+        });
+        let profile = registry
+            .profile("custom-openai-compatible")
+            .expect("custom endpoint should be enabled by override");
+
+        assert_eq!(
+            profile.default_base_url.as_deref(),
+            Some("http://localhost:11434/v1")
+        );
+        assert_eq!(profile.status, ProviderAdapterStatus::Available);
+    }
+
+    #[test]
+    fn provider_registry_disabled_override_is_unsupported() {
+        let registry = ProviderRegistry::with_overrides(&ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "openai".to_string(),
+                base_url: None,
+                api_mode: None,
+                engine_id: None,
+                enabled: false,
+            }],
+        });
+        let profile = registry
+            .profile("openai")
+            .expect("profile should still exist");
+
+        assert_eq!(profile.status, ProviderAdapterStatus::Unsupported);
+    }
+
+    #[test]
+    fn provider_registry_override_can_enable_xiaomi_with_base_url() {
+        let registry = ProviderRegistry::with_overrides(&ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "xiaomi".to_string(),
+                base_url: Some("https://api.example.xiaomi.invalid/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: true,
+            }],
+        });
+        let profile = registry
+            .profile("xiaomi")
+            .expect("xiaomi profile should exist");
+
+        assert_eq!(profile.status, ProviderAdapterStatus::Available);
+        assert_eq!(
+            profile.default_base_url.as_deref(),
+            Some("https://api.example.xiaomi.invalid/v1")
+        );
     }
 
     #[test]

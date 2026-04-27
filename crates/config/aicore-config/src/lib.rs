@@ -59,6 +59,7 @@ pub struct ConfigPaths {
     pub root: PathBuf,
     pub auth_toml: PathBuf,
     pub services_toml: PathBuf,
+    pub providers_toml: PathBuf,
     pub instances_dir: PathBuf,
 }
 
@@ -74,6 +75,20 @@ pub enum ConfigError {
     Validation(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderProfileOverride {
+    pub provider_id: String,
+    pub base_url: Option<String>,
+    pub api_mode: Option<String>,
+    pub engine_id: Option<String>,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderProfilesConfig {
+    pub profiles: Vec<ProviderProfileOverride>,
+}
+
 impl ConfigPaths {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
@@ -81,6 +96,7 @@ impl ConfigPaths {
         Self {
             auth_toml: root.join("auth.toml"),
             services_toml: root.join("services.toml"),
+            providers_toml: root.join("providers.toml"),
             instances_dir: root.join("instances"),
             root,
         }
@@ -115,6 +131,15 @@ impl ConfigStore {
             )?;
         }
 
+        if !self.paths.providers_toml.exists() {
+            self.write_file(
+                &self.paths.providers_toml,
+                &render_provider_profiles(&ProviderProfilesConfig {
+                    profiles: Vec::new(),
+                }),
+            )?;
+        }
+
         Ok(())
     }
 
@@ -144,6 +169,27 @@ impl ConfigStore {
         };
 
         parse_services(&contents)
+    }
+
+    pub fn save_provider_profiles(
+        &self,
+        providers: &ProviderProfilesConfig,
+    ) -> Result<(), ConfigError> {
+        self.ensure_root_dirs()?;
+        self.write_file(
+            &self.paths.providers_toml,
+            &render_provider_profiles(providers),
+        )
+    }
+
+    pub fn load_provider_profiles(&self) -> Result<ProviderProfilesConfig, ConfigError> {
+        let Some(contents) = self.read_file_if_exists(&self.paths.providers_toml)? else {
+            return Ok(ProviderProfilesConfig {
+                profiles: Vec::new(),
+            });
+        };
+
+        parse_provider_profiles(&contents)
     }
 
     pub fn save_instance_runtime(&self, config: &InstanceRuntimeConfig) -> Result<(), ConfigError> {
@@ -327,6 +373,34 @@ fn render_services(services: &GlobalServiceProfiles) -> String {
     output
 }
 
+fn render_provider_profiles(providers: &ProviderProfilesConfig) -> String {
+    let mut output = String::from("# AICore OS provider profiles\n");
+
+    for profile in &providers.profiles {
+        output.push_str("\n[[provider]]\n");
+        output.push_str(&format!(
+            "provider_id = {}\n",
+            render_string(&profile.provider_id)
+        ));
+
+        if let Some(base_url) = &profile.base_url {
+            output.push_str(&format!("base_url = {}\n", render_string(base_url)));
+        }
+
+        if let Some(api_mode) = &profile.api_mode {
+            output.push_str(&format!("api_mode = {}\n", render_string(api_mode)));
+        }
+
+        if let Some(engine_id) = &profile.engine_id {
+            output.push_str(&format!("engine_id = {}\n", render_string(engine_id)));
+        }
+
+        output.push_str(&format!("enabled = {}\n", profile.enabled));
+    }
+
+    output
+}
+
 fn render_runtime(config: &InstanceRuntimeConfig) -> String {
     let mut output = String::from("# AICore OS instance runtime\n");
     output.push_str(&format!(
@@ -397,6 +471,27 @@ fn parse_services(contents: &str) -> Result<GlobalServiceProfiles, ConfigError> 
     }
 
     Ok(GlobalServiceProfiles { profiles })
+}
+
+fn parse_provider_profiles(contents: &str) -> Result<ProviderProfilesConfig, ConfigError> {
+    let mut profiles = Vec::new();
+
+    for section in parse_sections(contents, "[[provider]]")? {
+        let fields = parse_key_values(&section)?;
+        profiles.push(ProviderProfileOverride {
+            provider_id: required_string_field(&fields, "provider_id")?,
+            base_url: optional_field(&fields, "base_url"),
+            api_mode: optional_field(&fields, "api_mode"),
+            engine_id: optional_field(&fields, "engine_id"),
+            enabled: fields
+                .get("enabled")
+                .map(|value| parse_bool(value))
+                .transpose()?
+                .unwrap_or(true),
+        });
+    }
+
+    Ok(ProviderProfilesConfig { profiles })
 }
 
 fn parse_runtime(contents: &str) -> Result<InstanceRuntimeConfig, ConfigError> {
@@ -673,7 +768,8 @@ mod tests {
 
     use super::{
         ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
-        ServiceProfile, ServiceProfileMode, ServiceRole,
+        ProviderProfileOverride, ProviderProfilesConfig, ServiceProfile, ServiceProfileMode,
+        ServiceRole,
     };
 
     fn temp_root(name: &str) -> std::path::PathBuf {
@@ -914,6 +1010,10 @@ mod tests {
             PathBuf::from("/tmp/aicore-config/services.toml")
         );
         assert_eq!(
+            paths.providers_toml,
+            PathBuf::from("/tmp/aicore-config/providers.toml")
+        );
+        assert_eq!(
             paths.instances_dir,
             PathBuf::from("/tmp/aicore-config/instances")
         );
@@ -941,15 +1041,128 @@ mod tests {
         assert!(store.paths.root.exists());
         assert!(store.paths.auth_toml.exists());
         assert!(store.paths.services_toml.exists());
+        assert!(store.paths.providers_toml.exists());
         assert!(store.paths.instances_dir.exists());
 
         let auth = store
             .load_auth_pool()
             .expect("default auth pool should load");
         let services = store.load_services().expect("default services should load");
+        let providers = store
+            .load_provider_profiles()
+            .expect("default provider profiles should load");
 
         assert!(auth.entries().is_empty());
         assert!(services.profiles.is_empty());
+        assert!(providers.profiles.is_empty());
+    }
+
+    #[test]
+    fn config_paths_include_providers_toml() {
+        let paths = ConfigPaths::new("/tmp/aicore-config");
+
+        assert_eq!(
+            paths.providers_toml,
+            PathBuf::from("/tmp/aicore-config/providers.toml")
+        );
+    }
+
+    #[test]
+    fn provider_profiles_config_round_trips_custom_openai_endpoint() {
+        let root = temp_root("provider-profiles");
+        let store = ConfigStore::new(ConfigPaths::new(&root));
+        let providers = ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "custom-openai-compatible".to_string(),
+                base_url: Some("http://localhost:11434/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: true,
+            }],
+        };
+
+        store
+            .save_provider_profiles(&providers)
+            .expect("provider profiles should save");
+        let loaded = store
+            .load_provider_profiles()
+            .expect("provider profiles should load");
+
+        assert_eq!(loaded, providers);
+    }
+
+    #[test]
+    fn provider_profile_override_does_not_render_raw_secret() {
+        let root = temp_root("provider-secret-boundary");
+        let store = ConfigStore::new(ConfigPaths::new(&root));
+        let providers = ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "custom-openai-compatible".to_string(),
+                base_url: Some("https://example.invalid/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: true,
+            }],
+        };
+
+        store
+            .save_provider_profiles(&providers)
+            .expect("provider profiles should save");
+        let rendered = fs::read_to_string(store.paths.providers_toml)
+            .expect("providers.toml should be readable");
+
+        assert!(!rendered.contains("sk-live-secret-value"));
+        assert!(!rendered.contains("secret://"));
+    }
+
+    #[test]
+    fn disabled_provider_override_is_not_available() {
+        let root = temp_root("provider-disabled");
+        let store = ConfigStore::new(ConfigPaths::new(&root));
+        let providers = ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "custom-openai-compatible".to_string(),
+                base_url: Some("http://localhost:11434/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: false,
+            }],
+        };
+
+        store
+            .save_provider_profiles(&providers)
+            .expect("provider profiles should save");
+        let loaded = store
+            .load_provider_profiles()
+            .expect("provider profiles should load");
+
+        assert!(!loaded.profiles[0].enabled);
+    }
+
+    #[test]
+    fn provider_profile_override_can_enable_xiaomi_with_explicit_base_url() {
+        let root = temp_root("provider-xiaomi");
+        let store = ConfigStore::new(ConfigPaths::new(&root));
+        let providers = ProviderProfilesConfig {
+            profiles: vec![ProviderProfileOverride {
+                provider_id: "xiaomi".to_string(),
+                base_url: Some("https://api.example.xiaomi.invalid/v1".to_string()),
+                api_mode: Some("openai_chat_completions".to_string()),
+                engine_id: Some("python.openai".to_string()),
+                enabled: true,
+            }],
+        };
+
+        store
+            .save_provider_profiles(&providers)
+            .expect("provider profiles should save");
+        let loaded = store
+            .load_provider_profiles()
+            .expect("provider profiles should load");
+
+        assert_eq!(loaded.profiles[0].provider_id, "xiaomi");
+        assert!(loaded.profiles[0].base_url.is_some());
+        assert!(loaded.profiles[0].enabled);
     }
 
     #[test]
