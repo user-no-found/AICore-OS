@@ -436,6 +436,8 @@ step table 使用英文技术字段：
 
 rich step table 使用 soft violet header、cyan row number、dim separator、绿色成功状态、黄色 warning 状态、红色失败状态。状态颜色只作用于状态单元格，不对整行染色。
 
+workflow rich 输出中的 warning 状态使用 `! WARN`，不使用可能呈现为 emoji 风格的 warning symbol。plain / ASCII 输出继续使用 `[WARN]`。
+
 最终 summary 输出 workflow、状态、step 统计、warning 统计、duration 和 result：
 
 ```text
@@ -488,7 +490,7 @@ rich mode 的 warning panel 必须结构化展示 warning，不把 multiline mes
 - `Fix`
 - `Persist`
 
-rich warning panel 必须限制宽度，长 path、command、shell rc 建议需要 wrap，右边框不得被长行撑出终端可视区域。warning 状态可以用黄色强调，但不能整段染色。
+rich warning panel 必须与 workflow 主 panel 使用一致的宽度边界。长 path、command、shell rc 建议需要 wrap 或拆成缩进行，右边框不得被长行撑出终端可视区域。warning 状态可以用黄色强调，但不能整段染色。
 
 plain mode 的 warning 输出不使用边框和 ANSI，仍应使用 `message / paths / current / expected / fix / persist` 等可读标签。
 

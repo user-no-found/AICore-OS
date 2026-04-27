@@ -445,7 +445,7 @@ fn render_warning_block(
     if config.mode == TerminalMode::Rich {
         let mut lines = vec![
             accent(&format!("#{index} {}", safe_text(&warning.step)), config),
-            render_warning_field("Level", &status_text(Status::Warn, config), config),
+            render_warning_field("Level", &warning_level_text(config), config),
             render_warning_field("Message", &surface.message, config),
         ];
         if !surface.paths.is_empty() {
@@ -467,7 +467,12 @@ fn render_warning_block(
             lines.push(render_warning_field("Fix", &fix, config));
         }
         if let Some(persist) = surface.persist {
-            lines.push(render_warning_field("Persist", &persist, config));
+            lines.push(render_warning_field("Persist", "", config));
+            lines.extend(
+                split_persist_command(&persist)
+                    .into_iter()
+                    .map(|line| format!("  {}", safe_text(&line))),
+            );
         }
         for detail in surface.details {
             lines.push(render_warning_field("Detail", &detail, config));
@@ -519,6 +524,21 @@ fn render_warning_field(key: &str, value: &str, config: &TerminalConfig) -> Stri
     } else {
         format!("{} : {}", label.trim_end(), safe_text(value))
     }
+}
+
+fn warning_level_text(config: &TerminalConfig) -> String {
+    if config.mode == TerminalMode::Rich {
+        warning("! WARN", config)
+    } else {
+        "[WARN]".to_string()
+    }
+}
+
+fn split_persist_command(value: &str) -> Vec<String> {
+    value
+        .split_once(" >> ")
+        .map(|(command, target)| vec![command.to_string(), format!(">> {target}")])
+        .unwrap_or_else(|| vec![value.to_string()])
 }
 
 fn parse_warning_surface(warning: &WarningDiagnostic) -> WarningSurface {
@@ -729,16 +749,11 @@ fn render_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
 
 fn render_rich_panel(title: &str, body: &str, config: &TerminalConfig) -> String {
     let title = render_section_title(title, config);
-    let lines = wrap_visible_body_lines(body, RICH_PANEL_MAX_WIDTH.saturating_sub(2));
-    let body_width = lines
-        .iter()
-        .map(|line| visible_width(line.as_str()))
-        .max()
-        .unwrap_or(0);
-    let inner_width = body_width
+    let inner_width = RICH_PANEL_WIDTH
         .max(visible_width(&title) + 4)
         .max(RICH_PANEL_WIDTH)
         .min(RICH_PANEL_MAX_WIDTH);
+    let lines = wrap_visible_body_lines(body, inner_width.saturating_sub(2));
     let dash_count = inner_width.saturating_sub(visible_width(&title) + 3);
 
     let mut output = format!(
@@ -871,6 +886,11 @@ fn status_text(status: Status, config: &TerminalConfig) -> String {
     };
     let symbol = match status {
         Status::Ok => symbols.ok,
+        Status::Warn
+            if config.mode == TerminalMode::Rich && config.symbols == SymbolMode::Unicode =>
+        {
+            "!"
+        }
         Status::Warn => symbols.warn,
         Status::Failed => symbols.failed,
         Status::Running => symbols.running,
@@ -1370,6 +1390,26 @@ mod tests {
     }
 
     #[test]
+    fn workflow_rich_warn_status_does_not_use_emoji_warning_symbol() {
+        let steps = vec![WorkflowStepRecord {
+            layer: "app-aicore".to_string(),
+            step: "install".to_string(),
+            command: "install".to_string(),
+            status: Status::Warn,
+            warning_count: 2,
+            duration: Duration::from_millis(20),
+        }];
+        let steps_output = render_workflow_steps(&steps, &rich_color_config());
+        let summary_output =
+            render_finished_for_tests("app-aicore", Status::Warn, 4, 2, &rich_color_config());
+        let plain = strip_ansi(&(steps_output + &summary_output));
+
+        assert!(plain.contains("! WARN"));
+        assert!(!plain.contains('⚠'));
+        assert!(!plain.contains('\u{fe0f}'));
+    }
+
+    #[test]
     fn workflow_rich_summary_uses_colon_labels_and_green_result() {
         let output = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
         let plain = strip_ansi(&output);
@@ -1565,6 +1605,68 @@ mod tests {
     }
 
     #[test]
+    fn workflow_warning_level_does_not_use_emoji_warning_symbol() {
+        let output = render_warnings_for_tests(install_warnings(), &rich_color_config());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Level    : ! WARN"));
+        assert!(!plain.contains('⚠'));
+        assert!(!plain.contains('\u{fe0f}'));
+    }
+
+    #[test]
+    fn workflow_warning_panel_uses_fixed_width() {
+        let output = render_warnings_for_tests(install_warnings(), &rich_color_config());
+        let widths = rich_panel_widths(&output);
+
+        assert!(!widths.is_empty());
+        assert!(
+            widths.iter().all(|width| *width == RICH_PANEL_WIDTH + 2),
+            "{widths:?}\n{output}"
+        );
+    }
+
+    #[test]
+    fn workflow_warning_persist_command_wraps_without_expanding_panel() {
+        let output = render_warnings_for_tests(install_warnings(), &rich_color_config());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Persist  :"));
+        assert!(plain.contains("│   echo 'export PATH="));
+        assert!(plain.contains("│   >> ~/.bashrc"));
+        assert!(!plain.contains("Persist  : echo 'export PATH="));
+    }
+
+    #[test]
+    fn workflow_warning_panel_aligns_with_workflow_steps_width() {
+        let warnings = render_warnings_for_tests(install_warnings(), &rich_color_config());
+        let steps = render_workflow_steps_for_tests(&rich_color_config());
+        let steps_width = rich_panel_widths(&steps)
+            .first()
+            .copied()
+            .expect("workflow steps panel width");
+
+        assert!(
+            rich_panel_widths(&warnings)
+                .iter()
+                .all(|width| *width == steps_width),
+            "{warnings}\n{steps}"
+        );
+    }
+
+    #[test]
+    fn workflow_warning_multiline_fields_keep_indentation() {
+        let output = render_warnings_for_tests(install_warnings(), &rich_color_config());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("│ Paths    :"));
+        assert!(plain.contains("│   - /home/sun/.aicore/bin/aicore"));
+        assert!(plain.contains("│ Persist  :"));
+        assert!(plain.contains("│   echo 'export PATH="));
+        assert!(plain.contains("│   >> ~/.bashrc"));
+    }
+
+    #[test]
     fn workflow_warning_summary_plain_is_readable_without_ansi() {
         let output =
             render_warnings_for_tests(install_warnings(), &TerminalConfig::plain_for_tests());
@@ -1741,5 +1843,14 @@ mod tests {
             .rev()
             .take_while(|ch| *ch == ' ')
             .count()
+    }
+
+    fn rich_panel_widths(output: &str) -> Vec<usize> {
+        output
+            .lines()
+            .map(strip_ansi)
+            .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
+            .map(|line| test_terminal_width(&line))
+            .collect()
     }
 }
