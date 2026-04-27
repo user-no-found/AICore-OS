@@ -11,7 +11,7 @@ use crate::cargo_runner::CommandReport;
 const RICH_PANEL_WIDTH: usize = 58;
 const ANSI_RESET: &str = "\u{1b}[0m";
 const ANSI_DIM: &str = "\u{1b}[2m";
-const ANSI_LABEL: &str = "\u{1b}[37m";
+const ANSI_LABEL: &str = "\u{1b}[38;2;167;139;250m";
 const ANSI_CYAN: &str = "\u{1b}[96m";
 const ANSI_GREEN: &str = "\u{1b}[32m";
 const ANSI_YELLOW: &str = "\u{1b}[33m";
@@ -710,10 +710,10 @@ fn render_rich_meta_pair(
 fn render_section_title(title: &str, config: &TerminalConfig) -> String {
     let title = safe_text(title);
     let icon_value = match title.as_str() {
-        "Workflow Steps" => "☷",
-        "Summary" => "▥",
-        "Warnings" => "◇",
-        _ => "◇",
+        "Workflow Steps" => ">",
+        "Summary" => "=",
+        "Warnings" => "!",
+        _ => "*",
     };
     format!(
         "{} {}",
@@ -1092,18 +1092,49 @@ mod tests {
     }
 
     #[test]
-    fn workflow_rich_labels_use_readable_gray_not_dim_border_style() {
+    fn workflow_rich_labels_use_soft_violet_not_plain_white_blue_or_amber() {
         let output = render_run_started_for_tests("core", &rich_color_config());
         let summary = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
 
-        assert!(output.contains("\u{1b}[37mWorkflow"));
-        assert!(output.contains("\u{1b}[37mTarget"));
-        assert!(output.contains("\u{1b}[37mRoot"));
-        assert!(summary.contains("\u{1b}[37mWorkflow"));
-        assert!(summary.contains("\u{1b}[37mResult"));
+        assert!(output.contains("\u{1b}[38;2;167;139;250mWorkflow"));
+        assert!(output.contains("\u{1b}[38;2;167;139;250mTarget"));
+        assert!(output.contains("\u{1b}[38;2;167;139;250mRoot"));
+        assert!(summary.contains("\u{1b}[38;2;167;139;250mWorkflow"));
+        assert!(summary.contains("\u{1b}[38;2;167;139;250mResult"));
+        assert!(!output.contains("\u{1b}[38;5;220mWorkflow"));
+        assert!(!output.contains("\u{1b}[94mWorkflow"));
+        assert!(!output.contains("\u{1b}[97mWorkflow"));
+        assert!(!output.contains("\u{1b}[36mWorkflow"));
+        assert!(!output.contains("\u{1b}[37mWorkflow"));
         assert!(!output.contains("\u{1b}[90mWorkflow"));
         assert!(!output.contains("\u{1b}[2mWorkflow"));
         assert!(!summary.contains("\u{1b}[2mResult"));
+    }
+
+    #[test]
+    fn workflow_rich_table_header_uses_soft_violet_label_color() {
+        let output = render_workflow_steps_for_tests(&rich_color_config());
+
+        assert!(output.contains("\u{1b}[38;2;167;139;250mLayer"));
+        assert!(output.contains("\u{1b}[38;2;167;139;250mStatus"));
+        assert!(output.contains("\u{1b}[38;2;167;139;250mWarn"));
+        assert!(!output.contains("\u{1b}[38;5;220mLayer"));
+        assert!(!output.contains("\u{1b}[94mLayer"));
+        assert!(!output.contains("\u{1b}[97mLayer"));
+        assert!(!output.contains("\u{1b}[36mLayer"));
+        assert!(!output.contains("\u{1b}[37mLayer"));
+        assert!(!output.contains("\u{1b}[90mLayer"));
+    }
+
+    #[test]
+    fn workflow_rich_panel_titles_avoid_ambiguous_width_symbols() {
+        let steps = render_workflow_steps_for_tests(&rich_color_config());
+        let summary = render_finished_for_tests("core", Status::Ok, 8, 0, &rich_color_config());
+
+        assert!(!steps.contains('☷'));
+        assert!(!summary.contains('▥'));
+        assert_panel_lines_have_equal_width_when_ambiguous_symbols_are_wide(&steps);
+        assert_panel_lines_have_equal_width_when_ambiguous_symbols_are_wide(&summary);
     }
 
     #[test]
@@ -1231,6 +1262,20 @@ mod tests {
         );
     }
 
+    fn assert_panel_lines_have_equal_width_when_ambiguous_symbols_are_wide(output: &str) {
+        let widths = output
+            .lines()
+            .map(strip_ansi)
+            .filter(|line| line.starts_with('╭') || line.starts_with('│') || line.starts_with('╰'))
+            .map(|line| terminal_width_with_wide_ambiguous_symbols(&line))
+            .collect::<Vec<_>>();
+        assert!(!widths.is_empty());
+        assert!(
+            widths.windows(2).all(|pair| pair[0] == pair[1]),
+            "panel line widths differ under wide ambiguous symbols: {widths:?}\n{output}"
+        );
+    }
+
     fn rich_color_config() -> TerminalConfig {
         TerminalConfig::from_env_and_capabilities(
             &TerminalEnv::from_pairs([("AICORE_TERMINAL", "rich"), ("AICORE_COLOR", "always")]),
@@ -1256,6 +1301,19 @@ mod tests {
                     2
                 } else {
                     1
+                }
+            })
+            .sum()
+    }
+
+    fn terminal_width_with_wide_ambiguous_symbols(line: &str) -> usize {
+        strip_ansi(line)
+            .chars()
+            .map(|ch| {
+                if matches!(ch, '☷' | '▥') {
+                    2
+                } else {
+                    test_terminal_width(&ch.to_string())
                 }
             })
             .sum()

@@ -115,7 +115,7 @@ CI=1
 - workflow step table 中只对状态符号与状态词着色，不对整行输出着色。
 - rich mode 使用 cyan 作为 AICore accent；绿色只表示成功，黄色只表示 warning，红色只表示 failure。
 - rich mode 边框和弱分隔线使用 dim gray，避免高亮白色边框主导视觉。
-- rich mode label 使用可读 gray，不与边框 / 弱分隔线使用同一暗度。
+- rich mode label 使用 soft violet，与 dim gray 边框 / 弱分隔线保持清晰区分，并避免回落成普通白色正文层级。
 
 颜色语义：
 
@@ -127,7 +127,7 @@ RUNNING               cyan
 SKIPPED               dim gray
 section title         bold cyan
 brand / accent        cyan
-label                 light gray
+label                 soft violet
 border / separator    dim gray
 command               dim / neutral
 path                  blue
@@ -253,7 +253,7 @@ rich mode 的 workflow 输出包含：
 step table 使用英文技术字段：
 
 ```text
-╭─ ☷ Workflow Steps ───────────────────────────────────────╮
+╭─ > Workflow Steps ───────────────────────────────────────╮
 │ #  Layer       Step     Status  Warn  Time               │
 │ ──────────────────────────────────────────────────────── │
 │ 1  foundation  fmt      ✓ OK    0     0.08s              │
@@ -264,12 +264,12 @@ step table 使用英文技术字段：
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-rich step table 使用 cyan row number、dim header / separator、绿色成功状态、黄色 warning 状态、红色失败状态。状态颜色只作用于状态单元格，不对整行染色。
+rich step table 使用 soft violet header、cyan row number、dim separator、绿色成功状态、黄色 warning 状态、红色失败状态。状态颜色只作用于状态单元格，不对整行染色。
 
 最终 summary 输出 workflow、状态、step 统计、warning 统计、duration 和 result：
 
 ```text
-╭─ ▥ Summary ──────────────────────────────────────────────╮
+╭─ = Summary ──────────────────────────────────────────────╮
 │ Workflow : core                                          │
 │ Status   : ✓ OK                                          │
 │ Steps    : 8 total / 8 ok / 0 failed                     │
