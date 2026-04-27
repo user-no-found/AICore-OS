@@ -1,12 +1,12 @@
 use aicore_auth::GlobalAuthPool;
 use aicore_config::InstanceRuntimeConfig;
-use aicore_memory::{MemoryKernel, MemoryScope, SearchQuery};
-use aicore_provider::{
-    ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
-};
 use aicore_kernel::{
     ConversationStatus, GatewaySource, IngressResult, InstanceRuntime, InterruptMode,
     TransportEnvelope, TurnStatus,
+};
+use aicore_memory::{MemoryKernel, MemoryScope, SearchQuery};
+use aicore_provider::{
+    ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -598,9 +598,9 @@ mod tests {
 
     use aicore_auth::{AuthCapability, AuthEntry, AuthKind, AuthRef, GlobalAuthPool, SecretRef};
     use aicore_config::{InstanceRuntimeConfig, ModelBinding};
-    use aicore_memory::{MemoryKernel, MemoryPaths, MemoryPermanence, MemoryType, RememberInput};
     use aicore_kernel::default_runtime;
     use aicore_kernel::{GatewaySource, InterruptMode, TransportEnvelope};
+    use aicore_memory::{MemoryKernel, MemoryPaths, MemoryPermanence, MemoryType, RememberInput};
 
     use super::{
         AgentSessionContinuationPolicy, AgentSessionRunner, AgentSessionStopReason,

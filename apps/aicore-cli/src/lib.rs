@@ -9,16 +9,16 @@ use aicore_config::{
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
 use aicore_kernel::default_control_plane;
+use aicore_kernel::{
+    DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
+    default_runtime,
+};
 use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
     MemoryType, RememberInput, SearchQuery,
 };
 use aicore_provider::{
     ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
-};
-use aicore_kernel::{
-    DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
-    default_runtime,
 };
 
 pub fn run_from_args(args: Vec<String>) -> i32 {
