@@ -1,5 +1,6 @@
 mod auth_model_service;
 mod config;
+mod config_validate_runtime;
 mod kernel_invoke;
 mod kernel_route;
 mod memory_read;

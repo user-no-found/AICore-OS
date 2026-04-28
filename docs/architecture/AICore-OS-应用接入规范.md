@@ -24,6 +24,10 @@
 
 内核调用应用能力时使用 KernelInvocationEnvelope。应用不得绕过 envelope 读取内部内核状态。
 
+应用作为 component process 接入内核时，应通过 installed manifest 声明 invocation mode、transport、entrypoint、args 和 capability。`stdio_jsonl` component process 的 stdout 只承载协议 result，不承载 human panel。业务只读 handler 应返回结构化 public fields，并由 CLI、TUI 或其他 surface 从 result envelope 派生人类摘要。
+
+`config.validate` 类只读业务能力可以由 application binary 暴露内部 stdio handler，并通过 Kernel runtime binary 调用。该内部 handler 不属于用户产品命令，不应出现在普通帮助 surface 中。
+
 ## 事件 envelope
 
 应用向内核报告事件时使用 KernelEventEnvelope。事件 visibility 决定事件面向内部、用户还是审计。

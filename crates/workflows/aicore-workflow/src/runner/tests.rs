@@ -348,6 +348,28 @@ fn app_cli_install_writes_process_smoke_manifest() {
 }
 
 #[test]
+fn app_cli_install_writes_config_validate_process_manifest() {
+    let home_root = temp_home("app-cli-config-validate-process-manifest");
+    let target_dir = fake_app_target("app-cli-config-validate-target", "aicore-cli");
+    install_layer_with_shell_env(Workflow::AppCli, &target_dir, &bash_env(&home_root))
+        .expect("app-cli install should succeed");
+    let manifest =
+        fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-config-validate.toml"))
+            .expect("config validate manifest should exist");
+    let cli_manifest =
+        fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-cli.toml"))
+            .expect("aicore-cli manifest should exist");
+
+    assert!(manifest.contains("component_id = \"aicore-config-validate\""));
+    assert!(manifest.contains("app_id = \"aicore-cli\""));
+    assert!(manifest.contains("invocation_mode = \"local_process\""));
+    assert!(manifest.contains("transport = \"stdio_jsonl\""));
+    assert!(manifest.contains("args = [\"__component-config-validate-stdio\"]"));
+    assert!(manifest.contains("operation = \"config.validate\""));
+    assert!(!cli_manifest.contains("operation = \"config.validate\""));
+}
+
+#[test]
 fn app_tui_install_writes_global_manifest() {
     let home_root = temp_home("app-tui-manifest");
     let target_dir = fake_app_target("app-tui-target", "aicore-tui");

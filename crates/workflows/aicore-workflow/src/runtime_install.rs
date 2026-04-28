@@ -47,6 +47,13 @@ pub fn install_app_manifest(
                 .join(format!("{}.toml", smoke_manifest.component_id)),
             &smoke_manifest.to_toml(),
         )?;
+        let config_validate_manifest = config_validate_component_manifest(entrypoint);
+        write_atomic(
+            &layout
+                .manifests_root
+                .join(format!("{}.toml", config_validate_manifest.component_id)),
+            &config_validate_manifest.to_toml(),
+        )?;
     }
     Ok(())
 }
@@ -171,7 +178,6 @@ fn app_manifest_for(workflow: Workflow, entrypoint: &Path) -> Option<InstalledCo
             "aicore-cli",
             vec![
                 capability("config.path", "config.path"),
-                capability("config.validate", "config.validate"),
                 capability("auth.list", "auth.list"),
                 capability("model.show", "model.show"),
                 capability("service.list", "service.list"),
@@ -228,6 +234,26 @@ fn component_process_smoke_manifest(entrypoint: &Path) -> InstalledComponentMani
             id: "component.process.smoke".to_string(),
             operation: "component.process.smoke".to_string(),
             visibility: "diagnostic".to_string(),
+        }],
+    }
+}
+
+fn config_validate_component_manifest(entrypoint: &Path) -> InstalledComponentManifest {
+    InstalledComponentManifest {
+        component_id: "aicore-config-validate".to_string(),
+        app_id: "aicore-cli".to_string(),
+        kind: "app".to_string(),
+        entrypoint: entrypoint.display().to_string(),
+        invocation_mode: ComponentInvocationMode::LocalProcess,
+        transport: ComponentTransport::StdioJsonl,
+        args: vec!["__component-config-validate-stdio".to_string()],
+        working_dir: None,
+        env_policy: Some("minimal".to_string()),
+        contract_version: "kernel.app.v1".to_string(),
+        capabilities: vec![InstalledCapability {
+            id: "config.validate".to_string(),
+            operation: "config.validate".to_string(),
+            visibility: "user".to_string(),
         }],
     }
 }

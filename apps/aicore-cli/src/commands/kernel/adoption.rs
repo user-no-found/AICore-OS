@@ -72,6 +72,19 @@ pub(crate) fn kernel_invocation_adoption_matrix() -> &'static [KernelInvocationA
             reason: "first-party readonly kernel-native path",
         },
         KernelInvocationAdoptionEntry {
+            command: "aicore-cli kernel invoke-readonly config.validate",
+            operation: "config.validate",
+            class: KernelNativeNow,
+            manifest_capability_exists: true,
+            route_runtime_used: true,
+            invocation_runtime_used: true,
+            ledger_used: true,
+            structured_result_envelope_used: true,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: false,
+            reason: "first business readonly local-process kernel-native path",
+        },
+        KernelInvocationAdoptionEntry {
             command: "aicore-cli status",
             operation: "system.status",
             class: AllowedLocalDirectCommand,
@@ -147,7 +160,7 @@ pub(crate) fn kernel_invocation_adoption_matrix() -> &'static [KernelInvocationA
             structured_result_envelope_used: false,
             direct_local_execution_allowed_for_now: true,
             future_migration_required: true,
-            reason: "config readonly validation should adopt invocation boundary later",
+            reason: "direct compatibility path retained while kernel invoke-readonly config.validate is adopted",
         },
         KernelInvocationAdoptionEntry {
             command: "aicore-cli auth list",

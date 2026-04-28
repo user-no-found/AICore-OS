@@ -6,6 +6,8 @@ use aicore_terminal::{TerminalConfig, TerminalMode};
 
 use crate::terminal::{cli_row, emit_cli_panel};
 
+use crate::commands::config::build_config_validate_report;
+
 use super::payload::{
     emit_kernel_invocation_payload_json, kernel_invocation_payload_rows, payload_status,
 };
@@ -78,4 +80,41 @@ pub(crate) fn run_component_smoke_stdio() -> i32 {
         serde_json::to_string(&result).expect("component smoke result should encode")
     );
     0
+}
+
+pub(crate) fn run_component_config_validate_stdio() -> i32 {
+    let mut input = String::new();
+    if let Err(error) = std::io::stdin().read_to_string(&mut input) {
+        eprintln!("config validate component stdin 读取失败: {error}");
+        return 1;
+    }
+    let request = first_json_line(&input);
+    let invocation_id = request
+        .get("invocation_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("-");
+    let report = build_config_validate_report();
+    let result = serde_json::json!({
+        "schema_version": "aicore.local_ipc.result.v1",
+        "protocol": "stdio_jsonl",
+        "protocol_version": "aicore.local_ipc.stdio_jsonl.v1",
+        "invocation_id": invocation_id,
+        "status": "completed",
+        "result_kind": "config.validate",
+        "summary": report.summary(),
+        "fields": report.fields()
+    });
+    println!(
+        "{}",
+        serde_json::to_string(&result).expect("config validate result should encode")
+    );
+    0
+}
+
+fn first_json_line(input: &str) -> serde_json::Value {
+    let line = input
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("{}");
+    serde_json::from_str(line).unwrap_or_else(|_| serde_json::json!({}))
 }

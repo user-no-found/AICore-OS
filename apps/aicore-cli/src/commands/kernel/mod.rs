@@ -5,7 +5,10 @@ mod process;
 mod route;
 
 pub(crate) use invoke::{print_kernel_invoke_readonly, print_kernel_invoke_smoke};
-pub(crate) use process::{print_kernel_invoke_process_smoke, run_component_smoke_stdio};
+pub(crate) use process::{
+    print_kernel_invoke_process_smoke, run_component_config_validate_stdio,
+    run_component_smoke_stdio,
+};
 pub(crate) use route::print_kernel_route;
 
 #[cfg(test)]

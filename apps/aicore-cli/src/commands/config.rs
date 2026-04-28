@@ -9,6 +9,51 @@ use crate::errors::{config_error, map_runtime_load_error};
 use crate::names::init_status_name;
 use crate::terminal::{cli_row, emit_cli_panel, emit_cli_panel_body};
 
+#[derive(Debug, Clone)]
+pub(crate) struct ConfigValidateReport {
+    pub(crate) valid: bool,
+    pub(crate) config_root: String,
+    pub(crate) checked_files: Vec<String>,
+    pub(crate) auth_pool_present: bool,
+    pub(crate) runtime_config_present: bool,
+    pub(crate) service_profiles_present: bool,
+    pub(crate) provider_profiles_present: bool,
+    pub(crate) error_count: usize,
+    pub(crate) warning_count: usize,
+    pub(crate) diagnostics: Vec<String>,
+}
+
+impl ConfigValidateReport {
+    pub(crate) fn summary(&self) -> String {
+        if self.valid {
+            "配置校验通过".to_string()
+        } else {
+            format!("配置校验失败：{} 个错误", self.error_count)
+        }
+    }
+
+    pub(crate) fn fields(&self) -> serde_json::Value {
+        serde_json::json!({
+            "operation": "config.validate",
+            "valid": self.valid.to_string(),
+            "config_root": self.config_root,
+            "checked_files": self.checked_files.join(", "),
+            "auth_pool_present": self.auth_pool_present.to_string(),
+            "runtime_config_present": self.runtime_config_present.to_string(),
+            "service_profiles_present": self.service_profiles_present.to_string(),
+            "provider_profiles_present": self.provider_profiles_present.to_string(),
+            "error_count": self.error_count.to_string(),
+            "warning_count": self.warning_count.to_string(),
+            "diagnostics": if self.diagnostics.is_empty() {
+                "配置校验通过".to_string()
+            } else {
+                self.diagnostics.join(" | ")
+            },
+            "kernel_invocation_path": "binary"
+        })
+    }
+}
+
 pub(crate) fn print_config_smoke() -> Result<(), String> {
     let store = prepare_demo_config_store("config-smoke")?;
 
@@ -97,6 +142,94 @@ pub(crate) fn print_config_validate() -> Result<(), String> {
     );
 
     Ok(())
+}
+
+pub(crate) fn build_config_validate_report() -> ConfigValidateReport {
+    let paths = match real_config_paths() {
+        Ok(paths) => paths,
+        Err(error) => {
+            return ConfigValidateReport {
+                valid: false,
+                config_root: "-".to_string(),
+                checked_files: Vec::new(),
+                auth_pool_present: false,
+                runtime_config_present: false,
+                service_profiles_present: false,
+                provider_profiles_present: false,
+                error_count: 1,
+                warning_count: 0,
+                diagnostics: vec![format!("配置根解析失败：{error}")],
+            };
+        }
+    };
+
+    let store = ConfigStore::new(paths.clone());
+    let runtime_toml = paths.runtime_toml_for("global-main");
+    let mut diagnostics = Vec::new();
+    let auth_pool_present = paths.auth_toml.exists();
+    let runtime_config_present = runtime_toml.exists();
+    let service_profiles_present = paths.services_toml.exists();
+    let provider_profiles_present = paths.providers_toml.exists();
+
+    let auth_pool = match store.load_auth_pool() {
+        Ok(pool) => Some(pool),
+        Err(error) => {
+            diagnostics.push(format!("auth.toml 无法读取或解析：{}", config_error(error)));
+            None
+        }
+    };
+    let runtime = match store.load_instance_runtime("global-main") {
+        Ok(runtime) => Some(runtime),
+        Err(error) => {
+            diagnostics.push(map_runtime_load_error(error));
+            None
+        }
+    };
+    let services = match store.load_services() {
+        Ok(services) => Some(services),
+        Err(error) => {
+            diagnostics.push(format!(
+                "services.toml 无法读取或解析：{}",
+                config_error(error)
+            ));
+            None
+        }
+    };
+    if let Err(error) = store.load_provider_profiles() {
+        diagnostics.push(format!(
+            "providers.toml 无法读取或解析：{}",
+            config_error(error)
+        ));
+    }
+
+    if let (Some(runtime), Some(auth_pool)) = (runtime.as_ref(), auth_pool.as_ref()) {
+        if let Err(error) = ConfigStore::validate_runtime_config(runtime, auth_pool) {
+            diagnostics.push(format!("实例运行配置校验失败：{}", config_error(error)));
+        }
+    }
+    if let (Some(services), Some(auth_pool)) = (services.as_ref(), auth_pool.as_ref()) {
+        if let Err(error) = ConfigStore::validate_service_profiles(services, auth_pool) {
+            diagnostics.push(format!("服务角色配置校验失败：{}", config_error(error)));
+        }
+    }
+
+    ConfigValidateReport {
+        valid: diagnostics.is_empty(),
+        config_root: paths.root.display().to_string(),
+        checked_files: vec![
+            paths.auth_toml.display().to_string(),
+            paths.services_toml.display().to_string(),
+            paths.providers_toml.display().to_string(),
+            runtime_toml.display().to_string(),
+        ],
+        auth_pool_present,
+        runtime_config_present,
+        service_profiles_present,
+        provider_profiles_present,
+        error_count: diagnostics.len(),
+        warning_count: 0,
+        diagnostics,
+    }
 }
 
 fn ensure_demo_matches(

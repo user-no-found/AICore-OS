@@ -74,6 +74,24 @@ fn kernel_invocation_adoption_matrix_marks_invoke_readonly_as_kernel_native() {
 }
 
 #[test]
+fn kernel_invocation_adoption_matrix_marks_config_validate_readonly_as_kernel_native() {
+    let matrix = kernel_invocation_adoption_matrix();
+    let entry = matrix
+        .iter()
+        .find(|entry| entry.command == "aicore-cli kernel invoke-readonly config.validate")
+        .expect("config.validate readonly adoption entry should exist");
+
+    assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+    assert_eq!(entry.operation, "config.validate");
+    assert!(entry.route_runtime_used);
+    assert!(entry.invocation_runtime_used);
+    assert!(entry.ledger_used);
+    assert!(entry.structured_result_envelope_used);
+    assert!(!entry.direct_local_execution_allowed_for_now);
+    assert!(!entry.future_migration_required);
+}
+
+#[test]
 fn kernel_invocation_adoption_matrix_marks_invoke_smoke_as_diagnostic() {
     let matrix = kernel_invocation_adoption_matrix();
     let entry = matrix

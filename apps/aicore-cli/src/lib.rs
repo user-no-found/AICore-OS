@@ -11,6 +11,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
 fn dispatch(args: &[String]) -> i32 {
     match args {
         [cmd] if cmd == "__component-smoke-stdio" => commands::kernel::run_component_smoke_stdio(),
+        [cmd] if cmd == "__component-config-validate-stdio" => {
+            commands::kernel::run_component_config_validate_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0
