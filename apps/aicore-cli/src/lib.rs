@@ -723,6 +723,30 @@ fn kernel_invocation_payload_rows(
     push_payload_row(
         &mut rows,
         payload,
+        &["result", "fields", "protocol"],
+        "protocol",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["result", "fields", "protocol_version"],
+        "protocol version",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["result", "fields", "runtime_binary_contract_version"],
+        "runtime contract",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["result", "fields", "binary_health"],
+        "binary health",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
         &["runtime_binary", "foundation_path"],
         "foundation runtime binary path",
     );
@@ -731,6 +755,36 @@ fn kernel_invocation_payload_rows(
         payload,
         &["runtime_binary", "kernel_path"],
         "kernel runtime binary path",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["runtime_binary", "protocol"],
+        "protocol",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["runtime_binary", "protocol_version"],
+        "protocol version",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["runtime_binary", "contract_version"],
+        "runtime contract",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["runtime_binary", "foundation_health"],
+        "foundation runtime health",
+    );
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["runtime_binary", "kernel_health"],
+        "kernel runtime health",
     );
 
     if payload_status(payload) != Some("completed") {

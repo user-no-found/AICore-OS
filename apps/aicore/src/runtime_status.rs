@@ -106,6 +106,30 @@ pub fn runtime_status_rows(payload: &serde_json::Value) -> Vec<(String, String)>
                 &["result", "fields", "kernel_invocation_path"],
                 "kernel invocation path",
             );
+            push_string(
+                &mut rows,
+                payload,
+                &["result", "fields", "protocol"],
+                "protocol",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["result", "fields", "protocol_version"],
+                "protocol version",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["result", "fields", "runtime_binary_contract_version"],
+                "runtime contract",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["result", "fields", "binary_health"],
+                "binary health",
+            );
             rows.push(row("in-process fallback", "false"));
         }
         _ => {
@@ -143,6 +167,36 @@ pub fn runtime_status_rows(payload: &serde_json::Value) -> Vec<(String, String)>
                 payload,
                 &["runtime_binary", "kernel_path"],
                 "kernel runtime binary path",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["runtime_binary", "protocol"],
+                "protocol",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["runtime_binary", "protocol_version"],
+                "protocol version",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["runtime_binary", "contract_version"],
+                "runtime contract",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["runtime_binary", "foundation_health"],
+                "foundation runtime health",
+            );
+            push_string(
+                &mut rows,
+                payload,
+                &["runtime_binary", "kernel_health"],
+                "kernel runtime health",
             );
             rows.push(row("in-process fallback", "false"));
         }

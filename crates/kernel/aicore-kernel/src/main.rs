@@ -1,9 +1,14 @@
 use std::io::Read;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 use aicore_foundation::AicoreLayout;
 use aicore_kernel::{
     InstalledManifestRegistry, KERNEL_RUNTIME_BINARY_NAME, KernelHandlerRegistry,
     KernelInvocationEnvelope, KernelInvocationLedger, KernelInvocationRuntime, KernelPayload,
+    RUNTIME_BINARY_CONTRACT_VERSION, RUNTIME_BINARY_PROTOCOL, RUNTIME_BINARY_PROTOCOL_VERSION,
+    RUNTIME_BINARY_REQUEST_SCHEMA_VERSION, RUNTIME_BINARY_RESPONSE_SCHEMA_VERSION,
     RuntimeStatusSnapshot, kernel_invocation_result_public_json,
     runtime_status_handler_for_layout_with_invocation_path,
 };
@@ -30,6 +35,9 @@ fn print_status() -> i32 {
     println!("AICore Kernel Runtime");
     println!("status: ok");
     println!("global root: {}", snapshot.global_root);
+    println!("protocol: {RUNTIME_BINARY_PROTOCOL}");
+    println!("protocol version: {RUNTIME_BINARY_PROTOCOL_VERSION}");
+    println!("contract version: {RUNTIME_BINARY_CONTRACT_VERSION}");
     println!(
         "foundation runtime binary: {}",
         if snapshot.foundation_runtime_binary_installed {
@@ -46,7 +54,14 @@ fn print_status() -> i32 {
             "missing"
         }
     );
-    println!("protocol: stdio_jsonl");
+    println!(
+        "foundation runtime health: {}",
+        binary_health(Path::new(&snapshot.foundation_runtime_binary_path))
+    );
+    println!(
+        "kernel runtime health: {}",
+        binary_health(Path::new(&snapshot.kernel_runtime_binary_path))
+    );
     0
 }
 
@@ -66,19 +81,32 @@ fn invoke_stdio_jsonl() -> i32 {
             "kernel_runtime_ipc_read",
             &format!("读取 kernel runtime stdin 失败: {error}"),
         );
-        println!(
-            "{}",
-            serde_json::json!({"event": "kernel.invocation.result", "payload": payload})
-        );
+        println!("{}", runtime_binary_result_event(payload));
         eprintln!("读取 kernel runtime stdin 失败: {error}");
         return 1;
     }
 
-    let request: serde_json::Value = stdin
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .and_then(|line| serde_json::from_str(line).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
+    let request_line = stdin.lines().find(|line| !line.trim().is_empty());
+    let request: serde_json::Value =
+        match request_line.and_then(|line| serde_json::from_str(line).ok()) {
+            Some(request) => request,
+            None => {
+                let envelope = KernelInvocationEnvelope::new(
+                    "global-main",
+                    "runtime.status",
+                    "runtime.status",
+                    KernelPayload::Empty,
+                );
+                let payload = failure_payload(
+                    &layout,
+                    &envelope,
+                    "kernel_runtime_malformed_jsonl",
+                    "kernel runtime request is not valid JSONL",
+                );
+                println!("{}", runtime_binary_result_event(payload));
+                return 1;
+            }
+        };
     let operation = request
         .get("operation")
         .and_then(|value| value.as_str())
@@ -96,24 +124,68 @@ fn invoke_stdio_jsonl() -> i32 {
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
 
-    if !layout.bin_root.join("aicore-foundation").exists() {
-        let envelope = envelope(
-            instance_id,
-            capability,
-            operation,
-            invocation_id,
-            KernelPayload::Empty,
+    let envelope = envelope(
+        instance_id,
+        capability,
+        operation,
+        invocation_id.clone(),
+        KernelPayload::Empty,
+    );
+
+    if request
+        .get("schema_version")
+        .and_then(|value| value.as_str())
+        != Some(RUNTIME_BINARY_REQUEST_SCHEMA_VERSION)
+        || request.get("protocol").and_then(|value| value.as_str()) != Some(RUNTIME_BINARY_PROTOCOL)
+        || request
+            .get("protocol_version")
+            .and_then(|value| value.as_str())
+            != Some(RUNTIME_BINARY_PROTOCOL_VERSION)
+    {
+        let payload = failure_payload(
+            &layout,
+            &envelope,
+            "kernel_runtime_protocol_version_mismatch",
+            "kernel runtime request protocol version mismatch",
         );
+        println!("{}", runtime_binary_result_event(payload));
+        return 1;
+    }
+
+    if request
+        .get("contract_version")
+        .and_then(|value| value.as_str())
+        != Some(RUNTIME_BINARY_CONTRACT_VERSION)
+    {
+        let payload = failure_payload(
+            &layout,
+            &envelope,
+            "kernel_runtime_contract_version_mismatch",
+            "kernel runtime request contract version mismatch",
+        );
+        println!("{}", runtime_binary_result_event(payload));
+        return 1;
+    }
+
+    let foundation_binary = layout.bin_root.join("aicore-foundation");
+    if !foundation_binary.exists() {
         let payload = failure_payload(
             &layout,
             &envelope,
             "foundation_runtime_binary_missing",
             "Foundation runtime binary missing",
         );
-        println!(
-            "{}",
-            serde_json::json!({"event": "kernel.invocation.result", "payload": payload})
+        println!("{}", runtime_binary_result_event(payload));
+        return 1;
+    }
+    if !is_executable_file(&foundation_binary) {
+        let payload = failure_payload(
+            &layout,
+            &envelope,
+            "foundation_runtime_binary_not_executable",
+            "Foundation runtime binary is not executable",
         );
+        println!("{}", runtime_binary_result_event(payload));
         return 1;
     }
 
@@ -126,21 +198,9 @@ fn invoke_stdio_jsonl() -> i32 {
     let runtime = KernelInvocationRuntime::new(registry, handlers);
     let ledger =
         KernelInvocationLedger::new(layout.kernel_state_root.join("invocation-ledger.jsonl"));
-    let output = runtime.invoke_with_ledger(
-        envelope(
-            instance_id,
-            capability,
-            operation,
-            invocation_id,
-            KernelPayload::Empty,
-        ),
-        &ledger,
-    );
+    let output = runtime.invoke_with_ledger(envelope, &ledger);
     let payload = kernel_invocation_result_public_json(&output);
-    println!(
-        "{}",
-        serde_json::json!({"event": "kernel.invocation.result", "payload": payload})
-    );
+    println!("{}", runtime_binary_result_event(payload));
     match output.status {
         aicore_kernel::KernelInvocationStatus::Completed => 0,
         aicore_kernel::KernelInvocationStatus::Failed => 1,
@@ -198,6 +258,55 @@ fn failure_payload(
         "failure": {
             "stage": stage,
             "reason": reason,
+        },
+        "runtime_binary": {
+            "foundation_path": layout.bin_root.join("aicore-foundation").display().to_string(),
+            "foundation_installed": layout.bin_root.join("aicore-foundation").exists(),
+            "foundation_health": binary_health(&layout.bin_root.join("aicore-foundation")),
+            "kernel_path": layout.bin_root.join("aicore-kernel").display().to_string(),
+            "kernel_installed": layout.bin_root.join("aicore-kernel").exists(),
+            "kernel_health": binary_health(&layout.bin_root.join("aicore-kernel")),
+            "protocol": RUNTIME_BINARY_PROTOCOL,
+            "protocol_version": RUNTIME_BINARY_PROTOCOL_VERSION,
+            "contract_version": RUNTIME_BINARY_CONTRACT_VERSION,
+            "in_process_fallback": false,
         }
     })
+}
+
+fn runtime_binary_result_event(payload: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "event": "kernel.invocation.result",
+        "schema_version": RUNTIME_BINARY_RESPONSE_SCHEMA_VERSION,
+        "protocol": RUNTIME_BINARY_PROTOCOL,
+        "protocol_version": RUNTIME_BINARY_PROTOCOL_VERSION,
+        "contract_version": RUNTIME_BINARY_CONTRACT_VERSION,
+        "payload": payload,
+    })
+}
+
+fn binary_health(path: &Path) -> &'static str {
+    if !path.exists() {
+        "missing"
+    } else if is_executable_file(path) {
+        "ok"
+    } else {
+        "not_executable"
+    }
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        return std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }

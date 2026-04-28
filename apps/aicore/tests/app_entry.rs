@@ -236,6 +236,10 @@ fn aicore_top_level_status_outputs_existing_public_fields() {
     assert!(stdout.contains("foundation runtime binary"));
     assert!(stdout.contains("kernel runtime binary"));
     assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("protocol：stdio_jsonl"));
+    assert!(stdout.contains("protocol version：aicore.kernel.runtime_binary.stdio_jsonl.v1"));
+    assert!(stdout.contains("runtime contract：kernel.runtime.v1"));
+    assert!(stdout.contains("binary health：ok"));
 }
 
 #[test]
@@ -277,6 +281,22 @@ fn aicore_top_level_status_result_uses_structured_envelope() {
     assert_eq!(
         result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
         "binary_fixture"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["protocol"],
+        "stdio_jsonl"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["protocol_version"],
+        "aicore.kernel.runtime_binary.stdio_jsonl.v1"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["runtime_binary_contract_version"],
+        "kernel.runtime.v1"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["binary_health"],
+        "ok"
     );
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
@@ -388,7 +408,7 @@ cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.route_failed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"route_failed","status":"failed","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":"route","failure_reason":"missing capability","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.failed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"invocation_failed","status":"failed","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":"route","failure_reason":"missing capability","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
 LEDGER
-printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"failed","route":{"component_id":null,"app_id":null,"capability_id":null,"contract_version":null},"handler":{"kind":null,"invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":null,"executed":false,"event_generated":false,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":3},"result":{"kind":null,"summary":null,"fields":{}},"failure":{"stage":"route","reason":"missing capability"}}}'
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"failed","route":{"component_id":null,"app_id":null,"capability_id":null,"contract_version":null},"handler":{"kind":null,"invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":null,"executed":false,"event_generated":false,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":3},"result":{"kind":null,"summary":null,"fields":{}},"failure":{"stage":"route","reason":"missing capability"}}}'
 exit 1
 fi
 cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
@@ -398,7 +418,7 @@ cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.event","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"event_generated","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.completed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"invocation_completed","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
 LEDGER
-printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"completed","route":{"component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1"},"handler":{"kind":"kernel_runtime_binary","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"runtime.status","summary":"runtime status from binary fixture","fields":{"global_root":"fixture-root","foundation_installed":"yes","kernel_installed":"yes","contract_version":"kernel.runtime.v1","manifest_count":"1","capability_count":"2","event_ledger_path":"fixture-ledger","bin_path":"fixture-bin","bin_path_status":"active","foundation_runtime_binary":"installed","kernel_runtime_binary":"installed","kernel_invocation_path":"binary_fixture"}},"failure":{"stage":null,"reason":null}}}'
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"completed","route":{"component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1"},"handler":{"kind":"kernel_runtime_binary","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"runtime.status","summary":"runtime status from binary fixture","fields":{"global_root":"fixture-root","foundation_installed":"yes","kernel_installed":"yes","contract_version":"kernel.runtime.v1","manifest_count":"1","capability_count":"2","event_ledger_path":"fixture-ledger","bin_path":"fixture-bin","bin_path_status":"active","foundation_runtime_binary":"installed","kernel_runtime_binary":"installed","kernel_invocation_path":"binary_fixture"}},"failure":{"stage":null,"reason":null}}}'
 "#;
     seed_executable(
         &home.join(".aicore").join("bin").join("aicore-kernel"),

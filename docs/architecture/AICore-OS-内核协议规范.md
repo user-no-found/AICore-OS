@@ -18,6 +18,53 @@
 
 当前 runtime binary boundary 不是 daemon，不是 socket IPC server，不是 component supervisor，也不启动长期 kernel server。后续 socket、supervision、长期进程管理必须通过独立协议边界扩展。
 
+### Runtime Binary Protocol
+
+`stdio_jsonl` runtime binary protocol 使用一行 JSON request 对应一行 JSON result event。request 必须声明 schema、protocol、protocol version、contract version、request id、invocation id、trace id、instance id、capability、operation、payload summary 和 ledger path。payload summary 只能是安全摘要，不得携带 raw invocation payload。
+
+当前协议常量：
+
+```text
+protocol = "stdio_jsonl"
+protocol_version = "aicore.kernel.runtime_binary.stdio_jsonl.v1"
+request_schema_version = "aicore.kernel.runtime_binary.request.v1"
+response_schema_version = "aicore.kernel.runtime_binary.response.v1"
+contract_version = "kernel.runtime.v1"
+```
+
+stdout 只能输出 JSON Lines protocol event。`kernel.invocation.result` event 必须包含 response schema、protocol、protocol version、contract version 和 payload。payload 是 `KernelInvocationResultEnvelope` 的 public JSON 表达。JSON mode consumer 必须读取该结构化 payload，不得解析 human summary。
+
+stderr 只用于 diagnostic。stderr 进入 public surface 或 failure reason 前必须去除不安全控制字符、脱敏并截断。runtime binary client 和 ledger 都不得保存 raw stdout、raw stderr 或 raw protocol request。
+
+exit code 语义：
+
+- `0` 表示 runtime binary 成功输出一个 protocol-compatible result event，且 invocation status 为 completed。
+- 非零表示 runtime binary 或 invocation 返回失败。调用方必须优先解析结构化 result event；无法解析时返回 non-zero exit 或 invalid JSONL output 结构化 failure。
+- malformed JSONL、request schema mismatch、protocol mismatch、protocol version mismatch 和 contract version mismatch 都是结构化 protocol failure。
+
+`invocation_id` 标识一次调用。request、result envelope、event envelope 和 invocation ledger records 必须共享同一个 `invocation_id`。`request_id` 用于 binary protocol request 关联，不替代 invocation id。
+
+### Runtime Binary Client
+
+应用侧 runtime binary client 必须显式接收或解析 installed kernel binary path 与 foundation binary path。client 不得在 public installed path 中 silent fallback 到 in-process kernel。
+
+client 必须结构化区分以下失败：
+
+- foundation runtime binary missing
+- foundation runtime binary not executable
+- kernel runtime binary missing
+- kernel runtime binary not executable
+- process spawn failure
+- stdin write failure
+- stdout read failure
+- non-zero exit
+- invalid JSONL output
+- protocol version mismatch
+- contract version mismatch
+- kernel returned invocation failure
+
+这些失败必须进入 public result payload 的 failure stage / reason，并保持 `in_process_fallback = false`。failure reason 是 redacted summary，不得包含 raw payload、raw secret、raw child output 或 internal request。
+
 ## AppManifest
 
 `AppManifest` 描述应用 ID、运行时类型、显示名称、合同版本、能力声明和权限边界。应用 ID 必须稳定，运行时类型用于区分 CLI、TUI、Web、Provider、Toolset、Gateway 和 Service 等形态。
