@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use crate::{
     InstalledManifestRegistry, KernelEventEnvelope, KernelEventPayload, KernelEventType,
@@ -8,10 +9,14 @@ use crate::{
     Visibility, format_contract,
 };
 
-pub type KernelHandlerFn = fn(
-    &KernelInvocationEnvelope,
-    &KernelRouteRuntimeOutput,
-) -> Result<KernelHandlerResult, KernelHandlerError>;
+pub type KernelHandlerFn = Arc<
+    dyn Fn(
+            &KernelInvocationEnvelope,
+            &KernelRouteRuntimeOutput,
+        ) -> Result<KernelHandlerResult, KernelHandlerError>
+        + Send
+        + Sync,
+>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelHandlerResult {
@@ -75,17 +80,35 @@ impl KernelHandlerRegistry {
         }
     }
 
-    pub fn with_handler(mut self, operation: impl Into<String>, handler: KernelHandlerFn) -> Self {
+    pub fn with_handler<F>(mut self, operation: impl Into<String>, handler: F) -> Self
+    where
+        F: Fn(
+                &KernelInvocationEnvelope,
+                &KernelRouteRuntimeOutput,
+            ) -> Result<KernelHandlerResult, KernelHandlerError>
+            + Send
+            + Sync
+            + 'static,
+    {
         self.register(operation, handler);
         self
     }
 
-    pub fn register(&mut self, operation: impl Into<String>, handler: KernelHandlerFn) {
-        self.handlers.insert(operation.into(), handler);
+    pub fn register<F>(&mut self, operation: impl Into<String>, handler: F)
+    where
+        F: Fn(
+                &KernelInvocationEnvelope,
+                &KernelRouteRuntimeOutput,
+            ) -> Result<KernelHandlerResult, KernelHandlerError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.handlers.insert(operation.into(), Arc::new(handler));
     }
 
     pub fn get(&self, operation: &str) -> Option<KernelHandlerFn> {
-        self.handlers.get(operation).copied()
+        self.handlers.get(operation).cloned()
     }
 }
 
@@ -707,10 +730,13 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use aicore_foundation::AicoreLayout;
+
     use crate::{
         InstalledManifestRegistry, KernelEventPayload, KernelEventType, KernelHandlerError,
         KernelHandlerRegistry, KernelHandlerResult, KernelInvocationEnvelope,
         KernelInvocationLedger, KernelInvocationRuntime, KernelInvocationStatus, KernelPayload,
+        runtime_status_handler_for_layout,
     };
 
     #[test]
@@ -795,6 +821,74 @@ mod tests {
         assert_eq!(
             result.public_fields.get("manifest_count"),
             Some(&"3".to_string())
+        );
+    }
+
+    #[test]
+    fn runtime_status_handler_builds_structured_result_from_supplied_layout() {
+        let home = temp_dir("runtime-status-handler-home");
+        seed_runtime_status_layout(&home, 2);
+        let layout = AicoreLayout::new(&home);
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new()
+                .with_handler("runtime.status", runtime_status_handler_for_layout(layout)),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+        let result = output.result.expect("runtime status result envelope");
+
+        assert_eq!(result.result_kind.as_deref(), Some("runtime.status"));
+        assert_eq!(
+            result.public_fields.get("global_root"),
+            Some(&home.join(".aicore").display().to_string())
+        );
+        assert_eq!(
+            result.public_fields.get("foundation_installed"),
+            Some(&"yes".to_string())
+        );
+        assert_eq!(
+            result.public_fields.get("kernel_installed"),
+            Some(&"yes".to_string())
+        );
+        assert_eq!(
+            result.public_fields.get("manifest_count"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            result.public_fields.get("capability_count"),
+            Some(&"2".to_string())
+        );
+    }
+
+    #[test]
+    fn runtime_status_handler_uses_supplied_layout_not_home() {
+        let home = temp_dir("runtime-status-handler-layout");
+        seed_runtime_status_layout(&home, 1);
+        let layout = AicoreLayout::new(&home);
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new()
+                .with_handler("runtime.status", runtime_status_handler_for_layout(layout)),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+
+        let result = output.result.expect("runtime status result envelope");
+        assert_eq!(
+            result.public_fields.get("global_root"),
+            Some(&home.join(".aicore").display().to_string())
+        );
+        assert_ne!(
+            result.public_fields.get("global_root"),
+            Some(
+                &AicoreLayout::from_system_home()
+                    .state_root
+                    .display()
+                    .to_string()
+            )
         );
     }
 
@@ -1525,6 +1619,41 @@ mod tests {
         ));
         fs::create_dir_all(&path).expect("create temp dir");
         path
+    }
+
+    fn seed_runtime_status_layout(home: &PathBuf, capability_count: usize) {
+        let foundation = home.join(".aicore/runtime/foundation");
+        let kernel = home.join(".aicore/runtime/kernel");
+        let manifests = home.join(".aicore/share/manifests");
+        fs::create_dir_all(&foundation).expect("foundation metadata dir");
+        fs::create_dir_all(&kernel).expect("kernel metadata dir");
+        fs::create_dir_all(&manifests).expect("manifest dir");
+        fs::write(foundation.join("install.toml"), "status = \"installed\"\n")
+            .expect("foundation install metadata");
+        fs::write(kernel.join("install.toml"), "status = \"installed\"\n")
+            .expect("kernel install metadata");
+        fs::write(
+            manifests.join("aicore.toml"),
+            manifest_with_capability_count(capability_count),
+        )
+        .expect("manifest metadata");
+    }
+
+    fn manifest_with_capability_count(count: usize) -> String {
+        let mut content = r#"
+component_id = "aicore"
+app_id = "aicore"
+kind = "app"
+entrypoint = "/tmp/aicore"
+contract_version = "kernel.app.v1"
+"#
+        .to_string();
+        for index in 0..count {
+            content.push_str(&format!(
+                "\n[[capabilities]]\nid = \"runtime.status.{index}\"\noperation = \"runtime.status.{index}\"\nvisibility = \"user\"\n"
+            ));
+        }
+        content
     }
 
     fn read_ledger_records(path: &PathBuf) -> Vec<String> {

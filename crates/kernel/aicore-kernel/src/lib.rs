@@ -11,6 +11,7 @@ pub mod registry;
 pub mod route;
 pub mod route_runtime;
 pub mod runtime;
+pub mod runtime_status;
 pub mod scheduler;
 pub mod versioning;
 
@@ -27,6 +28,7 @@ pub use registry::*;
 pub use route::*;
 pub use route_runtime::*;
 pub use runtime::*;
+pub use runtime_status::*;
 pub use scheduler::*;
 pub use versioning::*;
 

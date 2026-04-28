@@ -75,9 +75,9 @@ fn app_aicore_json_outputs_valid_json() {
         events
             .iter()
             .any(|event| event.get("event").and_then(|value| value.as_str())
-                == Some("block.panel"))
+                == Some("kernel.invocation.result"))
     );
-    assert!(stdout.contains("global-main"));
+    assert!(stdout.contains("runtime.status"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -115,6 +115,162 @@ fn aicore_entry_reports_global_runtime_status() {
     assert!(stdout.contains("capability count：2"));
     assert!(stdout.contains("event ledger"));
     assert!(stdout.contains("bin path status"));
+}
+
+#[test]
+fn aicore_top_level_status_uses_kernel_invocation_runtime() {
+    let home = temp_home("kernel-runtime-status");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    assert!(stdout.contains("invocation：completed"));
+    assert!(stdout.contains("operation：runtime.status"));
+    assert!(stdout.contains("handler executed：true"));
+    assert!(stdout.contains("ledger appended：true"));
+}
+
+#[test]
+fn aicore_top_level_status_routes_runtime_status_before_handler() {
+    let home = temp_home("kernel-runtime-status-missing-capability");
+    create_runtime_status_fixture_without_runtime_status(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    assert!(stdout.contains("内核状态调用失败"));
+    assert!(stdout.contains("operation：runtime.status"));
+    assert!(stdout.contains("failure stage：route"));
+    assert!(stdout.contains("handler executed：false"));
+}
+
+#[test]
+fn aicore_top_level_status_writes_invocation_ledger() {
+    let home = temp_home("kernel-runtime-status-ledger");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
+
+    assert!(output.status.success());
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = std::fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert_eq!(
+        ledger_stages(&ledger),
+        vec![
+            "accepted",
+            "route_decision_made",
+            "handler_executed",
+            "event_generated",
+            "invocation_completed"
+        ]
+    );
+    let ids = ledger
+        .lines()
+        .map(|record| extract_json_string(record, "invocation_id"))
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 5);
+    assert!(ids.iter().all(|id| id == &ids[0]));
+}
+
+#[test]
+fn aicore_top_level_status_outputs_existing_public_fields() {
+    let home = temp_home("kernel-runtime-status-public-fields");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    assert!(stdout.contains("主实例：global-main"));
+    assert!(stdout.contains("Runtime：global-main/main"));
+    assert!(stdout.contains("global root："));
+    assert!(stdout.contains("foundation installed：yes"));
+    assert!(stdout.contains("kernel installed：yes"));
+    assert!(stdout.contains("manifest count：1"));
+    assert!(stdout.contains("capability count：2"));
+    assert!(stdout.contains("bin path status："));
+}
+
+#[test]
+fn aicore_top_level_status_result_uses_structured_envelope() {
+    let home = temp_home("kernel-runtime-status-json");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "json"),
+    ]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
+    let events = assert_json_lines(&stdout);
+    let result_event = events
+        .iter()
+        .find(|event| event["event"] == "kernel.invocation.result")
+        .expect("structured result event should exist");
+
+    assert_eq!(result_event["payload"]["operation"], "runtime.status");
+    assert_eq!(result_event["payload"]["result"]["kind"], "runtime.status");
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["foundation_installed"],
+        "yes"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["kernel_installed"],
+        "yes"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["manifest_count"],
+        "1"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["capability_count"],
+        "2"
+    );
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn runtime_status_ledger_does_not_record_raw_result_payload() {
+    let home = temp_home("kernel-runtime-status-no-raw-result");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("PATH", "/usr/bin:/bin"),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
+
+    assert!(output.status.success());
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = std::fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert!(!ledger.contains("global_root"));
+    assert!(!ledger.contains("foundation_installed"));
+    assert!(!ledger.contains("kernel_installed"));
+    assert!(!ledger.contains("KernelInvocationResultEnvelope"));
 }
 
 fn create_runtime_status_fixture(home: &std::path::Path) {
@@ -158,6 +314,42 @@ visibility = "user"
 "#,
     )
     .expect("manifest");
+}
+
+fn create_runtime_status_fixture_without_runtime_status(home: &std::path::Path) {
+    create_runtime_status_fixture(home);
+    let manifests = home.join(".aicore/share/manifests");
+    std::fs::write(
+        manifests.join("aicore.toml"),
+        r#"
+component_id = "aicore"
+app_id = "aicore"
+kind = "app"
+entrypoint = "/tmp/aicore"
+contract_version = "kernel.app.v1"
+
+[[capabilities]]
+id = "system.status"
+operation = "system.status"
+visibility = "user"
+"#,
+    )
+    .expect("manifest without runtime.status");
+}
+
+fn ledger_stages(ledger: &str) -> Vec<String> {
+    ledger
+        .lines()
+        .map(|record| extract_json_string(record, "stage"))
+        .collect()
+}
+
+fn extract_json_string(record: &str, key: &str) -> String {
+    let marker = format!("\"{key}\":\"");
+    let start = record.find(&marker).expect("key should exist") + marker.len();
+    let tail = &record[start..];
+    let end = tail.find('"').expect("value should end");
+    tail[..end].to_string()
 }
 
 fn temp_home(name: &str) -> std::path::PathBuf {

@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    env, fs,
-    path::{Path, PathBuf},
-};
+use std::{env, fs, path::PathBuf};
 
 use aicore_agent::{
     AgentSessionRunner, AgentSessionStopReason, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner,
@@ -22,6 +18,7 @@ use aicore_kernel::{
     KernelInvocationEnvelope, KernelInvocationLedger, KernelInvocationRuntime,
     KernelInvocationStatus, KernelPayload, KernelRouteRuntime, KernelRouteRuntimeError,
     KernelRouteRuntimeInput, KernelRouteRuntimeOutput, default_control_plane, format_contract,
+    runtime_status_handler_for_layout,
 };
 use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
@@ -406,8 +403,10 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
                 return 1;
             }
         };
-    let handlers =
-        KernelHandlerRegistry::new().with_handler("runtime.status", kernel_runtime_status_handler);
+    let handlers = KernelHandlerRegistry::new().with_handler(
+        "runtime.status",
+        runtime_status_handler_for_layout(layout.clone()),
+    );
     let runtime = KernelInvocationRuntime::new(registry, handlers);
     let ledger = KernelInvocationLedger::new(&ledger_path);
     let envelope =
@@ -521,82 +520,6 @@ fn kernel_smoke_handler(
         "smoke handled {}",
         envelope.operation
     )))
-}
-
-fn kernel_runtime_status_handler(
-    _envelope: &KernelInvocationEnvelope,
-    _route: &KernelRouteRuntimeOutput,
-) -> Result<KernelHandlerResult, KernelHandlerError> {
-    let layout = AicoreLayout::from_system_home();
-    let registry = aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root)
-        .unwrap_or_else(|_| aicore_kernel::InstalledManifestRegistry::from_manifests(Vec::new()));
-    let foundation_installed = layout.runtime_foundation_root.join("install.toml").exists();
-    let kernel_installed = layout.runtime_kernel_root.join("install.toml").exists();
-    let bin_path_status = cli_bin_path_status(&layout.bin_root);
-    let mut fields = BTreeMap::new();
-    fields.insert(
-        "global_root".to_string(),
-        layout.state_root.display().to_string(),
-    );
-    fields.insert(
-        "foundation_installed".to_string(),
-        yes_no(foundation_installed).to_string(),
-    );
-    fields.insert(
-        "kernel_installed".to_string(),
-        yes_no(kernel_installed).to_string(),
-    );
-    fields.insert(
-        "manifest_count".to_string(),
-        registry.manifest_count().to_string(),
-    );
-    fields.insert(
-        "capability_count".to_string(),
-        registry.capability_count().to_string(),
-    );
-    fields.insert("bin_path_status".to_string(), bin_path_status.to_string());
-
-    let summary = format!(
-        "global root={} | foundation installed={} | kernel installed={} | manifest count={} | capability count={} | bin path status={}",
-        fields.get("global_root").expect("global root field"),
-        fields
-            .get("foundation_installed")
-            .expect("foundation field"),
-        fields.get("kernel_installed").expect("kernel field"),
-        fields.get("manifest_count").expect("manifest count field"),
-        fields
-            .get("capability_count")
-            .expect("capability count field"),
-        fields
-            .get("bin_path_status")
-            .expect("bin path status field")
-    );
-
-    Ok(KernelHandlerResult::structured(
-        "runtime.status",
-        fields,
-        summary,
-    ))
-}
-
-fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
-}
-
-fn cli_bin_path_status(bin_path: &Path) -> &'static str {
-    if !bin_path.exists() {
-        return "missing";
-    }
-
-    let Some(path) = env::var_os("PATH") else {
-        return "exists_not_in_path";
-    };
-
-    if env::split_paths(&path).any(|entry| entry == bin_path) {
-        "active"
-    } else {
-        "exists_not_in_path"
-    }
 }
 
 fn emit_kernel_invocation_result_json(output: &aicore_kernel::KernelInvocationRuntimeOutput) {
@@ -2370,16 +2293,16 @@ fn kernel_invocation_adoption_matrix() -> &'static [KernelInvocationAdoptionEntr
         },
         KernelInvocationAdoptionEntry {
             command: "aicore top-level status",
-            operation: "runtime.status/system.status",
-            class: AllowedLocalDirectCommand,
+            operation: "runtime.status",
+            class: KernelNativeNow,
             manifest_capability_exists: true,
-            route_runtime_used: false,
-            invocation_runtime_used: false,
-            ledger_used: false,
-            structured_result_envelope_used: false,
-            direct_local_execution_allowed_for_now: true,
-            future_migration_required: true,
-            reason: "top-level status may later reuse result envelope",
+            route_runtime_used: true,
+            invocation_runtime_used: true,
+            ledger_used: true,
+            structured_result_envelope_used: true,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: false,
+            reason: "top-level status consumes runtime.status result envelope",
         },
         KernelInvocationAdoptionEntry {
             command: "cargo foundation",
@@ -2585,5 +2508,32 @@ mod tests {
             assert!(entry.future_migration_required);
             assert!(!entry.invocation_runtime_used);
         }
+    }
+
+    #[test]
+    fn adoption_matrix_marks_aicore_status_as_kernel_native() {
+        let matrix = kernel_invocation_adoption_matrix();
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == "aicore top-level status")
+            .expect("aicore top-level status entry should exist");
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+        assert_eq!(entry.operation, "runtime.status");
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(entry.structured_result_envelope_used);
+        assert!(!entry.direct_local_execution_allowed_for_now);
+        assert!(!entry.future_migration_required);
+    }
+
+    #[test]
+    fn runtime_status_handler_not_owned_by_cli_private_path() {
+        let source = include_str!("lib.rs");
+        let forbidden = ["fn ", "kernel_runtime_status_handler("].concat();
+
+        assert!(!source.contains(&forbidden));
+        assert!(source.contains("runtime_status_handler_for_layout"));
     }
 }
