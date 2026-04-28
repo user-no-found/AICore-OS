@@ -24,6 +24,16 @@
 
 `KernelInvocationEnvelope` 是内核调用应用能力的标准 envelope。它必须携带 instance_id、capability、operation、payload、policy、trace_context 和 audit_context。
 
+## Invocation Dispatcher
+
+调用分发器接收 `KernelInvocationEnvelope`，先进入 route decision runtime，获得 `KernelRouteDecision` 后再查找 handler registry。handler registry 可以提供本进程内 handler，用于 smoke、测试和受控内核边界验证。
+
+分发器必须保证 route failure 不执行 handler。route 成功但 handler 不存在时返回 handler lookup failure。handler 执行失败时返回 handler execute failure。成功执行时返回 `KernelEventEnvelope`，事件类型使用 invocation completed，事件 payload 只能包含安全摘要。
+
+本进程 handler registry 不代表真实组件进程执行。它不得启动组件进程，不得打开 socket IPC，不得调用 provider adapter，不得执行 tool，也不得把 raw payload、raw provider request、raw secret、`secret_ref` 或 `credential_lease_ref` 暴露到 public surface。
+
+event ledger 与 invocation ledger 是持久审计能力，不属于最小本进程 handler registry 的必要条件。未启用 ledger 时，public surface 必须明确 ledger 未追加。
+
 ## KernelEventEnvelope
 
 `KernelEventEnvelope` 是内核事件标准 envelope。它必须携带 event_id、event_type、instance_id、app_id、invocation_id、visibility、payload 和 trace_context。

@@ -378,6 +378,106 @@ fn cli_kernel_route_smoke_does_not_execute_handler() {
 }
 
 #[test]
+fn cli_kernel_invoke_smoke_runs_registered_handler() {
+    let home = temp_root("kernel-invoke-existing");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "memory.search"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核调用 Smoke"));
+    assert!(stdout.contains("invocation：completed"));
+    assert!(stdout.contains("route：routed"));
+    assert!(stdout.contains("component：aicore-cli"));
+    assert!(stdout.contains("capability：memory.search"));
+    assert!(stdout.contains("handler executed：true"));
+    assert!(stdout.contains("event generated：true"));
+    assert!(stdout.contains("ledger appended：false"));
+}
+
+#[test]
+fn cli_kernel_invoke_smoke_reports_missing_handler() {
+    let home = temp_root("kernel-invoke-missing-handler");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("provider.smoke", "provider.smoke")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "provider.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核调用失败"));
+    assert!(stdout.contains("failure stage：handler_lookup"));
+    assert!(stdout.contains("missing handler"));
+    assert!(stdout.contains("handler executed：false"));
+}
+
+#[test]
+fn cli_kernel_invoke_smoke_json_outputs_valid_json() {
+    let home = temp_root("kernel-invoke-json");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "memory.search"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("memory.search"));
+    assert!(stdout.contains("handler executed"));
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_kernel_invoke_smoke_outputs_chinese_summary() {
+    let home = temp_root("kernel-invoke-chinese");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "memory.search"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核调用 Smoke"));
+    assert!(stdout.contains("说明：只执行 in-process smoke handler"));
+    assert!(stdout.contains("不启动组件进程"));
+}
+
+#[test]
 fn renders_runtime_smoke_command() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
         .args(["runtime", "smoke"])
