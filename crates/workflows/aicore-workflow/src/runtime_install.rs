@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use aicore_foundation::AicoreLayout;
+use aicore_kernel::{InstalledCapability, InstalledComponentManifest};
 
 use crate::layers::Workflow;
 
@@ -19,6 +20,23 @@ pub fn install_global_runtime_metadata(
         Workflow::Kernel => install_kernel_metadata(layout),
         Workflow::Core | Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui => Ok(()),
     }
+}
+
+pub fn install_app_manifest(
+    workflow: Workflow,
+    layout: &AicoreLayout,
+    entrypoint: &Path,
+) -> Result<(), String> {
+    ensure_global_runtime_dirs(layout)?;
+    let Some(manifest) = app_manifest_for(workflow, entrypoint) else {
+        return Ok(());
+    };
+    write_atomic(
+        &layout
+            .manifests_root
+            .join(format!("{}.toml", manifest.component_id)),
+        &manifest.to_toml(),
+    )
 }
 
 fn ensure_global_runtime_dirs(layout: &AicoreLayout) -> Result<(), String> {
@@ -120,6 +138,63 @@ fn install_kernel_metadata(layout: &AicoreLayout) -> Result<(), String> {
         &root.join("scheduler.toml"),
         "multi_instance_parallel = true\nexecution_lanes = \"declared\"\nworker_pool = \"metadata_only\"\n",
     )
+}
+
+fn app_manifest_for(workflow: Workflow, entrypoint: &Path) -> Option<InstalledComponentManifest> {
+    let (component_id, capabilities) = match workflow {
+        Workflow::AppAicore => (
+            "aicore",
+            vec![
+                capability("runtime.status", "runtime.status"),
+                capability("system.status", "system.status"),
+            ],
+        ),
+        Workflow::AppCli => (
+            "aicore-cli",
+            vec![
+                capability("config.path", "config.path"),
+                capability("config.validate", "config.validate"),
+                capability("auth.list", "auth.list"),
+                capability("model.show", "model.show"),
+                capability("service.list", "service.list"),
+                capability("memory.status", "memory.status"),
+                capability("memory.search", "memory.search"),
+                capability("memory.proposals", "memory.proposals"),
+                capability("memory.audit", "memory.audit"),
+                capability("memory.wiki", "memory.wiki"),
+                capability("provider.smoke", "provider.smoke"),
+                capability("agent.smoke", "agent.smoke"),
+                capability("agent.session_smoke", "agent.session_smoke"),
+                capability("runtime.smoke", "runtime.smoke"),
+                capability("instance.list", "instance.list"),
+            ],
+        ),
+        Workflow::AppTui => (
+            "aicore-tui",
+            vec![
+                capability("tui.session", "tui.session"),
+                capability("tui.route_smoke", "tui.route_smoke"),
+            ],
+        ),
+        Workflow::Foundation | Workflow::Kernel | Workflow::Core => return None,
+    };
+
+    Some(InstalledComponentManifest {
+        component_id: component_id.to_string(),
+        app_id: component_id.to_string(),
+        kind: "app".to_string(),
+        entrypoint: entrypoint.display().to_string(),
+        contract_version: "kernel.app.v1".to_string(),
+        capabilities,
+    })
+}
+
+fn capability(id: &str, operation: &str) -> InstalledCapability {
+    InstalledCapability {
+        id: id.to_string(),
+        operation: operation.to_string(),
+        visibility: "user".to_string(),
+    }
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {

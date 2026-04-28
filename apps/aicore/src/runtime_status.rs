@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use aicore_foundation::AicoreLayout;
+use aicore_kernel::InstalledManifestRegistry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GlobalRuntimeStatus {
@@ -33,19 +34,16 @@ impl GlobalRuntimeStatus {
             "contract_version",
         )
         .unwrap_or_else(|| "-".to_string());
-        let capability_count = read_toml_usize_key(
-            &layout.runtime_kernel_root.join("capabilities.toml"),
-            "capability_count",
-        )
-        .unwrap_or(0);
+        let manifest_registry = InstalledManifestRegistry::load_from_dir(&layout.manifests_root)
+            .unwrap_or_else(|_| InstalledManifestRegistry::from_manifests(Vec::new()));
 
         Self {
             global_root: layout.state_root.clone(),
             foundation_installed,
             kernel_installed,
             contract_version,
-            manifest_count: count_toml_files(&layout.manifests_root),
-            capability_count,
+            manifest_count: manifest_registry.manifest_count(),
+            capability_count: manifest_registry.capability_count(),
             event_ledger_path: layout.kernel_state_root.join("event-ledger.jsonl"),
             bin_path: layout.bin_root.clone(),
             bin_path_status: bin_path_status(&layout.bin_root),
@@ -85,19 +83,6 @@ fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
 }
 
-fn count_toml_files(path: &Path) -> usize {
-    fs::read_dir(path)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter(|entry| {
-                    entry.path().extension().and_then(|value| value.to_str()) == Some("toml")
-                })
-                .count()
-        })
-        .unwrap_or(0)
-}
-
 fn bin_path_status(bin_path: &Path) -> BinPathStatus {
     if !bin_path.exists() {
         return BinPathStatus::Missing;
@@ -119,16 +104,5 @@ fn read_toml_string_key(path: &Path, key: &str) -> Option<String> {
             return None;
         }
         Some(value.trim().trim_matches('"').to_string())
-    })
-}
-
-fn read_toml_usize_key(path: &Path, key: &str) -> Option<usize> {
-    let content = fs::read_to_string(path).ok()?;
-    content.lines().find_map(|line| {
-        let (current_key, value) = line.split_once('=')?;
-        if current_key.trim() != key {
-            return None;
-        }
-        value.trim().parse().ok()
     })
 }

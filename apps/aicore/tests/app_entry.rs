@@ -111,8 +111,8 @@ fn aicore_entry_reports_global_runtime_status() {
     assert!(stdout.contains("kernel installed"));
     assert!(stdout.contains("contract version"));
     assert!(stdout.contains("kernel.runtime.v1"));
-    assert!(stdout.contains("manifest count"));
-    assert!(stdout.contains("capability count"));
+    assert!(stdout.contains("manifest count：1"));
+    assert!(stdout.contains("capability count：2"));
     assert!(stdout.contains("event ledger"));
     assert!(stdout.contains("bin path status"));
 }
@@ -137,7 +137,27 @@ fn create_runtime_status_fixture(home: &std::path::Path) {
         .expect("kernel install metadata");
     std::fs::write(kernel.join("capabilities.toml"), "capability_count = 3\n")
         .expect("kernel capabilities metadata");
-    std::fs::write(manifests.join("aicore.toml"), "component_id = \"aicore\"\n").expect("manifest");
+    std::fs::write(
+        manifests.join("aicore.toml"),
+        r#"
+component_id = "aicore"
+app_id = "aicore"
+kind = "app"
+entrypoint = "/tmp/aicore"
+contract_version = "kernel.app.v1"
+
+[[capabilities]]
+id = "runtime.status"
+operation = "runtime.status"
+visibility = "user"
+
+[[capabilities]]
+id = "system.status"
+operation = "system.status"
+visibility = "user"
+"#,
+    )
+    .expect("manifest");
 }
 
 fn temp_home(name: &str) -> std::path::PathBuf {

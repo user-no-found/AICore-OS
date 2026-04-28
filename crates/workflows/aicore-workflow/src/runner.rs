@@ -10,7 +10,7 @@ use aicore_terminal::{Status, WarningDiagnostic};
 
 use crate::cargo_runner::{CommandReport, run_cargo_capture};
 use crate::layers::Workflow;
-use crate::runtime_install::install_global_runtime_metadata;
+use crate::runtime_install::{install_app_manifest, install_global_runtime_metadata};
 use crate::shell_integration::{
     ShellPathBootstrapEnv, ShellPathBootstrapResult, ShellPathBootstrapStatus,
     bootstrap_shell_path, has_managed_path_block,
@@ -235,7 +235,13 @@ fn install_layer_with_shell_env(
         workflow,
         Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui
     ) {
-        warnings.extend(install_app_binary(workflow, target_dir)?);
+        let layout = layout_from_shell_env(shell_env)?;
+        warnings.extend(install_app_binary(
+            workflow,
+            target_dir,
+            &layout,
+            &shell_env.path,
+        )?);
     } else if matches!(workflow, Workflow::Foundation | Workflow::Kernel) {
         let layout = layout_from_shell_env(shell_env)?;
         install_global_runtime_metadata(workflow, &layout)?;
@@ -322,8 +328,9 @@ const INSTALLED_COMMANDS: [&str; 3] = ["aicore", "aicore-cli", "aicore-tui"];
 fn install_app_binary(
     workflow: Workflow,
     target_dir: &Path,
+    layout: &AicoreLayout,
+    path_env: &str,
 ) -> Result<Vec<WarningDiagnostic>, String> {
-    let layout = AicoreLayout::from_system_home();
     let install_dir = install_bin_dir_for(&layout.home_root);
     fs::create_dir_all(&install_dir)
         .map_err(|error| format!("创建应用安装目录 {} 失败: {error}", install_dir.display()))?;
@@ -352,10 +359,11 @@ fn install_app_binary(
             .map_err(|error| format!("设置二进制可执行权限失败: {error}"))?;
     }
 
-    let path_env = std::env::var("PATH").unwrap_or_default();
+    install_app_manifest(workflow, layout, &target_path)?;
+
     Ok(install_visibility_warnings(
         &layout.home_root,
-        &path_env,
+        path_env,
         Path::exists,
     ))
 }
@@ -700,6 +708,55 @@ mod tests {
     }
 
     #[test]
+    fn app_aicore_install_writes_global_manifest() {
+        let home_root = temp_home("app-aicore-manifest");
+        let target_dir = fake_app_target("app-aicore-target", "aicore");
+        install_layer_with_shell_env(Workflow::AppAicore, &target_dir, &bash_env(&home_root))
+            .expect("app-aicore install should succeed");
+        let manifest = fs::read_to_string(home_root.join(".aicore/share/manifests/aicore.toml"))
+            .expect("aicore manifest should exist");
+
+        assert!(manifest.contains("component_id = \"aicore\""));
+        assert!(manifest.contains("app_id = \"aicore\""));
+        assert!(manifest.contains("entrypoint = \""));
+        assert!(manifest.contains("[[capabilities]]"));
+        assert!(manifest.contains("operation = \"runtime.status\""));
+    }
+
+    #[test]
+    fn app_cli_install_writes_global_manifest_with_capabilities() {
+        let home_root = temp_home("app-cli-manifest");
+        let target_dir = fake_app_target("app-cli-target", "aicore-cli");
+        install_layer_with_shell_env(Workflow::AppCli, &target_dir, &bash_env(&home_root))
+            .expect("app-cli install should succeed");
+        let manifest =
+            fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-cli.toml"))
+                .expect("aicore-cli manifest should exist");
+
+        assert!(manifest.contains("component_id = \"aicore-cli\""));
+        assert!(manifest.contains("app_id = \"aicore-cli\""));
+        assert!(manifest.contains("kind = \"app\""));
+        assert!(manifest.contains("contract_version = \"kernel.app.v1\""));
+        assert!(manifest.contains("operation = \"memory.status\""));
+        assert!(manifest.contains("operation = \"memory.search\""));
+        assert!(manifest.contains("operation = \"provider.smoke\""));
+    }
+
+    #[test]
+    fn app_tui_install_writes_global_manifest() {
+        let home_root = temp_home("app-tui-manifest");
+        let target_dir = fake_app_target("app-tui-target", "aicore-tui");
+        install_layer_with_shell_env(Workflow::AppTui, &target_dir, &bash_env(&home_root))
+            .expect("app-tui install should succeed");
+        let manifest =
+            fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-tui.toml"))
+                .expect("aicore-tui manifest should exist");
+
+        assert!(manifest.contains("component_id = \"aicore-tui\""));
+        assert!(manifest.contains("operation = \"tui.session\""));
+    }
+
+    #[test]
     fn workflow_install_warns_when_command_is_shadowed_by_local_bin() {
         let home_root = Path::new("/home/demo");
         let warnings = install_visibility_warnings(
@@ -855,6 +912,14 @@ mod tests {
             std::process::id()
         ));
         fs::create_dir_all(&path).expect("create temp dir");
+        path
+    }
+
+    fn fake_app_target(name: &str, binary: &str) -> PathBuf {
+        let path = temp_home(name);
+        let debug = path.join("debug");
+        fs::create_dir_all(&debug).expect("create debug dir");
+        fs::write(debug.join(binary), "fake binary").expect("write fake binary");
         path
     }
 }

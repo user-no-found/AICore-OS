@@ -9,5 +9,6 @@ authors.workspace = true
 
 [dependencies]
 aicore-foundation.workspace = true
+aicore-kernel.workspace = true
 aicore-terminal.workspace = true
 serde_json.workspace = true
