@@ -435,6 +435,10 @@ pub enum Block {
     Diagnostic(Diagnostic),
     Markdown(String),
     Json(String),
+    StructuredJson {
+        event: String,
+        payload: String,
+    },
     Toml(String),
     Text(String),
     WarningSummary {
@@ -489,6 +493,13 @@ impl Block {
 
     pub fn json(json: &str) -> Self {
         Self::Json(json.to_string())
+    }
+
+    pub fn structured_json(event: &str, payload: &str) -> Self {
+        Self::StructuredJson {
+            event: event.to_string(),
+            payload: payload.to_string(),
+        }
     }
 
     pub fn toml(toml: &str) -> Self {
@@ -603,6 +614,7 @@ fn render_block_human(block: &Block, config: &TerminalConfig, rich: bool) -> Opt
             Some(safe_text(markdown))
         }
         Block::Json(source) => Some(render_json_block(source)),
+        Block::StructuredJson { payload, .. } => Some(render_json_block(payload)),
         Block::WarningSummary { warnings, limit } => Some(render_warning_summary(warnings, *limit)),
         Block::FinalSummary(summary) | Block::RunFinished(summary) => {
             Some(render_final_summary(summary))
@@ -909,6 +921,12 @@ fn render_json_lines(document: &Document) -> String {
                 "block.json",
                 json!({ "json": safe_text(source) }),
             )),
+            Block::StructuredJson { event, payload } => lines.push(json_event(
+                event,
+                serde_json::from_str(payload)
+                    .map(safe_json_value)
+                    .unwrap_or_else(|_| json!({ "raw": safe_text(payload) })),
+            )),
             Block::Toml(source) => lines.push(json_event(
                 "block.toml",
                 json!({ "toml": safe_text(source) }),
@@ -932,6 +950,22 @@ fn json_event(kind: &str, payload: serde_json::Value) -> String {
         "payload": payload,
     }))
     .unwrap_or_else(|_| "{\"schema\":\"aicore.terminal.v1\",\"event\":\"error\"}".to_string())
+}
+
+fn safe_json_value(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(value) => json!(safe_text(&value)),
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(safe_json_value).collect())
+        }
+        serde_json::Value::Object(values) => serde_json::Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| (safe_text(&key), safe_json_value(value)))
+                .collect(),
+        ),
+        value => value,
+    }
 }
 
 fn safe_string_vec(values: &[String]) -> Vec<String> {
@@ -1222,6 +1256,37 @@ mod tests {
             let value: serde_json::Value = serde_json::from_str(line).expect("valid json line");
             assert_eq!(value["schema"], "aicore.terminal.v1");
         }
+    }
+
+    #[test]
+    fn structured_json_block_outputs_named_json_event() {
+        let document = Document::new(vec![Block::structured_json(
+            "kernel.invocation.result",
+            r#"{"result":{"fields":{"manifest_count":"3"}}}"#,
+        )]);
+
+        let output = render_document(&document, &TerminalConfig::json_for_tests());
+        let value: serde_json::Value =
+            serde_json::from_str(output.trim()).expect("valid structured json line");
+
+        assert_eq!(value["schema"], "aicore.terminal.v1");
+        assert_eq!(value["event"], "kernel.invocation.result");
+        assert_eq!(value["payload"]["result"]["fields"]["manifest_count"], "3");
+        assert!(!output.contains("block.panel"));
+    }
+
+    #[test]
+    fn structured_json_block_redacts_secret_like_values() {
+        let document = Document::new(vec![Block::structured_json(
+            "kernel.invocation.result",
+            r#"{"result":{"fields":{"secret_ref":"sk-test-secret"}}}"#,
+        )]);
+
+        let output = render_document(&document, &TerminalConfig::json_for_tests());
+
+        assert!(!output.contains("sk-test-secret"));
+        assert!(!output.contains("secret_ref"));
+        assert!(output.contains("[REDACTED]"));
     }
 
     #[test]

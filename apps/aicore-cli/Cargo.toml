@@ -16,6 +16,4 @@ aicore-kernel.workspace = true
 aicore-memory.workspace = true
 aicore-provider.workspace = true
 aicore-terminal.workspace = true
-
-[dev-dependencies]
 serde_json.workspace = true

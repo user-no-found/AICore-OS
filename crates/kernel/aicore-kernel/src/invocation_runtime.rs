@@ -5,7 +5,7 @@ use crate::{
     InstalledManifestRegistry, KernelEventEnvelope, KernelEventPayload, KernelEventType,
     KernelInvocationEnvelope, KernelInvocationLedger, KernelInvocationLedgerRecord,
     KernelRouteRuntime, KernelRouteRuntimeError, KernelRouteRuntimeInput, KernelRouteRuntimeOutput,
-    Visibility,
+    Visibility, format_contract,
 };
 
 pub type KernelHandlerFn = fn(
@@ -16,12 +16,28 @@ pub type KernelHandlerFn = fn(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelHandlerResult {
     pub summary: String,
+    pub result_kind: Option<String>,
+    pub public_fields: BTreeMap<String, String>,
 }
 
 impl KernelHandlerResult {
     pub fn summary(summary: impl Into<String>) -> Self {
         Self {
             summary: summary.into(),
+            result_kind: Some("summary".to_string()),
+            public_fields: BTreeMap::new(),
+        }
+    }
+
+    pub fn structured(
+        result_kind: impl Into<String>,
+        public_fields: BTreeMap<String, String>,
+        summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            summary: summary.into(),
+            result_kind: Some(result_kind.into()),
+            public_fields,
         }
     }
 }
@@ -86,10 +102,37 @@ pub enum KernelInvocationStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KernelInvocationResultRoute {
+    pub component_id: String,
+    pub app_id: String,
+    pub capability_id: String,
+    pub contract_version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KernelInvocationResultEnvelope {
+    pub invocation_id: String,
+    pub trace_id: String,
+    pub operation: String,
+    pub status: KernelInvocationStatus,
+    pub route: Option<KernelInvocationResultRoute>,
+    pub handler_kind: Option<String>,
+    pub result_kind: Option<String>,
+    pub summary: String,
+    pub public_fields: BTreeMap<String, String>,
+    pub failure_stage: Option<String>,
+    pub failure_reason: Option<String>,
+    pub handler_executed: bool,
+    pub event_generated: bool,
+    pub ledger_appended: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelInvocationRuntimeOutput {
     pub status: KernelInvocationStatus,
     pub route: Option<KernelRouteRuntimeOutput>,
     pub event: Option<KernelEventEnvelope>,
+    pub result: Option<KernelInvocationResultEnvelope>,
     pub route_decision_made: bool,
     pub handler_executed: bool,
     pub event_generated: bool,
@@ -123,16 +166,16 @@ impl KernelInvocationRuntime {
                 .with_instance_id(envelope.instance_id.clone()),
         ) {
             Ok(route) => route,
-            Err(error) => return Self::route_failure(error),
+            Err(error) => return Self::route_failure(&envelope, error),
         };
 
         let Some(handler) = self.handlers.get(&envelope.operation) else {
-            return Self::missing_handler(route);
+            return Self::missing_handler(&envelope, route);
         };
 
         match handler(&envelope, &route) {
             Ok(result) => Self::completed(envelope, route, result),
-            Err(error) => Self::handler_failure(route, error),
+            Err(error) => Self::handler_failure(&envelope, route, error),
         }
     }
 
@@ -208,7 +251,12 @@ impl KernelInvocationRuntime {
                         ledger_records,
                     );
                 }
-                return Self::with_ledger(Self::route_failure(error), ledger, ledger_records, true);
+                return Self::with_ledger(
+                    Self::route_failure(&envelope, error),
+                    ledger,
+                    ledger_records,
+                    true,
+                );
             }
         };
 
@@ -268,7 +316,12 @@ impl KernelInvocationRuntime {
                     ledger_records,
                 );
             }
-            return Self::with_ledger(Self::missing_handler(route), ledger, ledger_records, true);
+            return Self::with_ledger(
+                Self::missing_handler(&envelope, route),
+                ledger,
+                ledger_records,
+                true,
+            );
         };
 
         let result = match handler(&envelope, &route) {
@@ -314,7 +367,7 @@ impl KernelInvocationRuntime {
                     );
                 }
                 return Self::with_ledger(
-                    Self::handler_failure(route, error),
+                    Self::handler_failure(&envelope, route, error),
                     ledger,
                     ledger_records,
                     true,
@@ -322,7 +375,7 @@ impl KernelInvocationRuntime {
             }
         };
 
-        let event = Self::event_from_result(&envelope, &route, result);
+        let (event, result) = Self::event_from_result(&envelope, &route, result);
 
         if let Err(error) = append(
             KernelInvocationLedgerRecord::new("handler_executed", "ok", &envelope)
@@ -372,24 +425,31 @@ impl KernelInvocationRuntime {
         }
 
         Self::with_ledger(
-            Self::completed_from_event(route, event),
+            Self::completed_from_event(route, event, Some(result)),
             ledger,
             ledger_records,
             true,
         )
     }
 
-    fn route_failure(error: KernelRouteRuntimeError) -> KernelInvocationRuntimeOutput {
+    fn route_failure(
+        envelope: &KernelInvocationEnvelope,
+        error: KernelRouteRuntimeError,
+    ) -> KernelInvocationRuntimeOutput {
+        let reason = error.to_string();
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Failed,
             route: None,
             event: None,
+            result: Some(Self::failure_result(
+                envelope, None, "route", &reason, false, false, None,
+            )),
             route_decision_made: false,
             handler_executed: false,
             event_generated: false,
             handler_kind: None,
             failure_stage: Some("route".to_string()),
-            failure_reason: Some(error.to_string()),
+            failure_reason: Some(reason),
             spawned_process: false,
             called_real_component: false,
             ledger_appended: false,
@@ -398,17 +458,30 @@ impl KernelInvocationRuntime {
         }
     }
 
-    fn missing_handler(route: KernelRouteRuntimeOutput) -> KernelInvocationRuntimeOutput {
+    fn missing_handler(
+        envelope: &KernelInvocationEnvelope,
+        route: KernelRouteRuntimeOutput,
+    ) -> KernelInvocationRuntimeOutput {
+        let reason = "missing handler for operation";
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Failed,
-            route: Some(route),
+            route: Some(route.clone()),
             event: None,
+            result: Some(Self::failure_result(
+                envelope,
+                Some(&route),
+                "handler_lookup",
+                reason,
+                false,
+                false,
+                None,
+            )),
             route_decision_made: true,
             handler_executed: false,
             event_generated: false,
             handler_kind: None,
             failure_stage: Some("handler_lookup".to_string()),
-            failure_reason: Some("missing handler for operation".to_string()),
+            failure_reason: Some(reason.to_string()),
             spawned_process: false,
             called_real_component: false,
             ledger_appended: false,
@@ -418,19 +491,30 @@ impl KernelInvocationRuntime {
     }
 
     fn handler_failure(
+        envelope: &KernelInvocationEnvelope,
         route: KernelRouteRuntimeOutput,
         error: KernelHandlerError,
     ) -> KernelInvocationRuntimeOutput {
+        let reason = error.to_string();
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Failed,
-            route: Some(route),
+            route: Some(route.clone()),
             event: None,
+            result: Some(Self::failure_result(
+                envelope,
+                Some(&route),
+                "handler_execute",
+                &reason,
+                true,
+                false,
+                Some("in_process".to_string()),
+            )),
             route_decision_made: true,
             handler_executed: true,
             event_generated: false,
             handler_kind: Some("in_process".to_string()),
             failure_stage: Some("handler_execute".to_string()),
-            failure_reason: Some(error.to_string()),
+            failure_reason: Some(reason),
             spawned_process: false,
             called_real_component: false,
             ledger_appended: false,
@@ -444,15 +528,15 @@ impl KernelInvocationRuntime {
         route: KernelRouteRuntimeOutput,
         result: KernelHandlerResult,
     ) -> KernelInvocationRuntimeOutput {
-        let event = Self::event_from_result(&envelope, &route, result);
-        Self::completed_from_event(route, event)
+        let (event, result) = Self::event_from_result(&envelope, &route, result);
+        Self::completed_from_event(route, event, Some(result))
     }
 
     fn event_from_result(
         envelope: &KernelInvocationEnvelope,
         route: &KernelRouteRuntimeOutput,
         result: KernelHandlerResult,
-    ) -> KernelEventEnvelope {
+    ) -> (KernelEventEnvelope, KernelInvocationResultEnvelope) {
         let mut event = KernelEventEnvelope::new(
             format!("event.{}", envelope.operation),
             KernelEventType::InvocationCompleted,
@@ -461,19 +545,22 @@ impl KernelInvocationRuntime {
             envelope.invocation_id.clone(),
             Visibility::User,
         );
-        event.payload = KernelEventPayload::Summary(result.summary);
+        event.payload = KernelEventPayload::Summary(result.summary.clone());
         event.trace_context = envelope.trace_context.clone();
-        event
+        let result = Self::success_result(envelope, route, result);
+        (event, result)
     }
 
     fn completed_from_event(
         route: KernelRouteRuntimeOutput,
         event: KernelEventEnvelope,
+        result: Option<KernelInvocationResultEnvelope>,
     ) -> KernelInvocationRuntimeOutput {
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Completed,
             route: Some(route),
             event: Some(event),
+            result,
             route_decision_made: true,
             handler_executed: true,
             event_generated: true,
@@ -488,6 +575,65 @@ impl KernelInvocationRuntime {
         }
     }
 
+    fn success_result(
+        envelope: &KernelInvocationEnvelope,
+        route: &KernelRouteRuntimeOutput,
+        result: KernelHandlerResult,
+    ) -> KernelInvocationResultEnvelope {
+        KernelInvocationResultEnvelope {
+            invocation_id: envelope.invocation_id.clone(),
+            trace_id: envelope.trace_context.trace_id.clone(),
+            operation: envelope.operation.clone(),
+            status: KernelInvocationStatus::Completed,
+            route: Some(Self::result_route(route)),
+            handler_kind: Some("in_process".to_string()),
+            result_kind: result.result_kind,
+            summary: result.summary,
+            public_fields: result.public_fields,
+            failure_stage: None,
+            failure_reason: None,
+            handler_executed: true,
+            event_generated: true,
+            ledger_appended: false,
+        }
+    }
+
+    fn failure_result(
+        envelope: &KernelInvocationEnvelope,
+        route: Option<&KernelRouteRuntimeOutput>,
+        failure_stage: &str,
+        failure_reason: &str,
+        handler_executed: bool,
+        event_generated: bool,
+        handler_kind: Option<String>,
+    ) -> KernelInvocationResultEnvelope {
+        KernelInvocationResultEnvelope {
+            invocation_id: envelope.invocation_id.clone(),
+            trace_id: envelope.trace_context.trace_id.clone(),
+            operation: envelope.operation.clone(),
+            status: KernelInvocationStatus::Failed,
+            route: route.map(Self::result_route),
+            handler_kind,
+            result_kind: None,
+            summary: failure_reason.to_string(),
+            public_fields: BTreeMap::new(),
+            failure_stage: Some(failure_stage.to_string()),
+            failure_reason: Some(failure_reason.to_string()),
+            handler_executed,
+            event_generated,
+            ledger_appended: false,
+        }
+    }
+
+    fn result_route(route: &KernelRouteRuntimeOutput) -> KernelInvocationResultRoute {
+        KernelInvocationResultRoute {
+            component_id: route.component_id.clone(),
+            app_id: route.app_id.clone(),
+            capability_id: route.capability_id.clone(),
+            contract_version: format_contract(&route.contract_version),
+        }
+    }
+
     fn with_ledger(
         mut output: KernelInvocationRuntimeOutput,
         ledger: &KernelInvocationLedger,
@@ -497,6 +643,9 @@ impl KernelInvocationRuntime {
         output.ledger_appended = ledger_appended;
         output.ledger_path = Some(ledger.path().display().to_string());
         output.ledger_record_count = ledger_record_count;
+        if let Some(result) = output.result.as_mut() {
+            result.ledger_appended = ledger_appended;
+        }
         output
     }
 
@@ -515,6 +664,7 @@ impl KernelInvocationRuntime {
             status: KernelInvocationStatus::Failed,
             route,
             event,
+            result: None,
             route_decision_made,
             handler_executed,
             event_generated,
@@ -552,6 +702,7 @@ impl KernelInvocationRuntime {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -622,6 +773,103 @@ mod tests {
         assert_eq!(
             event.payload,
             KernelEventPayload::Summary("smoke handled memory.search".to_string())
+        );
+    }
+
+    #[test]
+    fn kernel_invocation_runtime_status_returns_structured_result() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+        let result = output.result.expect("result envelope should exist");
+
+        assert_eq!(result.result_kind.as_deref(), Some("runtime.status"));
+        assert_eq!(
+            result.public_fields.get("foundation_installed"),
+            Some(&"yes".to_string())
+        );
+        assert_eq!(
+            result.public_fields.get("manifest_count"),
+            Some(&"3".to_string())
+        );
+    }
+
+    #[test]
+    fn kernel_invocation_output_contains_result_envelope() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+        let result = output.result.expect("result envelope should exist");
+
+        assert_eq!(result.operation, "runtime.status");
+        assert_eq!(result.status, KernelInvocationStatus::Completed);
+        assert_eq!(result.handler_kind.as_deref(), Some("in_process"));
+        assert!(result.handler_executed);
+        assert!(result.event_generated);
+    }
+
+    #[test]
+    fn kernel_invocation_result_preserves_invocation_id() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+        let envelope = envelope("runtime.status");
+        let expected_invocation_id = envelope.invocation_id.clone();
+
+        let output = runtime.invoke(envelope);
+
+        assert_eq!(
+            output.result.expect("result envelope").invocation_id,
+            expected_invocation_id
+        );
+    }
+
+    #[test]
+    fn kernel_invocation_result_preserves_route_metadata() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+        let result = output.result.expect("result envelope");
+        let route = result.route.expect("route metadata");
+
+        assert_eq!(route.component_id, "aicore-cli");
+        assert_eq!(route.app_id, "aicore-cli");
+        assert_eq!(route.capability_id, "runtime.status");
+        assert_eq!(route.contract_version, "kernel.app.v1");
+    }
+
+    #[test]
+    fn kernel_invocation_result_summary_is_derived_from_structured_result() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+        let result = output.result.expect("result envelope");
+
+        assert_eq!(
+            result.summary,
+            "foundation_installed=yes | kernel_installed=yes | manifest_count=3"
+        );
+        assert_eq!(
+            result.public_fields.get("kernel_installed"),
+            Some(&"yes".to_string())
         );
     }
 
@@ -1068,6 +1316,25 @@ mod tests {
     }
 
     #[test]
+    fn kernel_invocation_ledger_does_not_record_raw_result_payload() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let ledger_path = temp_dir("ledger-no-result-payload").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new()
+                .with_handler("runtime.status", structured_secret_result_handler),
+        );
+
+        runtime.invoke_with_ledger(envelope("runtime.status"), &ledger);
+        let joined = read_ledger_records(&ledger_path).join("\n");
+
+        assert!(!joined.contains("structured-secret-field-value"));
+        assert!(!joined.contains("raw result payload"));
+        assert!(!joined.contains("secret_ref"));
+    }
+
+    #[test]
     fn invocation_ledger_redacts_secret_like_values() {
         let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
         let ledger_path = temp_dir("ledger-redaction").join("invocation-ledger.jsonl");
@@ -1161,6 +1428,22 @@ mod tests {
         )))
     }
 
+    fn structured_status_handler(
+        _envelope: &KernelInvocationEnvelope,
+        _route: &crate::KernelRouteRuntimeOutput,
+    ) -> Result<KernelHandlerResult, KernelHandlerError> {
+        let mut fields = BTreeMap::new();
+        fields.insert("foundation_installed".to_string(), "yes".to_string());
+        fields.insert("kernel_installed".to_string(), "yes".to_string());
+        fields.insert("manifest_count".to_string(), "3".to_string());
+
+        Ok(KernelHandlerResult::structured(
+            "runtime.status",
+            fields,
+            "foundation_installed=yes | kernel_installed=yes | manifest_count=3",
+        ))
+    }
+
     fn failing_handler(
         _envelope: &KernelInvocationEnvelope,
         _route: &crate::KernelRouteRuntimeOutput,
@@ -1174,6 +1457,23 @@ mod tests {
     ) -> Result<KernelHandlerResult, KernelHandlerError> {
         Err(KernelHandlerError::new(
             "failed with sk-live-secret-value secret://auth.openai.main token=abc123",
+        ))
+    }
+
+    fn structured_secret_result_handler(
+        _envelope: &KernelInvocationEnvelope,
+        _route: &crate::KernelRouteRuntimeOutput,
+    ) -> Result<KernelHandlerResult, KernelHandlerError> {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "unsafe_detail".to_string(),
+            "structured-secret-field-value secret_ref".to_string(),
+        );
+
+        Ok(KernelHandlerResult::structured(
+            "runtime.status",
+            fields,
+            "raw result payload structured-secret-field-value",
         ))
     }
 

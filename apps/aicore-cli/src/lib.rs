@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -29,7 +30,7 @@ use aicore_memory::{
 use aicore_provider::{
     ModelRequest, PromptBuildInput, PromptBuilder, ProviderError, ProviderInvoker, ProviderResolver,
 };
-use aicore_terminal::{Block, Document, TerminalConfig, render_document};
+use aicore_terminal::{Block, Document, TerminalConfig, TerminalMode, render_document};
 
 pub fn run_from_args(args: Vec<String>) -> i32 {
     match args.as_slice() {
@@ -419,15 +420,19 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
             .route
             .as_ref()
             .expect("completed invocation must route");
-        let event = output
-            .event
+        let result = output
+            .result
             .as_ref()
-            .expect("completed invocation must emit event");
+            .expect("completed invocation must include result envelope");
+        if TerminalConfig::current().mode == TerminalMode::Json {
+            emit_kernel_invocation_result_json(&output);
+            return 0;
+        }
         emit_cli_panel(
             "内核只读调用",
             vec![
                 cli_row("invocation", "completed"),
-                cli_row("invocation id", invocation_id),
+                cli_row("invocation id", result.invocation_id.as_str()),
                 cli_row("route", "routed"),
                 cli_row("operation", operation),
                 cli_row("component", route.component_id.as_str()),
@@ -440,8 +445,8 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
                 ),
                 cli_row("handler executed", output.handler_executed.to_string()),
                 cli_row("event generated", output.event_generated.to_string()),
-                cli_row("event type", format!("{:?}", event.event_type)),
-                cli_row("result summary", event_payload_summary(&event.payload)),
+                cli_row("result kind", result.result_kind.as_deref().unwrap_or("-")),
+                cli_row("result summary", result.summary.as_str()),
                 cli_row("ledger appended", output.ledger_appended.to_string()),
                 cli_row(
                     "ledger path",
@@ -461,6 +466,11 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
             ],
         );
         return 0;
+    }
+
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_kernel_invocation_result_json(&output);
+        return 1;
     }
 
     let route_status = if output.route_decision_made {
@@ -523,16 +533,50 @@ fn kernel_runtime_status_handler(
     let foundation_installed = layout.runtime_foundation_root.join("install.toml").exists();
     let kernel_installed = layout.runtime_kernel_root.join("install.toml").exists();
     let bin_path_status = cli_bin_path_status(&layout.bin_root);
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "global_root".to_string(),
+        layout.state_root.display().to_string(),
+    );
+    fields.insert(
+        "foundation_installed".to_string(),
+        yes_no(foundation_installed).to_string(),
+    );
+    fields.insert(
+        "kernel_installed".to_string(),
+        yes_no(kernel_installed).to_string(),
+    );
+    fields.insert(
+        "manifest_count".to_string(),
+        registry.manifest_count().to_string(),
+    );
+    fields.insert(
+        "capability_count".to_string(),
+        registry.capability_count().to_string(),
+    );
+    fields.insert("bin_path_status".to_string(), bin_path_status.to_string());
 
-    Ok(KernelHandlerResult::summary(format!(
+    let summary = format!(
         "global root={} | foundation installed={} | kernel installed={} | manifest count={} | capability count={} | bin path status={}",
-        layout.state_root.display(),
-        yes_no(foundation_installed),
-        yes_no(kernel_installed),
-        registry.manifest_count(),
-        registry.capability_count(),
-        bin_path_status
-    )))
+        fields.get("global_root").expect("global root field"),
+        fields
+            .get("foundation_installed")
+            .expect("foundation field"),
+        fields.get("kernel_installed").expect("kernel field"),
+        fields.get("manifest_count").expect("manifest count field"),
+        fields
+            .get("capability_count")
+            .expect("capability count field"),
+        fields
+            .get("bin_path_status")
+            .expect("bin path status field")
+    );
+
+    Ok(KernelHandlerResult::structured(
+        "runtime.status",
+        fields,
+        summary,
+    ))
 }
 
 fn yes_no(value: bool) -> &'static str {
@@ -553,6 +597,72 @@ fn cli_bin_path_status(bin_path: &Path) -> &'static str {
     } else {
         "exists_not_in_path"
     }
+}
+
+fn emit_kernel_invocation_result_json(output: &aicore_kernel::KernelInvocationRuntimeOutput) {
+    let payload = kernel_invocation_result_json(output);
+    let payload = serde_json::to_string(&payload).expect("kernel invocation result should encode");
+    emit_document(Document::new(vec![Block::structured_json(
+        "kernel.invocation.result",
+        &payload,
+    )]));
+}
+
+fn kernel_invocation_result_json(
+    output: &aicore_kernel::KernelInvocationRuntimeOutput,
+) -> serde_json::Value {
+    let result = output.result.as_ref();
+    let route = result
+        .and_then(|result| result.route.as_ref())
+        .map(|route| {
+            serde_json::json!({
+                "component_id": route.component_id,
+                "app_id": route.app_id,
+                "capability_id": route.capability_id,
+                "contract_version": route.contract_version,
+            })
+        })
+        .unwrap_or(serde_json::Value::Null);
+    let fields = result
+        .map(|result| serde_json::json!(result.public_fields))
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    serde_json::json!({
+        "invocation_id": result.map(|result| result.invocation_id.as_str()),
+        "trace_id": result.map(|result| result.trace_id.as_str()),
+        "operation": result
+            .map(|result| result.operation.as_str())
+            .or_else(|| output.route.as_ref().map(|route| route.operation.as_str())),
+        "status": match output.status {
+            KernelInvocationStatus::Completed => "completed",
+            KernelInvocationStatus::Failed => "failed",
+        },
+        "route": route,
+        "handler": {
+            "kind": output.handler_kind.as_deref(),
+            "executed": output.handler_executed,
+            "event_generated": output.event_generated,
+            "spawned_process": output.spawned_process,
+            "called_real_component": output.called_real_component,
+            "first_party_in_process_adapter": result
+                .and_then(|result| result.result_kind.as_deref())
+                == Some("runtime.status"),
+        },
+        "ledger": {
+            "appended": output.ledger_appended,
+            "path": output.ledger_path.as_deref(),
+            "records": output.ledger_record_count,
+        },
+        "result": {
+            "kind": result.and_then(|result| result.result_kind.as_deref()),
+            "summary": result.map(|result| result.summary.as_str()),
+            "fields": fields,
+        },
+        "failure": {
+            "stage": output.failure_stage.as_deref(),
+            "reason": output.failure_reason.as_deref(),
+        }
+    })
 }
 
 fn event_payload_summary(payload: &KernelEventPayload) -> String {

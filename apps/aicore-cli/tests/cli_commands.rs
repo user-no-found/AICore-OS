@@ -850,12 +850,129 @@ fn cli_kernel_invoke_readonly_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
+    assert_has_json_event(&events, "kernel.invocation.result");
     assert!(stdout.contains("runtime.status"));
-    assert!(stdout.contains("ledger appended"));
-    assert!(stdout.contains("first-party in-process adapter"));
+    assert!(stdout.contains("\"ledger\""));
+    assert!(stdout.contains("\"appended\":true"));
+    assert!(stdout.contains("first_party_in_process_adapter"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_json_contains_structured_result_fields() {
+    let home = temp_root("kernel-readonly-json-structured-result");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result_event = events
+        .iter()
+        .find(|event| event["event"] == "kernel.invocation.result")
+        .expect("structured result event should exist");
+
+    assert_eq!(result_event["payload"]["operation"], "runtime.status");
+    assert_eq!(result_event["payload"]["result"]["kind"], "runtime.status");
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["foundation_installed"],
+        "yes"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["kernel_installed"],
+        "yes"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["manifest_count"],
+        "1"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["capability_count"],
+        "1"
+    );
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_json_does_not_require_parsing_human_body() {
+    let home = temp_root("kernel-readonly-json-not-body");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result_event = events
+        .iter()
+        .find(|event| event["event"] == "kernel.invocation.result")
+        .expect("structured result event should exist");
+
+    assert!(result_event["payload"]["result"].is_object());
+    assert!(result_event["payload"]["result"]["fields"].is_object());
+    assert_ne!(
+        result_event["payload"]["result"]["fields"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_result_does_not_expose_secret_ref() {
+    let home = temp_root("kernel-readonly-json-no-secret-ref");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!stdout.contains("credential_lease_ref"));
+    assert!(!ledger.contains("secret_ref"));
+    assert!(!ledger.contains("credential_lease_ref"));
 }
 
 #[test]

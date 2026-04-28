@@ -44,6 +44,16 @@ event ledger 与 invocation ledger 是持久审计能力，不属于最小本进
 
 启用 invocation ledger 时，一方只读 handler 的成功路径必须记录 accepted、route decision、handler execution、event generation 和 invocation completion。同一次 invocation 的所有 ledger records 与生成的 `KernelEventEnvelope` 必须共享同一个 `invocation_id`。
 
+## Invocation Result Envelope
+
+`KernelInvocationResultEnvelope` 是内核调用结果的 public result contract。handler 的结构化输出必须先进入 result envelope，再由 CLI、TUI、Web 或其他 terminal-facing consumer 渲染。人类可读 summary 只能作为 result envelope 的一个派生字段，不能反向作为机器数据源。
+
+result envelope 至少表达 invocation id、trace id、operation、status、route metadata、handler metadata、result kind、result summary、public fields、failure stage、failure reason、handler_executed、event_generated 和 ledger_appended。
+
+一方只读 operation 应通过 result envelope 返回结构化 public fields。`runtime.status` 类型的只读结果可以表达 global root、foundation installed、kernel installed、manifest count、capability count 和 bin path status 等字段。JSON terminal mode 应输出稳定 result object，调用方不应解析人类 panel body 来获取机器数据。
+
+`KernelEventEnvelope` 可以携带安全 summary，用于事件流和人类摘要，但不得代替 result envelope 作为结构化结果合同。invocation ledger 继续只记录生命周期、路由、handler 和失败 metadata，不记录完整 result payload，也不记录 raw handler output。
+
 ## Invocation Ledger
 
 `invocation-ledger.jsonl` 是内核调用生命周期的 append-only audit ledger。它记录 invocation 被接受、路由、handler 查找、handler 执行、事件生成、调用完成和调用失败等审计事实。它不是业务事实源，不参与恢复 component state，不承担 event sourcing、conversation store、query、replay 或 compaction。

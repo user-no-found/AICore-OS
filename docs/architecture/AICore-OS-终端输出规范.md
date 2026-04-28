@@ -211,6 +211,7 @@ rich mode 的 section symbol 使用轻量线性字符，不使用彩色 emoji。
 - Diagnostic
 - Markdown
 - JSON
+- StructuredJson
 - TOML
 - Text
 - WarningSummary
@@ -220,12 +221,15 @@ rich mode 的 section symbol 使用轻量线性字符，不使用彩色 emoji。
 
 - Markdown 保留标题、列表、代码块和空行。
 - JSON block 对合法 JSON 做 pretty print；非法 JSON 输出 diagnostic。
+- StructuredJson block 在 JSON mode 中输出指定 event name 与结构化 payload，适合内核 invocation result 等需要机器读取的 public result；human mode 可以退化为 JSON block 展示。
 - TOML block 保留源文本。
 - Table 处理中文与英文混合宽度。
 - Diagnostic 分字段展示 severity、code、path、line、column、message 与 help。
 - Text 必须做 sanitization 与 redaction。
 - 所有 block 都必须支持 plain fallback。
 - json mode 输出结构化 event，不输出人类 panel 字符串。
+
+JSON mode 中，如果命令已经具备稳定机器结果对象，应优先输出结构化 result event，而不是要求调用方解析 panel body 或人类 summary 文本。
 
 ## CLI 输出接入
 
@@ -248,6 +252,9 @@ CLI 不应在业务分支中重复实现私有 panel、table、JSON Lines 或 AN
 已接入 terminal document 的 CLI 入口包括：
 
 - `aicore-cli status`
+- `aicore-cli kernel route <operation>`
+- `aicore-cli kernel invoke-smoke <operation>`
+- `aicore-cli kernel invoke-readonly <operation>`
 - `aicore-cli config smoke`
 - `aicore-cli config path`
 - `aicore-cli config init`
@@ -381,6 +388,20 @@ Utility surface 输出只负责呈现，不改变：
 - control plane 行为
 
 rich mode 可以使用 panel 展示 utility summary。plain mode 保留可读文本。json mode 使用 JSON Lines event 输出结构化 payload，不混入人类 panel、ANSI 或 logo。
+
+## Kernel Invocation Surface 输出
+
+Kernel route / invocation 类 CLI 命令可以作为 terminal-facing consumer 使用 `aicore-terminal`：
+
+- `kernel route <operation>` 展示 installed manifest registry 产生的 route decision。
+- `kernel invoke-smoke <operation>` 展示受控 in-process smoke handler 调用结果。
+- `kernel invoke-readonly <operation>` 展示 first-party read-only handler 调用结果。
+
+Kernel invocation surface 输出只负责呈现，不改变 route runtime、handler registry、ledger 或 component state。
+
+`kernel invoke-readonly` 的 JSON mode 应输出结构化 invocation result event，使 automation 可以读取 invocation id、route metadata、handler metadata、ledger status、result kind、result summary 与 public result fields。调用方不应解析 human panel body 来获得机器数据。
+
+Kernel invocation surface 不得输出 raw `KernelInvocationEnvelope.payload`、raw secret、`secret_ref`、`credential_lease_ref`、raw provider request、raw provider payload、raw tool input/output、API key、token 或 cookie。
 
 ## Memory Read Surface 输出
 
