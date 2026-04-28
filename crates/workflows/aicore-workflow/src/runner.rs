@@ -10,6 +10,7 @@ use aicore_terminal::{Status, WarningDiagnostic};
 
 use crate::cargo_runner::{CommandReport, run_cargo_capture};
 use crate::layers::Workflow;
+use crate::runtime_install::install_global_runtime_metadata;
 use crate::shell_integration::{
     ShellPathBootstrapEnv, ShellPathBootstrapResult, ShellPathBootstrapStatus,
     bootstrap_shell_path, has_managed_path_block,
@@ -235,12 +236,16 @@ fn install_layer_with_shell_env(
         Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui
     ) {
         warnings.extend(install_app_binary(workflow, target_dir)?);
-    } else if workflow == Workflow::Foundation {
-        let result = bootstrap_shell_path(shell_env);
-        if let Some(warning) = shell_bootstrap_warning(&result) {
-            warnings.push(warning);
+    } else if matches!(workflow, Workflow::Foundation | Workflow::Kernel) {
+        let layout = layout_from_shell_env(shell_env)?;
+        install_global_runtime_metadata(workflow, &layout)?;
+        if workflow == Workflow::Foundation {
+            let result = bootstrap_shell_path(shell_env);
+            if let Some(warning) = shell_bootstrap_warning(&result) {
+                warnings.push(warning);
+            }
+            shell_bootstrap = Some(result);
         }
-        shell_bootstrap = Some(result);
     }
 
     let manifest_path = install_manifest_for(target_dir);
@@ -256,6 +261,14 @@ fn install_layer_with_shell_env(
         warnings,
         shell_bootstrap,
     })
+}
+
+fn layout_from_shell_env(shell_env: &ShellPathBootstrapEnv) -> Result<AicoreLayout, String> {
+    shell_env
+        .home
+        .clone()
+        .map(AicoreLayout::new)
+        .ok_or_else(|| "HOME 不可用，无法安装全局 runtime metadata。".to_string())
 }
 
 fn shell_bootstrap_warning(result: &ShellPathBootstrapResult) -> Option<WarningDiagnostic> {
@@ -565,6 +578,82 @@ mod tests {
         assert!(bashrc.contains(MANAGED_BLOCK_START));
         assert!(bashrc.contains(MANAGED_PATH_LINE));
         assert!(bashrc.contains(MANAGED_BLOCK_END));
+    }
+
+    #[test]
+    fn foundation_install_writes_global_runtime_metadata() {
+        let home_root = temp_home("foundation-runtime");
+        let target_dir = temp_home("foundation-runtime-target");
+        install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
+            .expect("foundation install should succeed");
+
+        for file in [
+            "install.toml",
+            "version.toml",
+            "primitives.toml",
+            "terminal.toml",
+            "paths.toml",
+        ] {
+            assert!(
+                home_root
+                    .join(".aicore/runtime/foundation")
+                    .join(file)
+                    .exists(),
+                "{file} should be installed under global foundation runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn kernel_install_writes_global_runtime_metadata() {
+        let home_root = temp_home("kernel-runtime");
+        let target_dir = temp_home("kernel-runtime-target");
+        install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
+            .expect("kernel install should succeed");
+
+        for file in [
+            "install.toml",
+            "version.toml",
+            "contracts.toml",
+            "capabilities.toml",
+            "registry.toml",
+            "routing.toml",
+            "scheduler.toml",
+        ] {
+            assert!(
+                home_root.join(".aicore/runtime/kernel").join(file).exists(),
+                "{file} should be installed under global kernel runtime"
+            );
+        }
+    }
+
+    #[test]
+    fn global_runtime_layout_creates_expected_directories() {
+        let home_root = temp_home("global-runtime-dirs");
+        let target_dir = temp_home("global-runtime-dirs-target");
+        install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
+            .expect("kernel install should succeed");
+
+        assert!(home_root.join(".aicore/share/manifests").is_dir());
+        assert!(home_root.join(".aicore/state/kernel").is_dir());
+    }
+
+    #[test]
+    fn global_runtime_metadata_uses_atomic_write() {
+        let home_root = temp_home("global-runtime-atomic");
+        let target_dir = temp_home("global-runtime-atomic-target");
+        install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
+            .expect("foundation install should succeed");
+
+        let runtime_dir = home_root.join(".aicore/runtime/foundation");
+        let temp_files = fs::read_dir(&runtime_dir)
+            .expect("runtime dir should exist")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp"))
+            .collect::<Vec<_>>();
+
+        assert!(temp_files.is_empty(), "atomic temp files should not remain");
+        assert!(runtime_dir.join("install.toml").exists());
     }
 
     #[test]

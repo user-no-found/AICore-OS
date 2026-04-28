@@ -1,0 +1,145 @@
+use std::fs;
+use std::path::Path;
+
+use aicore_foundation::AicoreLayout;
+
+use crate::layers::Workflow;
+
+const RUNTIME_VERSION: &str = "0.1.0";
+const FOUNDATION_CONTRACT_VERSION: &str = "foundation.runtime.v1";
+const KERNEL_CONTRACT_VERSION: &str = "kernel.runtime.v1";
+
+pub fn install_global_runtime_metadata(
+    workflow: Workflow,
+    layout: &AicoreLayout,
+) -> Result<(), String> {
+    ensure_global_runtime_dirs(layout)?;
+    match workflow {
+        Workflow::Foundation => install_foundation_metadata(layout),
+        Workflow::Kernel => install_kernel_metadata(layout),
+        Workflow::Core | Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui => Ok(()),
+    }
+}
+
+fn ensure_global_runtime_dirs(layout: &AicoreLayout) -> Result<(), String> {
+    for dir in [
+        &layout.bin_root,
+        &layout.runtime_root,
+        &layout.runtime_foundation_root,
+        &layout.runtime_kernel_root,
+        &layout.share_root,
+        &layout.manifests_root,
+        &layout.contracts_root,
+        &layout.schemas_root,
+        &layout.kernel_state_root,
+        &layout.cache_root,
+        &layout.logs_root,
+    ] {
+        fs::create_dir_all(dir)
+            .map_err(|error| format!("创建全局 runtime 目录 {} 失败: {error}", dir.display()))?;
+    }
+    Ok(())
+}
+
+fn install_foundation_metadata(layout: &AicoreLayout) -> Result<(), String> {
+    let root = &layout.runtime_foundation_root;
+    write_atomic(
+        &root.join("install.toml"),
+        &format!(
+            "layer = \"foundation\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nbin_root = \"{}\"\n",
+            root.display(),
+            layout.bin_root.display()
+        ),
+    )?;
+    write_atomic(
+        &root.join("version.toml"),
+        &format!(
+            "runtime_version = \"{RUNTIME_VERSION}\"\ncontract_version = \"{FOUNDATION_CONTRACT_VERSION}\"\n"
+        ),
+    )?;
+    write_atomic(
+        &root.join("primitives.toml"),
+        "ids = true\nerrors = true\npaths = true\ncancellation = true\nqueues = true\nleases = true\ntime = true\nredaction = true\n",
+    )?;
+    write_atomic(
+        &root.join("terminal.toml"),
+        "terminal_kit = \"aicore-terminal\"\nmode_rich = true\nmode_plain = true\nmode_json = true\nno_color = true\n",
+    )?;
+    write_atomic(
+        &root.join("paths.toml"),
+        &format!(
+            "global_root = \"{}\"\nbin = \"{}\"\nruntime = \"{}\"\nshare_manifests = \"{}\"\nkernel_state = \"{}\"\ncache = \"{}\"\nlogs = \"{}\"\n",
+            layout.state_root.display(),
+            layout.bin_root.display(),
+            layout.runtime_root.display(),
+            layout.manifests_root.display(),
+            layout.kernel_state_root.display(),
+            layout.cache_root.display(),
+            layout.logs_root.display()
+        ),
+    )
+}
+
+fn install_kernel_metadata(layout: &AicoreLayout) -> Result<(), String> {
+    let root = &layout.runtime_kernel_root;
+    write_atomic(
+        &root.join("install.toml"),
+        &format!(
+            "layer = \"kernel\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nregistry_root = \"{}\"\nstate_root = \"{}\"\n",
+            root.display(),
+            layout.manifests_root.display(),
+            layout.kernel_state_root.display()
+        ),
+    )?;
+    write_atomic(
+        &root.join("version.toml"),
+        &format!(
+            "runtime_version = \"{RUNTIME_VERSION}\"\ncontract_version = \"{KERNEL_CONTRACT_VERSION}\"\n"
+        ),
+    )?;
+    write_atomic(
+        &root.join("contracts.toml"),
+        "contract_version = \"kernel.runtime.v1\"\ninvocation_envelope = \"declared\"\nroute_request = \"declared\"\nroute_decision = \"declared\"\nevent_envelope = \"declared\"\n",
+    )?;
+    write_atomic(
+        &root.join("capabilities.toml"),
+        "capability_count = 0\nsource = \"installed_manifests\"\n",
+    )?;
+    write_atomic(
+        &root.join("registry.toml"),
+        &format!(
+            "source = \"installed_manifests\"\nmanifest_dir = \"{}\"\ncomponent_count = 0\n",
+            layout.manifests_root.display()
+        ),
+    )?;
+    write_atomic(
+        &root.join("routing.toml"),
+        "mode = \"metadata_only\"\nroute_decision_runtime = true\ndispatcher_enabled = false\n",
+    )?;
+    write_atomic(
+        &root.join("scheduler.toml"),
+        "multi_instance_parallel = true\nexecution_lanes = \"declared\"\nworker_pool = \"metadata_only\"\n",
+    )
+}
+
+fn write_atomic(path: &Path, content: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("无法确定 {} 的父目录", path.display()))?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("创建目录 {} 失败: {error}", parent.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| format!("无效文件名: {}", path.display()))?;
+    let tmp_path = parent.join(format!(".{file_name}.tmp-{}", std::process::id()));
+    fs::write(&tmp_path, content)
+        .map_err(|error| format!("写入临时文件 {} 失败: {error}", tmp_path.display()))?;
+    fs::rename(&tmp_path, path).map_err(|error| {
+        format!(
+            "替换 runtime metadata {} -> {} 失败: {error}",
+            tmp_path.display(),
+            path.display()
+        )
+    })
+}

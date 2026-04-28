@@ -1,8 +1,14 @@
+mod runtime_status;
+
+use aicore_foundation::AicoreLayout;
 use aicore_kernel::default_control_plane;
 use aicore_kernel::default_runtime;
 use aicore_terminal::{Block, Document, TerminalConfig, render_document};
+use runtime_status::GlobalRuntimeStatus;
 
 fn main() {
+    let layout = AicoreLayout::from_system_home();
+    let global_runtime_status = GlobalRuntimeStatus::load(&layout);
     let control_plane = default_control_plane();
     let runtime = default_runtime();
     let control_summary = control_plane.summary();
@@ -19,6 +25,8 @@ fn main() {
             "Runtime：{}/{}",
             runtime_summary.instance_id, runtime_summary.conversation_id
         ),
+        String::new(),
+        global_runtime_status.render_body(),
     ]
     .join("\n");
 

@@ -1,0 +1,113 @@
+# AICore OS 运行时安装布局规范
+
+## 运行时根目录
+
+AICore OS 的全局运行时根目录是：
+
+```text
+$HOME/.aicore
+```
+
+该目录承载本机用户级 AICore OS runtime 状态。repo-local `target/layers/*` 仍只作为构建、测试和本地安装记录 artifact，不代表全局 runtime 已激活。
+
+## 顶层布局
+
+```text
+$HOME/.aicore/
+  bin/
+  runtime/
+    foundation/
+    kernel/
+  share/
+    manifests/
+    contracts/
+    schemas/
+  state/
+    kernel/
+  config/
+  cache/
+  logs/
+```
+
+`bin` 保存用户可执行入口。`runtime` 保存 foundation 与 kernel 的 installed runtime metadata。`share` 保存可被 kernel registry 读取的 manifests、contracts、schemas。`state/kernel` 保存 kernel runtime 状态、route state、ledger 与 lease 文件。`config`、`cache`、`logs` 分别保存配置、缓存和日志。
+
+## Foundation Runtime Metadata
+
+foundation install 负责写入：
+
+```text
+$HOME/.aicore/runtime/foundation/install.toml
+$HOME/.aicore/runtime/foundation/version.toml
+$HOME/.aicore/runtime/foundation/primitives.toml
+$HOME/.aicore/runtime/foundation/terminal.toml
+$HOME/.aicore/runtime/foundation/paths.toml
+```
+
+foundation metadata 描述底层原语、终端输出能力、路径布局和 runtime 版本。foundation install 同时确保 `$HOME/.aicore/bin` 存在，并负责 shell PATH bootstrap。
+
+foundation 不作为用户直接执行命令安装。
+
+## Kernel Runtime Metadata
+
+kernel install 负责写入：
+
+```text
+$HOME/.aicore/runtime/kernel/install.toml
+$HOME/.aicore/runtime/kernel/version.toml
+$HOME/.aicore/runtime/kernel/contracts.toml
+$HOME/.aicore/runtime/kernel/capabilities.toml
+$HOME/.aicore/runtime/kernel/registry.toml
+$HOME/.aicore/runtime/kernel/routing.toml
+$HOME/.aicore/runtime/kernel/scheduler.toml
+```
+
+kernel metadata 描述 kernel runtime 版本、contracts、capability registry 来源、routing 策略和 scheduler 能力。kernel install 只写 runtime metadata，不安装 app binary，不执行 provider 请求，不执行 tool 或 MCP。
+
+kernel 不作为用户直接执行命令安装。
+
+## App Binary 与 Manifest
+
+应用入口安装到：
+
+```text
+$HOME/.aicore/bin
+```
+
+应用 manifest 安装到：
+
+```text
+$HOME/.aicore/share/manifests
+```
+
+manifest 描述 component id、app id、kind、entrypoint、contract version、capabilities 和 permission boundary。kernel registry 以 installed manifests 作为运行时 registry 的输入。
+
+## Shell PATH Bootstrap
+
+foundation install 负责维护 bash 环境中的 managed PATH block：
+
+```text
+# >>> AICore OS >>>
+export PATH="$HOME/.aicore/bin:$PATH"
+# <<< AICore OS <<<
+```
+
+该 block 可重复执行、可更新、可删除回滚。CI 环境不修改真实 shell rc。应用安装阶段只检测当前 shell 可见性和 command shadowing，不写 shell rc。
+
+## 元数据写入规则
+
+runtime metadata 写入应使用同目录临时文件与 rename 进行本地原子替换。metadata 文件是运行时描述和 registry 输入，不是业务事实源；业务事实源仍由对应应用或 kernel ledger 管理。
+
+## 顶层入口状态读取
+
+`aicore` 顶层入口读取全局 runtime layout 并展示：
+
+- global root
+- foundation installed
+- kernel installed
+- contract version
+- manifest count
+- capability count
+- event ledger path
+- bin path status
+
+该入口用于显示系统安装与 runtime 状态，不等同于 TUI 菜单，也不承担 provider、tool、MCP 或 memory 业务执行。

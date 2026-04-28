@@ -2,6 +2,7 @@ mod cargo_diagnostics;
 mod cargo_runner;
 mod layers;
 mod runner;
+mod runtime_install;
 mod shell_integration;
 mod workflow_output;
 
