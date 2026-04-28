@@ -1,3 +1,4 @@
+mod agent_smoke_runtime;
 mod auth_model_service;
 mod auth_model_service_runtime;
 mod config;

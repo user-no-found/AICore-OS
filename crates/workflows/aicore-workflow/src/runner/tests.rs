@@ -327,6 +327,8 @@ fn app_cli_install_writes_global_manifest_with_capabilities() {
     assert!(manifest.contains("operation = \"memory.status\""));
     assert!(manifest.contains("operation = \"memory.search\""));
     assert!(!manifest.contains("operation = \"provider.smoke\""));
+    assert!(!manifest.contains("operation = \"agent.smoke\""));
+    assert!(!manifest.contains("operation = \"agent.session_smoke\""));
 }
 
 #[test]
@@ -477,6 +479,44 @@ fn app_cli_install_writes_provider_smoke_process_manifest() {
     assert!(manifest.contains("args = [\"__component-provider-smoke-stdio\"]"));
     assert!(manifest.contains("operation = \"provider.smoke\""));
     assert!(!cli_manifest.contains("operation = \"provider.smoke\""));
+}
+
+#[test]
+fn app_cli_install_writes_agent_smoke_process_manifests() {
+    let home_root = temp_home("app-cli-agent-smoke-process-manifest");
+    let target_dir = fake_app_target("app-cli-agent-smoke-target", "aicore-cli");
+    install_layer_with_shell_env(Workflow::AppCli, &target_dir, &bash_env(&home_root))
+        .expect("app-cli install should succeed");
+    let cli_manifest =
+        fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-cli.toml"))
+            .expect("aicore-cli manifest should exist");
+
+    for (file_name, component_id, operation, arg) in [
+        (
+            "aicore-agent-smoke.toml",
+            "aicore-agent-smoke",
+            "agent.smoke",
+            "__component-agent-smoke-stdio",
+        ),
+        (
+            "aicore-agent-session-smoke.toml",
+            "aicore-agent-session-smoke",
+            "agent.session_smoke",
+            "__component-agent-session-smoke-stdio",
+        ),
+    ] {
+        let manifest =
+            fs::read_to_string(home_root.join(".aicore/share/manifests").join(file_name))
+                .unwrap_or_else(|_| panic!("{file_name} should exist"));
+
+        assert!(manifest.contains(&format!("component_id = \"{component_id}\"")));
+        assert!(manifest.contains("app_id = \"aicore-cli\""));
+        assert!(manifest.contains("invocation_mode = \"local_process\""));
+        assert!(manifest.contains("transport = \"stdio_jsonl\""));
+        assert!(manifest.contains(&format!("args = [\"{arg}\"]")));
+        assert!(manifest.contains(&format!("operation = \"{operation}\"")));
+        assert!(!cli_manifest.contains(&format!("operation = \"{operation}\"")));
+    }
 }
 
 #[test]

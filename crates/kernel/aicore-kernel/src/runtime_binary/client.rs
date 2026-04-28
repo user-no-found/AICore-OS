@@ -6,15 +6,15 @@ use aicore_foundation::AicoreLayout;
 
 use crate::{KernelInvocationEnvelope, KernelPayload};
 
+use super::client_support::{failure_invocation, response_payload};
 use super::error::{
     KernelRuntimeBinaryError, KernelRuntimeBinaryErrorKind, KernelRuntimeBinaryInvocation,
-    runtime_binary_failure_payload, sanitize_runtime_binary_diagnostic,
+    sanitize_runtime_binary_diagnostic,
 };
 use super::health::is_executable_file;
 use super::protocol::{FOUNDATION_RUNTIME_BINARY_NAME, KERNEL_RUNTIME_BINARY_NAME};
-use super::public_json::add_runtime_binary_contract_metadata;
 use super::request::KernelRuntimeBinaryRequest;
-use super::response::{KernelRuntimeBinaryResponse, parse_kernel_invocation_result_response};
+use super::response::parse_kernel_invocation_result_response;
 
 #[derive(Debug, Clone)]
 pub struct KernelRuntimeBinaryClient {
@@ -53,6 +53,15 @@ impl KernelRuntimeBinaryClient {
             operation,
             KernelPayload::Empty,
         );
+        self.invoke_envelope(envelope)
+    }
+
+    pub fn invoke_readonly_with_payload(
+        &self,
+        operation: &str,
+        payload: KernelPayload,
+    ) -> KernelRuntimeBinaryInvocation {
+        let envelope = KernelInvocationEnvelope::new("global-main", operation, operation, payload);
         self.invoke_envelope(envelope)
     }
 
@@ -179,7 +188,7 @@ impl KernelRuntimeBinaryClient {
         let stdout = String::from_utf8_lossy(&output.stdout);
         match parse_kernel_invocation_result_response(&stdout, output.status.code()) {
             Ok(mut response) => {
-                let payload = Self::response_payload(&mut response, output.status.code());
+                let payload = response_payload(&mut response, output.status.code());
                 let invocation_failed =
                     payload.get("status").and_then(|value| value.as_str()) == Some("failed");
                 return KernelRuntimeBinaryInvocation {
@@ -251,32 +260,6 @@ impl KernelRuntimeBinaryClient {
         )
     }
 
-    fn response_payload(
-        response: &mut KernelRuntimeBinaryResponse,
-        process_exit_code: Option<i32>,
-    ) -> serde_json::Value {
-        let mut payload = response.payload.clone();
-        if let Some(handler) = payload
-            .get_mut("handler")
-            .and_then(|value| value.as_object_mut())
-        {
-            handler.insert(
-                "process_exit_code".to_string(),
-                process_exit_code
-                    .map(serde_json::Value::from)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-            handler.insert("spawned_process".to_string(), serde_json::Value::Bool(true));
-            handler.insert(
-                "first_party_in_process_adapter".to_string(),
-                serde_json::Value::Bool(false),
-            );
-        }
-        add_runtime_binary_contract_metadata(&mut payload);
-        response.payload = payload.clone();
-        payload
-    }
-
     fn failure_invocation(
         &self,
         request: KernelRuntimeBinaryRequest,
@@ -287,27 +270,17 @@ impl KernelRuntimeBinaryClient {
         spawned_process: bool,
         process_exit_code: Option<i32>,
     ) -> KernelRuntimeBinaryInvocation {
-        KernelRuntimeBinaryInvocation {
-            response: None,
-            payload: runtime_binary_failure_payload(
-                envelope,
-                stage,
-                reason,
-                &self.layout,
-                &self.foundation_binary_path,
-                &self.kernel_binary_path,
-                false,
-                spawned_process,
-                process_exit_code,
-            ),
-            exit_success: false,
+        failure_invocation(
             request,
-            error: Some(KernelRuntimeBinaryError {
-                kind,
-                stage: stage.to_string(),
-                message: sanitize_runtime_binary_diagnostic(reason),
-                exit_code: process_exit_code,
-            }),
-        }
+            envelope,
+            &self.layout,
+            &self.foundation_binary_path,
+            &self.kernel_binary_path,
+            kind,
+            stage,
+            reason,
+            spawned_process,
+            process_exit_code,
+        )
     }
 }

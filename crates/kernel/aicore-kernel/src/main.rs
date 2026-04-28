@@ -124,12 +124,19 @@ fn invoke_stdio_jsonl() -> i32 {
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
 
+    let payload = request
+        .get("payload")
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.strip_prefix("json:"))
+        .map(|value| KernelPayload::JsonSummary(value.to_string()))
+        .unwrap_or(KernelPayload::Empty);
+
     let envelope = envelope(
         instance_id,
         capability,
         operation,
         invocation_id.clone(),
-        KernelPayload::Empty,
+        payload,
     );
 
     if request

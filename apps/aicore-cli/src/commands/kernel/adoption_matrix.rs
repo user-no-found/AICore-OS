@@ -28,6 +28,6 @@ pub(crate) struct KernelInvocationAdoptionEntry {
 mod adoption_entries;
 
 #[cfg(test)]
-pub(crate) fn kernel_invocation_adoption_matrix() -> &'static [KernelInvocationAdoptionEntry] {
-    adoption_entries::ADOPTION_ENTRIES
+pub(crate) fn kernel_invocation_adoption_matrix() -> Vec<KernelInvocationAdoptionEntry> {
+    adoption_entries::adoption_entries()
 }

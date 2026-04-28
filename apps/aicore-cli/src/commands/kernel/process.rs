@@ -6,6 +6,7 @@ use aicore_terminal::{TerminalConfig, TerminalMode};
 
 use crate::terminal::{cli_row, emit_cli_panel};
 
+use crate::commands::agent::{build_agent_session_smoke_report, build_agent_smoke_report};
 use crate::commands::auth::build_auth_list_report;
 use crate::commands::config::build_config_validate_report;
 use crate::commands::model::build_model_show_report;
@@ -173,10 +174,42 @@ pub(crate) fn run_component_provider_smoke_stdio() -> i32 {
     )
 }
 
+pub(crate) fn run_component_agent_smoke_stdio() -> i32 {
+    run_component_report_stdio_with_request(
+        "agent.smoke",
+        "agent smoke component stdin 读取失败",
+        |request| {
+            let content = payload_string(request, "content", "agent smoke demo input");
+            build_agent_smoke_report(&content).map(|report| (report.summary(), report.fields()))
+        },
+    )
+}
+
+pub(crate) fn run_component_agent_session_smoke_stdio() -> i32 {
+    run_component_report_stdio_with_request(
+        "agent.session_smoke",
+        "agent session smoke component stdin 读取失败",
+        |request| {
+            let first = payload_string(request, "first", "first demo input");
+            let second = payload_string(request, "second", "second demo input");
+            build_agent_session_smoke_report(&first, &second)
+                .map(|report| (report.summary(), report.fields()))
+        },
+    )
+}
+
 fn run_component_report_stdio(
     result_kind: &str,
     stdin_error: &str,
     build_report: impl FnOnce() -> Result<(String, serde_json::Value), String>,
+) -> i32 {
+    run_component_report_stdio_with_request(result_kind, stdin_error, |_| build_report())
+}
+
+fn run_component_report_stdio_with_request(
+    result_kind: &str,
+    stdin_error: &str,
+    build_report: impl FnOnce(&serde_json::Value) -> Result<(String, serde_json::Value), String>,
 ) -> i32 {
     let mut input = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut input) {
@@ -188,7 +221,7 @@ fn run_component_report_stdio(
         .get("invocation_id")
         .and_then(|value| value.as_str())
         .unwrap_or("-");
-    let (summary, fields) = match build_report() {
+    let (summary, fields) = match build_report(&request) {
         Ok(report) => report,
         Err(error) => {
             eprintln!("{result_kind} component 执行失败: {error}");
@@ -210,6 +243,16 @@ fn run_component_report_stdio(
         serde_json::to_string(&result).expect("component readonly result should encode")
     );
     0
+}
+
+fn payload_string(request: &serde_json::Value, key: &str, default: &str) -> String {
+    request
+        .get("payload")
+        .and_then(|value| value.get(key))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(default)
+        .to_string()
 }
 
 fn first_json_line(input: &str) -> serde_json::Value {

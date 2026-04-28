@@ -127,9 +127,11 @@ pub(crate) fn print_kernel_invoke_smoke(operation: &str) -> i32 {
     1
 }
 
-pub(crate) fn print_kernel_invoke_readonly(operation: &str) -> i32 {
+pub(crate) fn print_kernel_invoke_readonly(operation: &str, args: &[String]) -> i32 {
     let layout = AicoreLayout::from_system_home();
-    let invocation = KernelRuntimeBinaryClient::new(layout).invoke_readonly(operation);
+    let payload = readonly_payload(operation, args);
+    let invocation =
+        KernelRuntimeBinaryClient::new(layout).invoke_readonly_with_payload(operation, payload);
     let output = invocation.payload;
     if TerminalConfig::current().mode == TerminalMode::Json {
         emit_kernel_invocation_payload_json(&output);
@@ -153,4 +155,30 @@ fn kernel_smoke_handler(
         "smoke handled {}",
         envelope.operation
     )))
+}
+
+fn readonly_payload(operation: &str, args: &[String]) -> KernelPayload {
+    match operation {
+        "agent.smoke" => {
+            let content = args
+                .first()
+                .map(String::as_str)
+                .unwrap_or("agent smoke demo input");
+            KernelPayload::JsonSummary(serde_json::json!({ "content": content }).to_string())
+        }
+        "agent.session_smoke" => {
+            let first = args
+                .first()
+                .map(String::as_str)
+                .unwrap_or("first demo input");
+            let second = args
+                .get(1)
+                .map(String::as_str)
+                .unwrap_or("second demo input");
+            KernelPayload::JsonSummary(
+                serde_json::json!({ "first": first, "second": second }).to_string(),
+            )
+        }
+        _ => KernelPayload::Empty,
+    }
 }

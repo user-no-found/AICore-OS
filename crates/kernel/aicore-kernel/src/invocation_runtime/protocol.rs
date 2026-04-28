@@ -11,6 +11,12 @@ pub(super) fn local_ipc_request_json(
     envelope: &KernelInvocationEnvelope,
     route: &KernelRouteRuntimeOutput,
 ) -> String {
+    let payload = match &envelope.payload {
+        crate::KernelPayload::JsonSummary(value) => {
+            serde_json::from_str(value).unwrap_or(serde_json::Value::Null)
+        }
+        _ => serde_json::Value::Null,
+    };
     serde_json::json!({
         "schema_version": LOCAL_IPC_REQUEST_SCHEMA_VERSION,
         "protocol": LOCAL_IPC_PROTOCOL,
@@ -26,7 +32,8 @@ pub(super) fn local_ipc_request_json(
             "contract_version": format_contract(&route.contract_version),
             "invocation_mode": route.invocation_mode.as_str(),
             "transport": route.transport.as_str(),
-        }
+        },
+        "payload": payload
     })
     .to_string()
 }

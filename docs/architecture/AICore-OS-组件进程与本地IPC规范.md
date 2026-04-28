@@ -36,7 +36,7 @@ visibility = "diagnostic"
 
 manifest 中的通用字段不得包含 provider、memory、agent、tool 等具体业务私有配置。业务协议和 SDK 请求组装属于对应应用内部。
 
-业务只读 capability 可以声明为 local process capability。`config.validate` 使用独立 `aicore-config-validate` component manifest，operation 为 `config.validate`，entrypoint 指向已安装的 `aicore-cli` application binary，args 指向内部 stdio handler。`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list` 与 `cli.status` 使用同类独立 component manifests，并通过内部 stdio handler 输出结构化只读结果。此类 manifest 不改变 direct `aicore-cli config validate`、`aicore-cli auth list`、`aicore-cli model show`、`aicore-cli service list`、`aicore-cli runtime smoke`、`aicore-cli instance list` 或 `aicore-cli status` 本地命令语义。
+业务只读 capability 可以声明为 local process capability。`config.validate` 使用独立 `aicore-config-validate` component manifest，operation 为 `config.validate`，entrypoint 指向已安装的 `aicore-cli` application binary，args 指向内部 stdio handler。`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list`、`cli.status`、`provider.smoke`、`agent.smoke` 与 `agent.session_smoke` 使用同类独立 component manifests，并通过内部 stdio handler 输出结构化只读或 smoke 结果。此类 manifest 不改变 direct `aicore-cli config validate`、`aicore-cli auth list`、`aicore-cli model show`、`aicore-cli service list`、`aicore-cli runtime smoke`、`aicore-cli instance list`、`aicore-cli status`、`aicore-cli provider smoke`、`aicore-cli agent smoke` 或 `aicore-cli agent session-smoke` 本地命令语义。
 
 ## Route Metadata
 

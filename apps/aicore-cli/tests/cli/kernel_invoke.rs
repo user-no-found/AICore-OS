@@ -389,11 +389,11 @@ fn kernel_readonly_handler_failure_records_invocation_failed() {
         &home,
         "aicore.toml",
         "aicore",
-        &[("agent.smoke", "agent.smoke")],
+        &[("missing.handler.smoke", "missing.handler.smoke")],
     );
 
     let output = run_cli_with_env(
-        &["kernel", "invoke-readonly", "agent.smoke"],
+        &["kernel", "invoke-readonly", "missing.handler.smoke"],
         &[("HOME", home.to_str().expect("home path should be utf-8"))],
     );
 

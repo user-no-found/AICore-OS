@@ -1,4 +1,5 @@
 mod client;
+mod client_support;
 mod error;
 mod health;
 mod protocol;

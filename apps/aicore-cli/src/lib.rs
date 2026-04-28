@@ -35,6 +35,12 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-provider-smoke-stdio" => {
             commands::kernel::run_component_provider_smoke_stdio()
         }
+        [cmd] if cmd == "__component-agent-smoke-stdio" => {
+            commands::kernel::run_component_agent_smoke_stdio()
+        }
+        [cmd] if cmd == "__component-agent-session-smoke-stdio" => {
+            commands::kernel::run_component_agent_session_smoke_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0
@@ -53,8 +59,10 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, operation] if group == "kernel" && action == "invoke-smoke" => {
             commands::kernel::print_kernel_invoke_smoke(operation)
         }
-        [group, action, operation] if group == "kernel" && action == "invoke-readonly" => {
-            commands::kernel::print_kernel_invoke_readonly(operation)
+        [group, action, operation, rest @ ..]
+            if group == "kernel" && action == "invoke-readonly" =>
+        {
+            commands::kernel::print_kernel_invoke_readonly(operation, rest)
         }
         [group, action, operation] if group == "kernel" && action == "invoke-process-smoke" => {
             commands::kernel::print_kernel_invoke_process_smoke(operation)

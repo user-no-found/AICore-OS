@@ -156,6 +156,35 @@ fn kernel_invocation_adoption_matrix_marks_provider_smoke_readonly_as_kernel_nat
 }
 
 #[test]
+fn kernel_invocation_adoption_matrix_marks_agent_smoke_readonly_as_kernel_native() {
+    let matrix = kernel_invocation_adoption_matrix();
+    for (command, operation) in [
+        (
+            "aicore-cli kernel invoke-readonly agent.smoke",
+            "agent.smoke",
+        ),
+        (
+            "aicore-cli kernel invoke-readonly agent.session_smoke",
+            "agent.session_smoke",
+        ),
+    ] {
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == command)
+            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+        assert_eq!(entry.operation, operation);
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(entry.structured_result_envelope_used);
+        assert!(!entry.direct_local_execution_allowed_for_now);
+        assert!(!entry.future_migration_required);
+    }
+}
+
+#[test]
 fn kernel_invocation_adoption_matrix_marks_invoke_smoke_as_diagnostic() {
     let matrix = kernel_invocation_adoption_matrix();
     let entry = matrix
@@ -200,7 +229,6 @@ fn kernel_invocation_adoption_matrix_marks_direct_commands_explicitly() {
 fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
     let matrix = kernel_invocation_adoption_matrix();
     for command in [
-        "aicore-cli agent smoke <内容>",
         "aicore-cli memory search <关键词>",
         "aicore-cli memory remember <内容>",
     ] {
@@ -214,6 +242,27 @@ fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
             KernelInvocationAdoptionClass::MustMigrateToKernelInvocationLater
         );
         assert!(entry.future_migration_required);
+        assert!(!entry.invocation_runtime_used);
+    }
+}
+
+#[test]
+fn kernel_invocation_adoption_matrix_marks_direct_agent_smoke_as_retained_direct_path() {
+    let matrix = kernel_invocation_adoption_matrix();
+    for command in [
+        "aicore-cli agent smoke <内容>",
+        "aicore-cli agent session-smoke <第一轮内容> <第二轮内容>",
+    ] {
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == command)
+            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+        assert_eq!(
+            entry.class,
+            KernelInvocationAdoptionClass::AllowedLocalDirectCommand
+        );
+        assert!(entry.direct_local_execution_allowed_for_now);
         assert!(!entry.invocation_runtime_used);
     }
 }
