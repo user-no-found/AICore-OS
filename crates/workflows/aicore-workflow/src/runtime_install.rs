@@ -2,11 +2,12 @@ use std::fs;
 use std::path::Path;
 
 use aicore_foundation::AicoreLayout;
-use aicore_kernel::{
-    ComponentInvocationMode, ComponentTransport, InstalledCapability, InstalledComponentManifest,
-};
 
 use crate::layers::Workflow;
+
+mod component_manifests;
+
+use component_manifests::{app_cli_process_manifests, app_manifest_for};
 
 const RUNTIME_VERSION: &str = "0.1.0";
 const FOUNDATION_CONTRACT_VERSION: &str = "foundation.runtime.v1";
@@ -40,20 +41,14 @@ pub fn install_app_manifest(
         &manifest.to_toml(),
     )?;
     if workflow == Workflow::AppCli {
-        let smoke_manifest = component_process_smoke_manifest(entrypoint);
-        write_atomic(
-            &layout
-                .manifests_root
-                .join(format!("{}.toml", smoke_manifest.component_id)),
-            &smoke_manifest.to_toml(),
-        )?;
-        let config_validate_manifest = config_validate_component_manifest(entrypoint);
-        write_atomic(
-            &layout
-                .manifests_root
-                .join(format!("{}.toml", config_validate_manifest.component_id)),
-            &config_validate_manifest.to_toml(),
-        )?;
+        for process_manifest in app_cli_process_manifests(entrypoint) {
+            write_atomic(
+                &layout
+                    .manifests_root
+                    .join(format!("{}.toml", process_manifest.component_id)),
+                &process_manifest.to_toml(),
+            )?;
+        }
     }
     Ok(())
 }
@@ -163,107 +158,6 @@ fn install_kernel_metadata(layout: &AicoreLayout) -> Result<(), String> {
         &root.join("scheduler.toml"),
         "multi_instance_parallel = true\nexecution_lanes = \"declared\"\nworker_pool = \"metadata_only\"\n",
     )
-}
-
-fn app_manifest_for(workflow: Workflow, entrypoint: &Path) -> Option<InstalledComponentManifest> {
-    let (component_id, capabilities) = match workflow {
-        Workflow::AppAicore => (
-            "aicore",
-            vec![
-                capability("runtime.status", "runtime.status"),
-                capability("system.status", "system.status"),
-            ],
-        ),
-        Workflow::AppCli => (
-            "aicore-cli",
-            vec![
-                capability("config.path", "config.path"),
-                capability("auth.list", "auth.list"),
-                capability("model.show", "model.show"),
-                capability("service.list", "service.list"),
-                capability("memory.status", "memory.status"),
-                capability("memory.search", "memory.search"),
-                capability("memory.proposals", "memory.proposals"),
-                capability("memory.audit", "memory.audit"),
-                capability("memory.wiki", "memory.wiki"),
-                capability("provider.smoke", "provider.smoke"),
-                capability("agent.smoke", "agent.smoke"),
-                capability("agent.session_smoke", "agent.session_smoke"),
-                capability("runtime.smoke", "runtime.smoke"),
-                capability("instance.list", "instance.list"),
-            ],
-        ),
-        Workflow::AppTui => (
-            "aicore-tui",
-            vec![
-                capability("tui.session", "tui.session"),
-                capability("tui.route_smoke", "tui.route_smoke"),
-            ],
-        ),
-        Workflow::Foundation | Workflow::Kernel | Workflow::Core => return None,
-    };
-
-    Some(InstalledComponentManifest {
-        component_id: component_id.to_string(),
-        app_id: component_id.to_string(),
-        kind: "app".to_string(),
-        entrypoint: entrypoint.display().to_string(),
-        invocation_mode: ComponentInvocationMode::InProcess,
-        transport: ComponentTransport::Unsupported,
-        args: Vec::new(),
-        working_dir: None,
-        env_policy: None,
-        contract_version: "kernel.app.v1".to_string(),
-        capabilities,
-    })
-}
-
-fn component_process_smoke_manifest(entrypoint: &Path) -> InstalledComponentManifest {
-    InstalledComponentManifest {
-        component_id: "aicore-component-smoke".to_string(),
-        app_id: "aicore-cli".to_string(),
-        kind: "app".to_string(),
-        entrypoint: entrypoint.display().to_string(),
-        invocation_mode: ComponentInvocationMode::LocalProcess,
-        transport: ComponentTransport::StdioJsonl,
-        args: vec!["__component-smoke-stdio".to_string()],
-        working_dir: None,
-        env_policy: Some("minimal".to_string()),
-        contract_version: "kernel.app.v1".to_string(),
-        capabilities: vec![InstalledCapability {
-            id: "component.process.smoke".to_string(),
-            operation: "component.process.smoke".to_string(),
-            visibility: "diagnostic".to_string(),
-        }],
-    }
-}
-
-fn config_validate_component_manifest(entrypoint: &Path) -> InstalledComponentManifest {
-    InstalledComponentManifest {
-        component_id: "aicore-config-validate".to_string(),
-        app_id: "aicore-cli".to_string(),
-        kind: "app".to_string(),
-        entrypoint: entrypoint.display().to_string(),
-        invocation_mode: ComponentInvocationMode::LocalProcess,
-        transport: ComponentTransport::StdioJsonl,
-        args: vec!["__component-config-validate-stdio".to_string()],
-        working_dir: None,
-        env_policy: Some("minimal".to_string()),
-        contract_version: "kernel.app.v1".to_string(),
-        capabilities: vec![InstalledCapability {
-            id: "config.validate".to_string(),
-            operation: "config.validate".to_string(),
-            visibility: "user".to_string(),
-        }],
-    }
-}
-
-fn capability(id: &str, operation: &str) -> InstalledCapability {
-    InstalledCapability {
-        id: id.to_string(),
-        operation: operation.to_string(),
-        visibility: "user".to_string(),
-    }
 }
 
 fn write_atomic(path: &Path, content: &str) -> Result<(), String> {

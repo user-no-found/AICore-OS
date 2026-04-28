@@ -92,6 +92,29 @@ fn kernel_invocation_adoption_matrix_marks_config_validate_readonly_as_kernel_na
 }
 
 #[test]
+fn kernel_invocation_adoption_matrix_marks_auth_model_service_readonly_as_kernel_native() {
+    let matrix = kernel_invocation_adoption_matrix();
+    for command in [
+        "aicore-cli kernel invoke-readonly auth.list",
+        "aicore-cli kernel invoke-readonly model.show",
+        "aicore-cli kernel invoke-readonly service.list",
+    ] {
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == command)
+            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(entry.structured_result_envelope_used);
+        assert!(!entry.direct_local_execution_allowed_for_now);
+        assert!(!entry.future_migration_required);
+    }
+}
+
+#[test]
 fn kernel_invocation_adoption_matrix_marks_invoke_smoke_as_diagnostic() {
     let matrix = kernel_invocation_adoption_matrix();
     let entry = matrix

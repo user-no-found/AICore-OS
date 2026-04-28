@@ -370,6 +370,50 @@ fn app_cli_install_writes_config_validate_process_manifest() {
 }
 
 #[test]
+fn app_cli_install_writes_auth_model_service_process_manifests() {
+    let home_root = temp_home("app-cli-auth-model-service-process-manifest");
+    let target_dir = fake_app_target("app-cli-auth-model-service-target", "aicore-cli");
+    install_layer_with_shell_env(Workflow::AppCli, &target_dir, &bash_env(&home_root))
+        .expect("app-cli install should succeed");
+    let cli_manifest =
+        fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-cli.toml"))
+            .expect("aicore-cli manifest should exist");
+
+    for (file_name, component_id, operation, arg) in [
+        (
+            "aicore-auth-list.toml",
+            "aicore-auth-list",
+            "auth.list",
+            "__component-auth-list-stdio",
+        ),
+        (
+            "aicore-model-show.toml",
+            "aicore-model-show",
+            "model.show",
+            "__component-model-show-stdio",
+        ),
+        (
+            "aicore-service-list.toml",
+            "aicore-service-list",
+            "service.list",
+            "__component-service-list-stdio",
+        ),
+    ] {
+        let manifest =
+            fs::read_to_string(home_root.join(".aicore/share/manifests").join(file_name))
+                .unwrap_or_else(|_| panic!("{file_name} should exist"));
+
+        assert!(manifest.contains(&format!("component_id = \"{component_id}\"")));
+        assert!(manifest.contains("app_id = \"aicore-cli\""));
+        assert!(manifest.contains("invocation_mode = \"local_process\""));
+        assert!(manifest.contains("transport = \"stdio_jsonl\""));
+        assert!(manifest.contains(&format!("args = [\"{arg}\"]")));
+        assert!(manifest.contains(&format!("operation = \"{operation}\"")));
+        assert!(!cli_manifest.contains(&format!("operation = \"{operation}\"")));
+    }
+}
+
+#[test]
 fn app_tui_install_writes_global_manifest() {
     let home_root = temp_home("app-tui-manifest");
     let target_dir = fake_app_target("app-tui-target", "aicore-tui");

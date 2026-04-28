@@ -107,7 +107,7 @@ invocation ledger 应记录 local process metadata，例如 handler kind、spawn
 
 应用通过 runtime binary client 触发 local process diagnostic invocation 时，public surface 必须表达 `kernel_invocation_path = binary` 或等价字段，并保持 `in_process_fallback = false`。缺少 foundation 或 kernel runtime binary 时，failure stage 必须结构化表达对应 binary 缺失或不可执行状态。
 
-业务只读 operation 可以采用同一条 local process invocation 边界。`config.validate` 是配置校验只读 capability：route decision 来自 installed manifest，Kernel runtime binary 负责启动 component process，component process 通过 stdout 返回 `KernelInvocationResultEnvelope` 可消费字段。direct `aicore-cli config validate` 可以作为兼容本地命令保留，但不能被标记为 kernel-native invocation。
+业务只读 operation 可以采用同一条 local process invocation 边界。`config.validate` 是配置校验只读 capability：route decision 来自 installed manifest，Kernel runtime binary 负责启动 component process，component process 通过 stdout 返回 `KernelInvocationResultEnvelope` 可消费字段。`auth.list`、`model.show` 与 `service.list` 也是只读 component process capability；它们返回结构化 public fields，并继续禁止 raw config、secret、`secret_ref` 或 credential material 进入 public surface 与 ledger。direct `aicore-cli config validate`、`aicore-cli auth list`、`aicore-cli model show` 与 `aicore-cli service list` 可以作为兼容本地命令保留，但不能被标记为 kernel-native invocation。
 
 ## First-party Read-only Handler Boundary
 

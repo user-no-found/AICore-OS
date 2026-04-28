@@ -14,6 +14,15 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-config-validate-stdio" => {
             commands::kernel::run_component_config_validate_stdio()
         }
+        [cmd] if cmd == "__component-auth-list-stdio" => {
+            commands::kernel::run_component_auth_list_stdio()
+        }
+        [cmd] if cmd == "__component-model-show-stdio" => {
+            commands::kernel::run_component_model_show_stdio()
+        }
+        [cmd] if cmd == "__component-service-list-stdio" => {
+            commands::kernel::run_component_service_list_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0

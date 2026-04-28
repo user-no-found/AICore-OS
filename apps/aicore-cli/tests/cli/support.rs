@@ -200,6 +200,48 @@ pub(crate) fn seed_config_validate_manifest(home: &PathBuf) {
         .expect("config validate manifest should be writable");
 }
 
+pub(crate) fn seed_auth_model_service_manifests(home: &PathBuf) {
+    for (file_name, component_id, operation, arg) in [
+        (
+            "aicore-auth-list.toml",
+            "aicore-auth-list",
+            "auth.list",
+            "__component-auth-list-stdio",
+        ),
+        (
+            "aicore-model-show.toml",
+            "aicore-model-show",
+            "model.show",
+            "__component-model-show-stdio",
+        ),
+        (
+            "aicore-service-list.toml",
+            "aicore-service-list",
+            "service.list",
+            "__component-service-list-stdio",
+        ),
+    ] {
+        seed_readonly_component_manifest(home, file_name, component_id, operation, arg);
+    }
+}
+
+fn seed_readonly_component_manifest(
+    home: &PathBuf,
+    file_name: &str,
+    component_id: &str,
+    operation: &str,
+    arg: &str,
+) {
+    let manifests = home.join(".aicore").join("share").join("manifests");
+    fs::create_dir_all(&manifests).expect("manifest dir should be creatable");
+    let entrypoint = env!("CARGO_BIN_EXE_aicore-cli");
+    let content = format!(
+        "component_id = \"{component_id}\"\napp_id = \"aicore-cli\"\nkind = \"app\"\nentrypoint = \"{}\"\ninvocation_mode = \"local_process\"\ntransport = \"stdio_jsonl\"\nargs = [\"{arg}\"]\ncontract_version = \"kernel.app.v1\"\n\n[[capabilities]]\nid = \"{operation}\"\noperation = \"{operation}\"\nvisibility = \"user\"\n",
+        entrypoint.replace('"', "\\\"")
+    );
+    fs::write(manifests.join(file_name), content).expect("readonly manifest should be writable");
+}
+
 pub(crate) fn seed_global_runtime_metadata(home: &PathBuf) {
     let foundation = home.join(".aicore").join("runtime").join("foundation");
     let kernel = home.join(".aicore").join("runtime").join("kernel");
@@ -251,6 +293,33 @@ cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.config.completed","timestamp":"0","invocation_id":"invoke.fixture.config","trace_id":"trace.default","instance_id":"global-main","operation":"config.validate","stage":"invocation_completed","status":"ok","component_id":"aicore-config-validate","app_id":"aicore-cli","capability_id":"config.validate","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
 LEDGER
 printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.config","trace_id":"trace.default","operation":"config.validate","status":"completed","route":{"component_id":"aicore-config-validate","app_id":"aicore-cli","capability_id":"config.validate","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"config.validate","summary":"配置校验通过","fields":{"operation":"config.validate","valid":"true","config_root":"fixture-config-root","checked_files":"auth.toml, services.toml, providers.toml, instances/global-main/runtime.toml","auth_pool_present":"true","runtime_config_present":"true","service_profiles_present":"true","provider_profiles_present":"true","error_count":"0","warning_count":"0","diagnostics":"配置校验通过","kernel_invocation_path":"binary"}},"failure":{"stage":null,"reason":null}}}'
+exit 0
+fi
+if printf '%s' "$request" | grep -q 'auth.list'; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.auth.accepted","timestamp":"0","invocation_id":"invoke.fixture.auth","trace_id":"trace.default","instance_id":"global-main","operation":"auth.list","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.auth.route","timestamp":"0","invocation_id":"invoke.fixture.auth","trace_id":"trace.default","instance_id":"global-main","operation":"auth.list","stage":"route_decision_made","status":"ok","component_id":"aicore-auth-list","app_id":"aicore-cli","capability_id":"auth.list","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.auth.handler","timestamp":"0","invocation_id":"invoke.fixture.auth","trace_id":"trace.default","instance_id":"global-main","operation":"auth.list","stage":"handler_executed","status":"ok","component_id":"aicore-auth-list","app_id":"aicore-cli","capability_id":"auth.list","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":false,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.auth.event","timestamp":"0","invocation_id":"invoke.fixture.auth","trace_id":"trace.default","instance_id":"global-main","operation":"auth.list","stage":"event_generated","status":"ok","component_id":"aicore-auth-list","app_id":"aicore-cli","capability_id":"auth.list","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.auth.completed","timestamp":"0","invocation_id":"invoke.fixture.auth","trace_id":"trace.default","instance_id":"global-main","operation":"auth.list","stage":"invocation_completed","status":"ok","component_id":"aicore-auth-list","app_id":"aicore-cli","capability_id":"auth.list","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.auth","trace_id":"trace.default","operation":"auth.list","status":"completed","route":{"component_id":"aicore-auth-list","app_id":"aicore-cli","capability_id":"auth.list","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"auth.list","summary":"认证池读取完成：2 条 auth_ref","fields":{"operation":"auth.list","auth_count":"2","entries":"[{\"auth_ref\":\"auth.dummy.main\",\"provider\":\"dummy\",\"kind\":\"api-key\",\"enabled\":true,\"capabilities\":[\"chat\"],\"secret\":\"configured\"}]","kernel_invocation_path":"binary"}},"failure":{"stage":null,"reason":null}}}'
+exit 0
+fi
+if printf '%s' "$request" | grep -q 'model.show'; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.model.accepted","timestamp":"0","invocation_id":"invoke.fixture.model","trace_id":"trace.default","instance_id":"global-main","operation":"model.show","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.model.completed","timestamp":"0","invocation_id":"invoke.fixture.model","trace_id":"trace.default","instance_id":"global-main","operation":"model.show","stage":"invocation_completed","status":"ok","component_id":"aicore-model-show","app_id":"aicore-cli","capability_id":"model.show","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.model","trace_id":"trace.default","operation":"model.show","status":"completed","route":{"component_id":"aicore-model-show","app_id":"aicore-cli","capability_id":"model.show","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"model.show","summary":"实例模型配置读取完成","fields":{"operation":"model.show","primary_model":"dummy/default-chat","primary_auth_ref":"auth.dummy.main","provider":"dummy","provider_kind":"api-key","runtime_config_present":"true","kernel_invocation_path":"binary"}},"failure":{"stage":null,"reason":null}}}'
+exit 0
+fi
+if printf '%s' "$request" | grep -q 'service.list'; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.service.accepted","timestamp":"0","invocation_id":"invoke.fixture.service","trace_id":"trace.default","instance_id":"global-main","operation":"service.list","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.service.completed","timestamp":"0","invocation_id":"invoke.fixture.service","trace_id":"trace.default","instance_id":"global-main","operation":"service.list","stage":"invocation_completed","status":"ok","component_id":"aicore-service-list","app_id":"aicore-cli","capability_id":"service.list","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.service","trace_id":"trace.default","operation":"service.list","status":"completed","route":{"component_id":"aicore-service-list","app_id":"aicore-cli","capability_id":"service.list","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"service.list","summary":"服务角色配置读取完成：3 个角色","fields":{"operation":"service.list","service_count":"3","services":"[{\"role\":\"search\",\"mode\":\"explicit\",\"auth_ref\":\"auth.openrouter.search\",\"model\":\"perplexity/sonar\",\"enabled\":true}]","kernel_invocation_path":"binary"}},"failure":{"stage":null,"reason":null}}}'
 exit 0
 fi
 if printf '%s' "$request" | grep -q 'provider.smoke'; then
