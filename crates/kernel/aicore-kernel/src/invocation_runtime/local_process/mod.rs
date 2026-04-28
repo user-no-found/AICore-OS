@@ -88,14 +88,15 @@ impl KernelInvocationRuntime {
                         .with_process_exit_code(success.exit_code),
                     &mut ledger_records,
                 ) {
-                    return Self::ledger_failure(
-                        Some(route),
-                        Some(event),
-                        true,
-                        true,
+                    return Self::completed_ledger_failure_with_result(
+                        route,
+                        event,
+                        result,
                         Some("local_process".to_string()),
                         true,
-                        format!("audit close failed after action happened: {error}"),
+                        Some("stdio_jsonl".to_string()),
+                        success.exit_code,
+                        error,
                         ledger,
                         ledger_records,
                     );

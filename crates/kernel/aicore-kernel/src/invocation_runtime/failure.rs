@@ -1,6 +1,6 @@
 use crate::{
-    KernelEventEnvelope, KernelInvocationEnvelope, KernelInvocationLedger, KernelRouteRuntimeError,
-    KernelRouteRuntimeOutput,
+    KernelEventEnvelope, KernelInvocationEnvelope, KernelInvocationLedger,
+    KernelInvocationResultEnvelope, KernelRouteRuntimeError, KernelRouteRuntimeOutput,
 };
 
 use super::{KernelInvocationRuntime, KernelInvocationRuntimeOutput, KernelInvocationStatus};
@@ -102,5 +102,48 @@ impl KernelInvocationRuntime {
             ledger,
             ledger_record_count,
         )
+    }
+
+    pub(super) fn completed_ledger_failure_with_result(
+        route: KernelRouteRuntimeOutput,
+        event: KernelEventEnvelope,
+        mut result: KernelInvocationResultEnvelope,
+        handler_kind: Option<String>,
+        spawned_process: bool,
+        transport: Option<String>,
+        process_exit_code: Option<i32>,
+        error: String,
+        ledger: &KernelInvocationLedger,
+        ledger_record_count: usize,
+    ) -> KernelInvocationRuntimeOutput {
+        let reason = format!("audit close failed after action happened: {error}");
+        result.status = KernelInvocationStatus::Failed;
+        result.failure_stage = Some("ledger_append".to_string());
+        result.failure_reason = Some(reason.clone());
+        result.ledger_appended = false;
+        if result.public_fields.get("write_applied").is_some() {
+            result
+                .public_fields
+                .insert("audit_closed".to_string(), "false".to_string());
+        }
+        KernelInvocationRuntimeOutput {
+            status: KernelInvocationStatus::Failed,
+            route: Some(route),
+            event: Some(event),
+            result: Some(result),
+            route_decision_made: true,
+            handler_executed: true,
+            event_generated: true,
+            handler_kind,
+            failure_stage: Some("ledger_append".to_string()),
+            failure_reason: Some(reason),
+            spawned_process,
+            called_real_component: false,
+            transport,
+            process_exit_code,
+            ledger_appended: false,
+            ledger_path: Some(ledger.path().display().to_string()),
+            ledger_record_count,
+        }
     }
 }
