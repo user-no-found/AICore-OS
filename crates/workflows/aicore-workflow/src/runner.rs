@@ -244,6 +244,7 @@ fn install_layer_with_shell_env(
         )?);
     } else if matches!(workflow, Workflow::Foundation | Workflow::Kernel) {
         let layout = layout_from_shell_env(shell_env)?;
+        install_runtime_binary(workflow, target_dir, &layout)?;
         install_global_runtime_metadata(workflow, &layout)?;
         if workflow == Workflow::Foundation {
             let result = bootstrap_shell_path(shell_env);
@@ -314,12 +315,12 @@ fn built_binary_path(target_dir: &Path, workflow: Workflow) -> PathBuf {
 
 fn binary_name_for(workflow: Workflow) -> &'static str {
     match workflow {
+        Workflow::Foundation => "aicore-foundation",
+        Workflow::Kernel => "aicore-kernel",
         Workflow::AppAicore => "aicore",
         Workflow::AppCli => "aicore-cli",
         Workflow::AppTui => "aicore-tui",
-        Workflow::Foundation | Workflow::Kernel | Workflow::Core => {
-            unreachable!("non-app workflows do not install binaries")
-        }
+        Workflow::Core => unreachable!("core workflow does not install a single binary"),
     }
 }
 
@@ -366,6 +367,49 @@ fn install_app_binary(
         path_env,
         Path::exists,
     ))
+}
+
+fn install_runtime_binary(
+    workflow: Workflow,
+    target_dir: &Path,
+    layout: &AicoreLayout,
+) -> Result<(), String> {
+    let install_dir = install_bin_dir_for(&layout.home_root);
+    fs::create_dir_all(&install_dir).map_err(|error| {
+        format!(
+            "创建 runtime 安装目录 {} 失败: {error}",
+            install_dir.display()
+        )
+    })?;
+
+    let source_path = built_binary_path(target_dir, workflow);
+    if !source_path.exists() {
+        return Err(format!(
+            "未找到待安装 runtime binary: {}",
+            source_path.display()
+        ));
+    }
+
+    let target_path = installed_binary_path(&layout.home_root, workflow);
+    fs::copy(&source_path, &target_path).map_err(|error| {
+        format!(
+            "复制 runtime binary {} -> {} 失败: {error}",
+            source_path.display(),
+            target_path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(&target_path)
+            .map_err(|error| format!("读取 runtime binary 权限失败: {error}"))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&target_path, permissions)
+            .map_err(|error| format!("设置 runtime binary 可执行权限失败: {error}"))?;
+    }
+
+    Ok(())
 }
 
 fn install_visibility_warnings(
@@ -576,7 +620,7 @@ mod tests {
     #[test]
     fn foundation_workflow_runs_shell_path_bootstrap() {
         let home_root = temp_home("foundation-bootstrap");
-        let target_dir = temp_home("foundation-target");
+        let target_dir = fake_app_target("foundation-target", "aicore-foundation");
         let outcome =
             install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
                 .expect("foundation install should succeed");
@@ -591,7 +635,7 @@ mod tests {
     #[test]
     fn foundation_install_writes_global_runtime_metadata() {
         let home_root = temp_home("foundation-runtime");
-        let target_dir = temp_home("foundation-runtime-target");
+        let target_dir = fake_app_target("foundation-runtime-target", "aicore-foundation");
         install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
             .expect("foundation install should succeed");
 
@@ -615,7 +659,7 @@ mod tests {
     #[test]
     fn kernel_install_writes_global_runtime_metadata() {
         let home_root = temp_home("kernel-runtime");
-        let target_dir = temp_home("kernel-runtime-target");
+        let target_dir = fake_app_target("kernel-runtime-target", "aicore-kernel");
         install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
             .expect("kernel install should succeed");
 
@@ -636,9 +680,70 @@ mod tests {
     }
 
     #[test]
+    fn foundation_runtime_binary_is_installed_by_cargo_foundation() {
+        let home_root = temp_home("foundation-runtime-binary");
+        let target_dir = fake_app_target("foundation-runtime-binary-target", "aicore-foundation");
+        install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
+            .expect("foundation install should succeed");
+
+        assert!(home_root.join(".aicore/bin/aicore-foundation").exists());
+    }
+
+    #[test]
+    fn kernel_runtime_binary_is_installed_by_cargo_kernel() {
+        let home_root = temp_home("kernel-runtime-binary");
+        let target_dir = fake_app_target("kernel-runtime-binary-target", "aicore-kernel");
+        install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
+            .expect("kernel install should succeed");
+
+        assert!(home_root.join(".aicore/bin/aicore-kernel").exists());
+    }
+
+    #[test]
+    fn runtime_install_metadata_records_foundation_binary() {
+        let home_root = temp_home("foundation-runtime-binary-metadata");
+        let target_dir = fake_app_target(
+            "foundation-runtime-binary-metadata-target",
+            "aicore-foundation",
+        );
+        install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
+            .expect("foundation install should succeed");
+
+        let metadata = fs::read_to_string(
+            home_root
+                .join(".aicore/runtime/foundation")
+                .join("install.toml"),
+        )
+        .expect("foundation install metadata should exist");
+        assert!(metadata.contains("runtime_binary_path = \""));
+        assert!(metadata.contains("aicore-foundation"));
+        assert!(metadata.contains("runtime_binary_installed = true"));
+        assert!(metadata.contains("runtime_protocol = \"stdio_jsonl\""));
+    }
+
+    #[test]
+    fn runtime_install_metadata_records_kernel_binary() {
+        let home_root = temp_home("kernel-runtime-binary-metadata");
+        let target_dir = fake_app_target("kernel-runtime-binary-metadata-target", "aicore-kernel");
+        install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
+            .expect("kernel install should succeed");
+
+        let metadata = fs::read_to_string(
+            home_root
+                .join(".aicore/runtime/kernel")
+                .join("install.toml"),
+        )
+        .expect("kernel install metadata should exist");
+        assert!(metadata.contains("runtime_binary_path = \""));
+        assert!(metadata.contains("aicore-kernel"));
+        assert!(metadata.contains("runtime_binary_installed = true"));
+        assert!(metadata.contains("runtime_protocol = \"stdio_jsonl\""));
+    }
+
+    #[test]
     fn global_runtime_layout_creates_expected_directories() {
         let home_root = temp_home("global-runtime-dirs");
-        let target_dir = temp_home("global-runtime-dirs-target");
+        let target_dir = fake_app_target("global-runtime-dirs-target", "aicore-kernel");
         install_layer_with_shell_env(Workflow::Kernel, &target_dir, &bash_env(&home_root))
             .expect("kernel install should succeed");
 
@@ -649,7 +754,7 @@ mod tests {
     #[test]
     fn global_runtime_metadata_uses_atomic_write() {
         let home_root = temp_home("global-runtime-atomic");
-        let target_dir = temp_home("global-runtime-atomic-target");
+        let target_dir = fake_app_target("global-runtime-atomic-target", "aicore-foundation");
         install_layer_with_shell_env(Workflow::Foundation, &target_dir, &bash_env(&home_root))
             .expect("foundation install should succeed");
 

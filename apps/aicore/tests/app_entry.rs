@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,9 +27,9 @@ fn assert_json_lines(stdout: &str) -> Vec<serde_json::Value> {
 
 #[test]
 fn renders_minimal_system_status_by_default() {
-    let output = Command::new(env!("CARGO_BIN_EXE_aicore"))
-        .output()
-        .expect("aicore binary should run");
+    let home = temp_home("minimal-status-default");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[("HOME", home.to_str().expect("utf8 home"))]);
 
     assert!(output.status.success());
 
@@ -43,7 +45,12 @@ fn renders_minimal_system_status_by_default() {
 
 #[test]
 fn app_aicore_uses_terminal_panel_in_rich_mode() {
-    let output = run_aicore_with_env(&[("AICORE_TERMINAL", "rich")]);
+    let home = temp_home("rich-status");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("AICORE_TERMINAL", "rich"),
+    ]);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
@@ -54,7 +61,12 @@ fn app_aicore_uses_terminal_panel_in_rich_mode() {
 
 #[test]
 fn app_aicore_plain_has_no_ansi() {
-    let output = run_aicore_with_env(&[("AICORE_TERMINAL", "plain")]);
+    let home = temp_home("plain-status");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("AICORE_TERMINAL", "plain"),
+    ]);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
@@ -66,7 +78,12 @@ fn app_aicore_plain_has_no_ansi() {
 
 #[test]
 fn app_aicore_json_outputs_valid_json() {
-    let output = run_aicore_with_env(&[("AICORE_TERMINAL", "json")]);
+    let home = temp_home("json-status");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("AICORE_TERMINAL", "json"),
+    ]);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
@@ -84,7 +101,13 @@ fn app_aicore_json_outputs_valid_json() {
 
 #[test]
 fn app_aicore_no_color_has_no_ansi() {
-    let output = run_aicore_with_env(&[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")]);
+    let home = temp_home("no-color-status");
+    create_runtime_status_fixture(&home);
+    let output = run_aicore_with_env(&[
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("AICORE_TERMINAL", "rich"),
+        ("NO_COLOR", "1"),
+    ]);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be valid utf-8");
@@ -133,6 +156,8 @@ fn aicore_top_level_status_uses_kernel_invocation_runtime() {
     assert!(stdout.contains("operation：runtime.status"));
     assert!(stdout.contains("handler executed：true"));
     assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("in-process fallback：false"));
 }
 
 #[test]
@@ -208,6 +233,9 @@ fn aicore_top_level_status_outputs_existing_public_fields() {
     assert!(stdout.contains("manifest count：1"));
     assert!(stdout.contains("capability count：2"));
     assert!(stdout.contains("bin path status："));
+    assert!(stdout.contains("foundation runtime binary"));
+    assert!(stdout.contains("kernel runtime binary"));
+    assert!(stdout.contains("kernel invocation path：binary_fixture"));
 }
 
 #[test]
@@ -245,6 +273,10 @@ fn aicore_top_level_status_result_uses_structured_envelope() {
     assert_eq!(
         result_event["payload"]["result"]["fields"]["capability_count"],
         "2"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary_fixture"
     );
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
@@ -314,6 +346,8 @@ visibility = "user"
 "#,
     )
     .expect("manifest");
+    seed_foundation_runtime_binary(home);
+    seed_kernel_runtime_binary_fixture(home);
 }
 
 fn create_runtime_status_fixture_without_runtime_status(home: &std::path::Path) {
@@ -335,6 +369,56 @@ visibility = "user"
 "#,
     )
     .expect("manifest without runtime.status");
+}
+
+fn seed_foundation_runtime_binary(home: &std::path::Path) {
+    seed_executable(
+        &home.join(".aicore").join("bin").join("aicore-foundation"),
+        "#!/bin/sh\necho foundation-runtime-ok\n",
+    );
+}
+
+fn seed_kernel_runtime_binary_fixture(home: &std::path::Path) {
+    let script = r#"#!/bin/sh
+request=$(cat)
+mkdir -p "$HOME/.aicore/state/kernel"
+if ! grep -q 'operation = "runtime.status"' "$HOME/.aicore/share/manifests/aicore.toml" 2>/dev/null; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.accepted","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.route_failed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"route_failed","status":"failed","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":"route","failure_reason":"missing capability","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.failed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"invocation_failed","status":"failed","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":"route","failure_reason":"missing capability","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"failed","route":{"component_id":null,"app_id":null,"capability_id":null,"contract_version":null},"handler":{"kind":null,"invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":null,"executed":false,"event_generated":false,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":3},"result":{"kind":null,"summary":null,"fields":{}},"failure":{"stage":"route","reason":"missing capability"}}}'
+exit 1
+fi
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.accepted","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.route","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"route_decision_made","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.handler","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"handler_executed","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":false,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.event","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"event_generated","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.completed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"invocation_completed","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"completed","route":{"component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1"},"handler":{"kind":"kernel_runtime_binary","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"runtime.status","summary":"runtime status from binary fixture","fields":{"global_root":"fixture-root","foundation_installed":"yes","kernel_installed":"yes","contract_version":"kernel.runtime.v1","manifest_count":"1","capability_count":"2","event_ledger_path":"fixture-ledger","bin_path":"fixture-bin","bin_path_status":"active","foundation_runtime_binary":"installed","kernel_runtime_binary":"installed","kernel_invocation_path":"binary_fixture"}},"failure":{"stage":null,"reason":null}}}'
+"#;
+    seed_executable(
+        &home.join(".aicore").join("bin").join("aicore-kernel"),
+        script,
+    );
+}
+
+fn seed_executable(path: &std::path::Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("binary parent should be creatable");
+    }
+    std::fs::write(path, content).expect("binary fixture should be writable");
+    #[cfg(unix)]
+    {
+        let mut permissions = std::fs::metadata(path)
+            .expect("binary fixture metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("binary fixture should be executable");
+    }
 }
 
 fn ledger_stages(ledger: &str) -> Vec<String> {

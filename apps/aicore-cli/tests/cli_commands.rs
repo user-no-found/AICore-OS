@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{fs, path::PathBuf, process::Command};
 
 use aicore_memory::{
@@ -200,6 +202,57 @@ fn seed_global_runtime_metadata(home: &PathBuf) {
         "contract_version = \"kernel.runtime.v1\"\n",
     )
     .expect("kernel version metadata should be writable");
+}
+
+fn seed_foundation_runtime_binary(home: &PathBuf) {
+    seed_executable(
+        &home.join(".aicore").join("bin").join("aicore-foundation"),
+        "#!/bin/sh\necho foundation-runtime-ok\n",
+    );
+}
+
+fn seed_kernel_runtime_binary_fixture(home: &PathBuf) {
+    let script = r#"#!/bin/sh
+request=$(cat)
+mkdir -p "$HOME/.aicore/state/kernel"
+if printf '%s' "$request" | grep -q 'provider.smoke'; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.accepted","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"provider.smoke","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.route","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"provider.smoke","stage":"route_decision_made","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"provider.smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.lookup","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"provider.smoke","stage":"handler_lookup_failed","status":"failed","component_id":"aicore","app_id":"aicore","capability_id":"provider.smoke","contract_version":"kernel.app.v1","failure_stage":"handler_lookup","failure_reason":"missing readonly handler","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.failed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"provider.smoke","stage":"invocation_failed","status":"failed","component_id":"aicore","app_id":"aicore","capability_id":"provider.smoke","contract_version":"kernel.app.v1","failure_stage":"handler_lookup","failure_reason":"missing readonly handler","handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"provider.smoke","status":"failed","route":{"component_id":"aicore","app_id":"aicore","capability_id":"provider.smoke","contract_version":"kernel.app.v1"},"handler":{"kind":null,"invocation_mode":"in_process","transport":"unsupported","process_exit_code":null,"executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":4},"result":{"kind":null,"summary":null,"fields":{}},"failure":{"stage":"handler_lookup","reason":"missing readonly handler"}}}'
+exit 1
+fi
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.accepted","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.route","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"route_decision_made","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.handler","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"handler_executed","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":false,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.event","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"event_generated","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.completed","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"runtime.status","stage":"invocation_completed","status":"ok","component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"kernel_runtime_binary","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","payload":{"invocation_id":"invoke.fixture.binary","trace_id":"trace.default","operation":"runtime.status","status":"completed","route":{"component_id":"aicore","app_id":"aicore","capability_id":"runtime.status","contract_version":"kernel.app.v1"},"handler":{"kind":"kernel_runtime_binary","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"runtime.status","summary":"runtime status from binary fixture","fields":{"global_root":"fixture-root","foundation_installed":"yes","kernel_installed":"yes","contract_version":"kernel.runtime.v1","manifest_count":"1","capability_count":"2","event_ledger_path":"fixture-ledger","bin_path":"fixture-bin","bin_path_status":"active","foundation_runtime_binary":"installed","kernel_runtime_binary":"installed","kernel_invocation_path":"binary_fixture"}},"failure":{"stage":null,"reason":null}}}'
+"#;
+    seed_executable(
+        &home.join(".aicore").join("bin").join("aicore-kernel"),
+        script,
+    );
+}
+
+fn seed_executable(path: &std::path::Path, content: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("binary parent should be creatable");
+    }
+    fs::write(path, content).expect("binary fixture should be writable");
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(path)
+            .expect("binary fixture metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("binary fixture should be executable");
+    }
 }
 
 #[test]
@@ -623,6 +676,8 @@ fn cli_kernel_invoke_smoke_outputs_chinese_summary() {
 fn kernel_readonly_handler_routes_before_execute() {
     let home = temp_root("kernel-readonly-routes-before-execute");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -649,6 +704,8 @@ fn kernel_readonly_handler_routes_before_execute() {
 fn kernel_readonly_handler_executes_through_invocation_runtime() {
     let home = temp_root("kernel-readonly-executes");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -664,18 +721,21 @@ fn kernel_readonly_handler_executes_through_invocation_runtime() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("invocation：completed"));
-    assert!(stdout.contains("first-party in-process adapter：true"));
+    assert!(stdout.contains("kernel runtime binary"));
+    assert!(stdout.contains("in-process fallback：false"));
     assert!(stdout.contains("result summary："));
-    assert!(stdout.contains("foundation installed=yes"));
-    assert!(stdout.contains("kernel installed=yes"));
-    assert!(stdout.contains("manifest count=1"));
-    assert!(stdout.contains("capability count=1"));
+    assert!(stdout.contains("foundation installed：yes"));
+    assert!(stdout.contains("kernel installed：yes"));
+    assert!(stdout.contains("manifest count：1"));
+    assert!(stdout.contains("capability count：2"));
 }
 
 #[test]
 fn kernel_readonly_handler_writes_invocation_ledger_records() {
     let home = temp_root("kernel-readonly-ledger-records");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -715,6 +775,8 @@ fn kernel_readonly_handler_writes_invocation_ledger_records() {
 fn kernel_readonly_handler_records_share_invocation_id() {
     let home = temp_root("kernel-readonly-shared-invocation");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -748,6 +810,8 @@ fn kernel_readonly_handler_records_share_invocation_id() {
 fn kernel_readonly_handler_result_does_not_expose_raw_payload() {
     let home = temp_root("kernel-readonly-no-sensitive-dump");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -781,6 +845,8 @@ fn kernel_readonly_handler_result_does_not_expose_raw_payload() {
 fn kernel_readonly_handler_failure_records_invocation_failed() {
     let home = temp_root("kernel-readonly-failure-records");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -821,6 +887,8 @@ fn kernel_readonly_handler_failure_records_invocation_failed() {
 fn cli_kernel_invoke_readonly_outputs_chinese_summary() {
     let home = temp_root("kernel-readonly-chinese");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -836,14 +904,16 @@ fn cli_kernel_invoke_readonly_outputs_chinese_summary() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("内核只读调用"));
-    assert!(stdout.contains("说明：通过 first-party in-process read-only adapter 执行"));
-    assert!(stdout.contains("不启动组件进程"));
+    assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("kernel runtime binary"));
 }
 
 #[test]
 fn cli_kernel_invoke_readonly_json_outputs_valid_json() {
     let home = temp_root("kernel-readonly-json");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -866,7 +936,7 @@ fn cli_kernel_invoke_readonly_json_outputs_valid_json() {
     assert!(stdout.contains("runtime.status"));
     assert!(stdout.contains("\"ledger\""));
     assert!(stdout.contains("\"appended\":true"));
-    assert!(stdout.contains("first_party_in_process_adapter"));
+    assert!(stdout.contains("kernel_invocation_path"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -875,6 +945,8 @@ fn cli_kernel_invoke_readonly_json_outputs_valid_json() {
 fn cli_kernel_invoke_readonly_json_contains_structured_result_fields() {
     let home = temp_root("kernel-readonly-json-structured-result");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -914,7 +986,11 @@ fn cli_kernel_invoke_readonly_json_contains_structured_result_fields() {
     );
     assert_eq!(
         result_event["payload"]["result"]["fields"]["capability_count"],
-        "1"
+        "2"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary_fixture"
     );
 }
 
@@ -922,6 +998,8 @@ fn cli_kernel_invoke_readonly_json_contains_structured_result_fields() {
 fn cli_kernel_invoke_readonly_json_does_not_require_parsing_human_body() {
     let home = temp_root("kernel-readonly-json-not-body");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -957,6 +1035,8 @@ fn cli_kernel_invoke_readonly_json_does_not_require_parsing_human_body() {
 fn cli_kernel_invoke_readonly_result_does_not_expose_secret_ref() {
     let home = temp_root("kernel-readonly-json-no-secret-ref");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -991,6 +1071,8 @@ fn cli_kernel_invoke_readonly_result_does_not_expose_secret_ref() {
 fn cli_kernel_invoke_readonly_reports_ledger_status() {
     let home = temp_root("kernel-readonly-ledger-status");
     seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_route_manifest(
         &home,
         "aicore.toml",
@@ -1007,8 +1089,80 @@ fn cli_kernel_invoke_readonly_reports_ledger_status() {
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("ledger appended：true"));
     assert!(stdout.contains("ledger path："));
-    assert!(stdout.contains("invocation-ledger.jsonl"));
     assert!(stdout.contains("ledger records：5"));
+}
+
+#[test]
+fn kernel_invoke_readonly_fails_when_kernel_runtime_binary_missing() {
+    let home = temp_root("kernel-readonly-missing-kernel-binary");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用失败"));
+    assert!(stdout.contains("failure stage：kernel_runtime_binary_missing"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(!stdout.contains("invocation：completed"));
+}
+
+#[test]
+fn kernel_invoke_readonly_fails_when_foundation_runtime_binary_missing() {
+    let home = temp_root("kernel-readonly-missing-foundation-binary");
+    seed_global_runtime_metadata(&home);
+    seed_kernel_runtime_binary_fixture(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用失败"));
+    assert!(stdout.contains("failure stage：foundation_runtime_binary_missing"));
+    assert!(stdout.contains("in-process fallback：false"));
+}
+
+#[test]
+fn app_public_path_does_not_silently_fallback_to_in_process_kernel() {
+    let home = temp_root("kernel-readonly-no-fallback");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("kernel_runtime_binary_missing"));
+    assert!(!stdout.contains("handler executed：true"));
+    assert!(!stdout.contains("first-party in-process adapter：true"));
 }
 
 #[test]

@@ -4,7 +4,9 @@ use aicore_foundation::AicoreLayout;
 use aicore_kernel::default_control_plane;
 use aicore_kernel::default_runtime;
 use aicore_terminal::{Block, Document, TerminalConfig, TerminalMode, render_document};
-use runtime_status::{invoke_runtime_status, kernel_invocation_result_json, runtime_status_rows};
+use runtime_status::{
+    invoke_runtime_status, kernel_invocation_result_json, runtime_status_rows, status_code,
+};
 
 fn main() {
     std::process::exit(run());
@@ -55,7 +57,11 @@ fn run() -> i32 {
         .map(|(key, value)| format!("{key}：{value}"))
         .collect::<Vec<_>>()
         .join("\n");
-    let title = if runtime_status.status == aicore_kernel::KernelInvocationStatus::Completed {
+    let title = if runtime_status
+        .get("status")
+        .and_then(|value| value.as_str())
+        == Some("completed")
+    {
         "AICore OS"
     } else {
         "内核状态调用失败"
@@ -71,7 +77,7 @@ fn run() -> i32 {
     status_code(&runtime_status)
 }
 
-fn emit_kernel_invocation_result_json(output: &aicore_kernel::KernelInvocationRuntimeOutput) {
+fn emit_kernel_invocation_result_json(output: &serde_json::Value) {
     let payload = kernel_invocation_result_json(output);
     let payload = serde_json::to_string(&payload).expect("kernel invocation result should encode");
     print!(
@@ -84,11 +90,4 @@ fn emit_kernel_invocation_result_json(output: &aicore_kernel::KernelInvocationRu
             &TerminalConfig::current()
         )
     );
-}
-
-fn status_code(output: &aicore_kernel::KernelInvocationRuntimeOutput) -> i32 {
-    match output.status {
-        aicore_kernel::KernelInvocationStatus::Completed => 0,
-        aicore_kernel::KernelInvocationStatus::Failed => 1,
-    }
 }

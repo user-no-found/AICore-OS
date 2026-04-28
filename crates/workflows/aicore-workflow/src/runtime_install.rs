@@ -73,12 +73,15 @@ fn ensure_global_runtime_dirs(layout: &AicoreLayout) -> Result<(), String> {
 
 fn install_foundation_metadata(layout: &AicoreLayout) -> Result<(), String> {
     let root = &layout.runtime_foundation_root;
+    let binary_path = layout.bin_root.join("aicore-foundation");
     write_atomic(
         &root.join("install.toml"),
         &format!(
-            "layer = \"foundation\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nbin_root = \"{}\"\n",
+            "layer = \"foundation\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nbin_root = \"{}\"\nruntime_binary_path = \"{}\"\nruntime_binary_installed = {}\nruntime_protocol = \"stdio_jsonl\"\ncontract_version = \"{FOUNDATION_CONTRACT_VERSION}\"\nhealth = \"installed\"\n",
             root.display(),
-            layout.bin_root.display()
+            layout.bin_root.display(),
+            binary_path.display(),
+            binary_path.exists()
         ),
     )?;
     write_atomic(
@@ -112,13 +115,16 @@ fn install_foundation_metadata(layout: &AicoreLayout) -> Result<(), String> {
 
 fn install_kernel_metadata(layout: &AicoreLayout) -> Result<(), String> {
     let root = &layout.runtime_kernel_root;
+    let binary_path = layout.bin_root.join("aicore-kernel");
     write_atomic(
         &root.join("install.toml"),
         &format!(
-            "layer = \"kernel\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nregistry_root = \"{}\"\nstate_root = \"{}\"\n",
+            "layer = \"kernel\"\nstatus = \"installed\"\nruntime_root = \"{}\"\nregistry_root = \"{}\"\nstate_root = \"{}\"\nruntime_binary_path = \"{}\"\nruntime_binary_installed = {}\nruntime_protocol = \"stdio_jsonl\"\ncontract_version = \"{KERNEL_CONTRACT_VERSION}\"\nhealth = \"installed\"\n",
             root.display(),
             layout.manifests_root.display(),
-            layout.kernel_state_root.display()
+            layout.kernel_state_root.display(),
+            binary_path.display(),
+            binary_path.exists()
         ),
     )?;
     write_atomic(
