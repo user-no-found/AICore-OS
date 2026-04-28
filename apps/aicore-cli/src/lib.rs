@@ -1,4 +1,7 @@
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 
 use aicore_agent::{
     AgentSessionRunner, AgentSessionStopReason, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner,
@@ -47,6 +50,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, action, operation] if group == "kernel" && action == "invoke-smoke" => {
             print_kernel_invoke_smoke(operation)
+        }
+        [group, action, operation] if group == "kernel" && action == "invoke-readonly" => {
+            print_kernel_invoke_readonly(operation)
         }
         [group, action] if group == "config" && action == "smoke" => {
             run_config_command(print_config_smoke)
@@ -126,13 +132,15 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, _] if group == "kernel" => {
             eprintln!("未知 kernel 命令。");
-            eprintln!("可用命令：kernel route <operation> | kernel invoke-smoke <operation>");
+            eprintln!(
+                "可用命令：kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation>"
+            );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -371,6 +379,130 @@ fn print_kernel_invoke_smoke(operation: &str) -> i32 {
     1
 }
 
+fn print_kernel_invoke_readonly(operation: &str) -> i32 {
+    let layout = AicoreLayout::from_system_home();
+    let ledger_path = layout.kernel_state_root.join("invocation-ledger.jsonl");
+    let registry =
+        match aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root) {
+            Ok(registry) => registry,
+            Err(error) => {
+                emit_cli_panel(
+                    "内核只读调用失败",
+                    vec![
+                        cli_row("invocation", "failed"),
+                        cli_row("route", "failed"),
+                        cli_row("reason", "manifest registry load failed"),
+                        cli_row("operation", operation),
+                        cli_row("detail", error),
+                        cli_row("handler executed", "false"),
+                        cli_row("event generated", "false"),
+                        cli_row("first-party in-process adapter", "false"),
+                        cli_row("ledger appended", "false"),
+                        cli_row("ledger path", ledger_path.display().to_string()),
+                        cli_row("ledger records", "0"),
+                    ],
+                );
+                return 1;
+            }
+        };
+    let handlers =
+        KernelHandlerRegistry::new().with_handler("runtime.status", kernel_runtime_status_handler);
+    let runtime = KernelInvocationRuntime::new(registry, handlers);
+    let ledger = KernelInvocationLedger::new(&ledger_path);
+    let envelope =
+        KernelInvocationEnvelope::new("global-main", operation, operation, KernelPayload::Empty);
+    let invocation_id = envelope.invocation_id.clone();
+    let output = runtime.invoke_with_ledger(envelope, &ledger);
+
+    if output.status == KernelInvocationStatus::Completed {
+        let route = output
+            .route
+            .as_ref()
+            .expect("completed invocation must route");
+        let event = output
+            .event
+            .as_ref()
+            .expect("completed invocation must emit event");
+        emit_cli_panel(
+            "内核只读调用",
+            vec![
+                cli_row("invocation", "completed"),
+                cli_row("invocation id", invocation_id),
+                cli_row("route", "routed"),
+                cli_row("operation", operation),
+                cli_row("component", route.component_id.as_str()),
+                cli_row("app", route.app_id.as_str()),
+                cli_row("capability", route.capability_id.as_str()),
+                cli_row("contract", format_contract(&route.contract_version)),
+                cli_row(
+                    "handler kind",
+                    output.handler_kind.as_deref().unwrap_or("-"),
+                ),
+                cli_row("handler executed", output.handler_executed.to_string()),
+                cli_row("event generated", output.event_generated.to_string()),
+                cli_row("event type", format!("{:?}", event.event_type)),
+                cli_row("result summary", event_payload_summary(&event.payload)),
+                cli_row("ledger appended", output.ledger_appended.to_string()),
+                cli_row(
+                    "ledger path",
+                    output.ledger_path.as_deref().unwrap_or("-").to_string(),
+                ),
+                cli_row("ledger records", output.ledger_record_count.to_string()),
+                cli_row("spawned process", output.spawned_process.to_string()),
+                cli_row(
+                    "called real component",
+                    output.called_real_component.to_string(),
+                ),
+                cli_row("first-party in-process adapter", "true"),
+                cli_row(
+                    "说明",
+                    "通过 first-party in-process read-only adapter 执行，不启动组件进程",
+                ),
+            ],
+        );
+        return 0;
+    }
+
+    let route_status = if output.route_decision_made {
+        "routed"
+    } else {
+        "failed"
+    };
+    let mut rows = vec![
+        cli_row("invocation", "failed"),
+        cli_row("invocation id", invocation_id),
+        cli_row("route", route_status),
+        cli_row("operation", operation),
+        cli_row(
+            "failure stage",
+            output.failure_stage.as_deref().unwrap_or("-"),
+        ),
+        cli_row(
+            "reason",
+            output
+                .failure_reason
+                .as_deref()
+                .unwrap_or("unknown failure"),
+        ),
+        cli_row("handler executed", output.handler_executed.to_string()),
+        cli_row("event generated", output.event_generated.to_string()),
+        cli_row("first-party in-process adapter", "false"),
+        cli_row("ledger appended", output.ledger_appended.to_string()),
+        cli_row(
+            "ledger path",
+            output.ledger_path.as_deref().unwrap_or("-").to_string(),
+        ),
+        cli_row("ledger records", output.ledger_record_count.to_string()),
+    ];
+    if let Some(route) = output.route.as_ref() {
+        rows.push(cli_row("component", route.component_id.as_str()));
+        rows.push(cli_row("app", route.app_id.as_str()));
+        rows.push(cli_row("capability", route.capability_id.as_str()));
+    }
+    emit_cli_panel("内核只读调用失败", rows);
+    1
+}
+
 fn kernel_smoke_handler(
     envelope: &KernelInvocationEnvelope,
     _route: &KernelRouteRuntimeOutput,
@@ -379,6 +511,48 @@ fn kernel_smoke_handler(
         "smoke handled {}",
         envelope.operation
     )))
+}
+
+fn kernel_runtime_status_handler(
+    _envelope: &KernelInvocationEnvelope,
+    _route: &KernelRouteRuntimeOutput,
+) -> Result<KernelHandlerResult, KernelHandlerError> {
+    let layout = AicoreLayout::from_system_home();
+    let registry = aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root)
+        .unwrap_or_else(|_| aicore_kernel::InstalledManifestRegistry::from_manifests(Vec::new()));
+    let foundation_installed = layout.runtime_foundation_root.join("install.toml").exists();
+    let kernel_installed = layout.runtime_kernel_root.join("install.toml").exists();
+    let bin_path_status = cli_bin_path_status(&layout.bin_root);
+
+    Ok(KernelHandlerResult::summary(format!(
+        "global root={} | foundation installed={} | kernel installed={} | manifest count={} | capability count={} | bin path status={}",
+        layout.state_root.display(),
+        yes_no(foundation_installed),
+        yes_no(kernel_installed),
+        registry.manifest_count(),
+        registry.capability_count(),
+        bin_path_status
+    )))
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
+}
+
+fn cli_bin_path_status(bin_path: &Path) -> &'static str {
+    if !bin_path.exists() {
+        return "missing";
+    }
+
+    let Some(path) = env::var_os("PATH") else {
+        return "exists_not_in_path";
+    };
+
+    if env::split_paths(&path).any(|entry| entry == bin_path) {
+        "active"
+    } else {
+        "exists_not_in_path"
+    }
 }
 
 fn event_payload_summary(payload: &KernelEventPayload) -> String {

@@ -170,6 +170,26 @@ fn seed_route_manifest(
     fs::write(manifests.join(file_name), content).expect("manifest should be writable");
 }
 
+fn seed_global_runtime_metadata(home: &PathBuf) {
+    let foundation = home.join(".aicore").join("runtime").join("foundation");
+    let kernel = home.join(".aicore").join("runtime").join("kernel");
+    let bin = home.join(".aicore").join("bin");
+
+    fs::create_dir_all(&foundation).expect("foundation runtime dir should be creatable");
+    fs::create_dir_all(&kernel).expect("kernel runtime dir should be creatable");
+    fs::create_dir_all(&bin).expect("bin dir should be creatable");
+
+    fs::write(foundation.join("install.toml"), "layer = \"foundation\"\n")
+        .expect("foundation install metadata should be writable");
+    fs::write(kernel.join("install.toml"), "layer = \"kernel\"\n")
+        .expect("kernel install metadata should be writable");
+    fs::write(
+        kernel.join("version.toml"),
+        "contract_version = \"kernel.runtime.v1\"\n",
+    )
+    .expect("kernel version metadata should be writable");
+}
+
 #[test]
 fn renders_status_command() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
@@ -587,12 +607,294 @@ fn cli_kernel_invoke_smoke_outputs_chinese_summary() {
     assert!(stdout.contains("不启动组件进程"));
 }
 
+#[test]
+fn kernel_readonly_handler_routes_before_execute() {
+    let home = temp_root("kernel-readonly-routes-before-execute");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("route：routed"));
+    assert!(stdout.contains("operation：runtime.status"));
+    assert!(stdout.contains("component：aicore"));
+    assert!(stdout.contains("capability：runtime.status"));
+    assert!(stdout.contains("handler executed：true"));
+}
+
+#[test]
+fn kernel_readonly_handler_executes_through_invocation_runtime() {
+    let home = temp_root("kernel-readonly-executes");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("invocation：completed"));
+    assert!(stdout.contains("first-party in-process adapter：true"));
+    assert!(stdout.contains("result summary："));
+    assert!(stdout.contains("foundation installed=yes"));
+    assert!(stdout.contains("kernel installed=yes"));
+    assert!(stdout.contains("manifest count=1"));
+    assert!(stdout.contains("capability count=1"));
+}
+
+#[test]
+fn kernel_readonly_handler_writes_invocation_ledger_records() {
+    let home = temp_root("kernel-readonly-ledger-records");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger records：5"));
+
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert_eq!(
+        ledger_stages(&ledger),
+        vec![
+            "accepted",
+            "route_decision_made",
+            "handler_executed",
+            "event_generated",
+            "invocation_completed"
+        ]
+    );
+}
+
+#[test]
+fn kernel_readonly_handler_records_share_invocation_id() {
+    let home = temp_root("kernel-readonly-shared-invocation");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    let ids = ledger
+        .lines()
+        .map(|record| extract_json_string(record, "invocation_id"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids.len(), 5);
+    assert!(ids.iter().all(|id| id == &ids[0]));
+    assert_ne!(ids[0], "invoke.runtime.status");
+}
+
+#[test]
+fn kernel_readonly_handler_result_does_not_expose_raw_payload() {
+    let home = temp_root("kernel-readonly-no-sensitive-dump");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+
+    assert!(!stdout.contains("KernelInvocationEnvelope"));
+    assert!(!stdout.contains("payload"));
+    assert!(!stdout.contains("secret_ref"));
+    assert!(!ledger.contains("KernelInvocationEnvelope"));
+    assert!(!ledger.contains("payload"));
+    assert!(!ledger.contains("secret_ref"));
+}
+
+#[test]
+fn kernel_readonly_handler_failure_records_invocation_failed() {
+    let home = temp_root("kernel-readonly-failure-records");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("provider.smoke", "provider.smoke")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "provider.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用失败"));
+    assert!(stdout.contains("failure stage：handler_lookup"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger records：4"));
+
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert_eq!(
+        ledger_stages(&ledger),
+        vec![
+            "accepted",
+            "route_decision_made",
+            "handler_lookup_failed",
+            "invocation_failed"
+        ]
+    );
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_outputs_chinese_summary() {
+    let home = temp_root("kernel-readonly-chinese");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("说明：通过 first-party in-process read-only adapter 执行"));
+    assert!(stdout.contains("不启动组件进程"));
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_json_outputs_valid_json() {
+    let home = temp_root("kernel-readonly-json");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("runtime.status"));
+    assert!(stdout.contains("ledger appended"));
+    assert!(stdout.contains("first-party in-process adapter"));
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_kernel_invoke_readonly_reports_ledger_status() {
+    let home = temp_root("kernel-readonly-ledger-status");
+    seed_global_runtime_metadata(&home);
+    seed_route_manifest(
+        &home,
+        "aicore.toml",
+        "aicore",
+        &[("runtime.status", "runtime.status")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-readonly", "runtime.status"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger path："));
+    assert!(stdout.contains("invocation-ledger.jsonl"));
+    assert!(stdout.contains("ledger records：5"));
+}
+
 fn extract_json_string(record: &str, key: &str) -> String {
     let marker = format!("\"{key}\":\"");
     let start = record.find(&marker).expect("key should exist") + marker.len();
     let tail = &record[start..];
     let end = tail.find('"').expect("value should end");
     tail[..end].to_string()
+}
+
+fn ledger_stages(ledger: &str) -> Vec<String> {
+    ledger
+        .lines()
+        .map(|record| extract_json_string(record, "stage"))
+        .collect()
 }
 
 #[test]

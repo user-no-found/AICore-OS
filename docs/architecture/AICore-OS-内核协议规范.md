@@ -34,6 +34,16 @@
 
 event ledger 与 invocation ledger 是持久审计能力，不属于最小本进程 handler registry 的必要条件。未启用 ledger 时，public surface 必须明确 ledger 未追加。
 
+## First-party Read-only Handler Boundary
+
+一方只读 handler 是由 AICore OS 自身提供的受控 read-only adapter，用于读取全局运行时状态、配置路径状态、内核状态等安全摘要。它必须先通过 installed manifest registry 产生 route decision，再经由 `KernelInvocationRuntime` 执行，不得绕过 `KernelRouteRuntime` 直接调用。
+
+一方只读 handler 可以作为本进程 adapter 存在，但它不是最终组件进程模型。它不得启动组件进程，不得进行跨进程调用，不得打开 socket IPC，不得调用 provider adapter，不得执行 tool，不得修改业务状态。
+
+一方只读 handler 的 public surface 只能输出结构化摘要，例如 operation、route metadata、invocation id、handler status、ledger status、runtime installed status 和计数类信息。它不得输出 raw `KernelInvocationEnvelope.payload`、raw config、raw secret、`secret_ref`、`credential_lease_ref`、raw provider request、raw provider payload、raw tool input/output、API key、token 或 cookie。
+
+启用 invocation ledger 时，一方只读 handler 的成功路径必须记录 accepted、route decision、handler execution、event generation 和 invocation completion。同一次 invocation 的所有 ledger records 与生成的 `KernelEventEnvelope` 必须共享同一个 `invocation_id`。
+
 ## Invocation Ledger
 
 `invocation-ledger.jsonl` 是内核调用生命周期的 append-only audit ledger。它记录 invocation 被接受、路由、handler 查找、handler 执行、事件生成、调用完成和调用失败等审计事实。它不是业务事实源，不参与恢复 component state，不承担 event sourcing、conversation store、query、replay 或 compaction。
