@@ -1,10 +1,17 @@
 pub(crate) mod adoption;
+mod component_stdio;
 mod invoke;
+mod memory_process;
 mod payload;
 mod process;
 mod route;
 
 pub(crate) use invoke::{print_kernel_invoke_readonly, print_kernel_invoke_smoke};
+pub(crate) use memory_process::{
+    run_component_memory_audit_stdio, run_component_memory_proposals_stdio,
+    run_component_memory_search_stdio, run_component_memory_status_stdio,
+    run_component_memory_wiki_page_stdio, run_component_memory_wiki_stdio,
+};
 pub(crate) use process::{
     print_kernel_invoke_process_smoke, run_component_agent_session_smoke_stdio,
     run_component_agent_smoke_stdio, run_component_auth_list_stdio,

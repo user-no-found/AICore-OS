@@ -1,4 +1,5 @@
 pub(crate) mod read;
+pub(crate) mod report;
 pub(crate) mod search;
 pub(crate) mod wiki;
 pub(crate) mod write;

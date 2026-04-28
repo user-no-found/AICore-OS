@@ -179,6 +179,60 @@ fn readonly_payload(operation: &str, args: &[String]) -> KernelPayload {
                 serde_json::json!({ "first": first, "second": second }).to_string(),
             )
         }
+        "memory.search" => memory_search_payload(args),
+        "memory.wiki_page" => {
+            let page = args.first().map(String::as_str).unwrap_or("index");
+            KernelPayload::JsonSummary(serde_json::json!({ "page": page }).to_string())
+        }
         _ => KernelPayload::Empty,
     }
+}
+
+fn memory_search_payload(args: &[String]) -> KernelPayload {
+    let query = args.first().map(String::as_str).unwrap_or("");
+    let mut payload = serde_json::json!({ "query": query });
+    let object = payload
+        .as_object_mut()
+        .expect("memory search payload should be an object");
+    let mut index = 1usize;
+    while index < args.len() {
+        let Some(value) = args.get(index + 1) else {
+            object.insert(
+                "invalid_filter".to_string(),
+                serde_json::Value::String(args[index].clone()),
+            );
+            break;
+        };
+        match args[index].as_str() {
+            "--type" => {
+                object.insert("type".to_string(), serde_json::Value::String(value.clone()));
+            }
+            "--source" => {
+                object.insert(
+                    "source".to_string(),
+                    serde_json::Value::String(value.clone()),
+                );
+            }
+            "--permanence" => {
+                object.insert(
+                    "permanence".to_string(),
+                    serde_json::Value::String(value.clone()),
+                );
+            }
+            "--limit" => {
+                object.insert(
+                    "limit".to_string(),
+                    serde_json::Value::String(value.clone()),
+                );
+            }
+            _ => {
+                object.insert(
+                    "invalid_filter".to_string(),
+                    serde_json::Value::String(args[index].clone()),
+                );
+            }
+        }
+        index += 2;
+    }
+    KernelPayload::JsonSummary(payload.to_string())
 }

@@ -26,9 +26,11 @@
 
 应用作为 component process 接入内核时，应通过 installed manifest 声明 invocation mode、transport、entrypoint、args 和 capability。`stdio_jsonl` component process 的 stdout 只承载协议 result，不承载 human panel。业务只读 handler 应返回结构化 public fields，并由 CLI、TUI 或其他 surface 从 result envelope 派生人类摘要。
 
-`config.validate`、`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list`、`cli.status`、`provider.smoke`、`agent.smoke` 与 `agent.session_smoke` 类只读或 smoke 业务能力可以由 application binary 暴露内部 stdio handler，并通过 Kernel runtime binary 调用。该内部 handler 不属于用户产品命令，不应出现在普通帮助 surface 中。handler 输出必须是单行 JSONL result，且不得输出 human panel、ANSI 或 raw credential material。
+`config.validate`、`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list`、`cli.status`、`provider.smoke`、`agent.smoke`、`agent.session_smoke` 与 memory read 类只读或 smoke 业务能力可以由 application binary 暴露内部 stdio handler，并通过 Kernel runtime binary 调用。该内部 handler 不属于用户产品命令，不应出现在普通帮助 surface 中。handler 输出必须是单行 JSONL result，且不得输出 human panel、ANSI 或 raw credential material。
 
 Agent smoke 类 handler 只表达 agent loop/session 的只读诊断摘要，不代表 real provider、streaming、tool calling 或 Memory Agent 已接入。其 public result 可以包含 conversation id、outcome、event count、queue length、provider invoked 状态、assistant output presence、turn count、stop reason、kernel invocation path、`real_provider=false`、`tool_calling=false` 与 `streaming=false` 等安全字段。public surface、JSON result、diagnostic 和 ledger 不得输出 full prompt、raw memory pack、raw provider request、raw provider payload、raw assistant content、secret、`secret_ref`、credential lease、API key、token 或 cookie。
+
+Memory read 类 handler 只表达现有 memory read surface 的只读结果，不代表 memory write、Memory Agent、Vector、Graph 或 LLM Wiki 已接入。`memory.status`、`memory.search`、`memory.proposals`、`memory.audit`、`memory.wiki` 与 `memory.wiki_page` 可以返回现有 public read surface 允许展示的记忆摘要、搜索结果、proposal 摘要和 wiki projection 内容；invocation ledger 不得记录 raw memory content、wiki markdown、search result raw content、raw stdout、raw stderr 或 raw invocation payload。Wiki projection result 必须保留 not truth source 声明，wiki page handler 必须继续拒绝 path traversal。
 
 ## 事件 envelope
 

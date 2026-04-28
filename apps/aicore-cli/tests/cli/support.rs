@@ -279,6 +279,49 @@ pub(crate) fn seed_agent_smoke_manifests(home: &PathBuf) {
     }
 }
 
+pub(crate) fn seed_memory_read_manifests(home: &PathBuf) {
+    for (file_name, component_id, operation, arg) in [
+        (
+            "aicore-memory-status.toml",
+            "aicore-memory-status",
+            "memory.status",
+            "__component-memory-status-stdio",
+        ),
+        (
+            "aicore-memory-search.toml",
+            "aicore-memory-search",
+            "memory.search",
+            "__component-memory-search-stdio",
+        ),
+        (
+            "aicore-memory-proposals.toml",
+            "aicore-memory-proposals",
+            "memory.proposals",
+            "__component-memory-proposals-stdio",
+        ),
+        (
+            "aicore-memory-audit.toml",
+            "aicore-memory-audit",
+            "memory.audit",
+            "__component-memory-audit-stdio",
+        ),
+        (
+            "aicore-memory-wiki.toml",
+            "aicore-memory-wiki",
+            "memory.wiki",
+            "__component-memory-wiki-stdio",
+        ),
+        (
+            "aicore-memory-wiki-page.toml",
+            "aicore-memory-wiki-page",
+            "memory.wiki_page",
+            "__component-memory-wiki-page-stdio",
+        ),
+    ] {
+        seed_readonly_component_manifest(home, file_name, component_id, operation, arg);
+    }
+}
+
 fn seed_readonly_component_manifest(
     home: &PathBuf,
     file_name: &str,
@@ -431,6 +474,26 @@ cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.agent.session.completed","timestamp":"0","invocation_id":"invoke.fixture.agent.session","trace_id":"trace.default","instance_id":"global-main","operation":"agent.session_smoke","stage":"invocation_completed","status":"ok","component_id":"aicore-agent-session-smoke","app_id":"aicore-cli","capability_id":"agent.session_smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
 LEDGER
 printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.agent.session","trace_id":"trace.default","operation":"agent.session_smoke","status":"completed","route":{"component_id":"aicore-agent-session-smoke","app_id":"aicore-cli","capability_id":"agent.session_smoke","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"agent.session_smoke","summary":"Agent session smoke 完成：2 turns / conv.fixture","fields":{"operation":"agent.session_smoke","conversation_id":"conv.fixture","turn_count":"2","latest_outcome":"completed","completed_all_inputs":"true","stop_reason":"<none>","event_count":"6","queue_len":"0","turns":"[{\"outcome\":\"completed\"}]","kernel_invocation_path":"binary","real_provider":"false","tool_calling":"false","streaming":"false"}},"failure":{"stage":null,"reason":null}}}'
+exit 0
+fi
+memory_operation=""
+memory_component=""
+memory_field=""
+memory_field_name=""
+case "$request" in
+  *memory.status*) memory_operation="memory.status"; memory_component="aicore-memory-status"; memory_field_name="record_count"; memory_field='"record_count":"0","projection_status":"fresh"';;
+  *memory.search*) memory_operation="memory.search"; memory_component="aicore-memory-search"; memory_field_name="result_count"; memory_field='"query":"test","filters":{"type":null,"source":null,"permanence":null,"limit":null},"result_count":"0","results":"[]"';;
+  *memory.proposals*) memory_operation="memory.proposals"; memory_component="aicore-memory-proposals"; memory_field_name="proposal_count"; memory_field='"proposal_count":"0","proposals":"[]"';;
+  *memory.audit*) memory_operation="memory.audit"; memory_component="aicore-memory-audit"; memory_field_name="ok"; memory_field='"ok":"true","checked_records":"0","checked_events":"0","errors":"[]","warnings":"[]"';;
+  *memory.wiki_page*) memory_operation="memory.wiki_page"; memory_component="aicore-memory-wiki-page"; memory_field_name="markdown"; memory_field='"page":"core","markdown":"Core Memories\n\n这是 generated projection，不是事实来源。","not_truth_source_notice":"这是 generated projection，不是事实来源，不应手工编辑后期待反向同步","stale":"false","warnings":"<none>"';;
+  *memory.wiki*) memory_operation="memory.wiki"; memory_component="aicore-memory-wiki"; memory_field_name="pages"; memory_field='"pages":"index,core,decisions,status","not_truth_source_notice":"这是 generated projection，不是事实来源，不应手工编辑后期待反向同步","stale":"false","warnings":"<none>"';;
+esac
+if [ -n "$memory_operation" ]; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<LEDGER
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.$memory_operation.accepted","timestamp":"0","invocation_id":"invoke.fixture.$memory_operation","trace_id":"trace.default","instance_id":"global-main","operation":"$memory_operation","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.$memory_operation.completed","timestamp":"0","invocation_id":"invoke.fixture.$memory_operation","trace_id":"trace.default","instance_id":"global-main","operation":"$memory_operation","stage":"invocation_completed","status":"ok","component_id":"$memory_component","app_id":"aicore-cli","capability_id":"$memory_operation","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.'"$memory_operation"'","trace_id":"trace.default","operation":"'"$memory_operation"'","status":"completed","route":{"component_id":"'"$memory_component"'","app_id":"aicore-cli","capability_id":"'"$memory_operation"'","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"'"$memory_operation"'","summary":"Memory read fixture completed","fields":{"operation":"'"$memory_operation"'","kernel_invocation_path":"binary",'"$memory_field"'}},"failure":{"stage":null,"reason":null}}}'
 exit 0
 fi
 if printf '%s' "$request" | grep -q 'missing.handler.smoke'; then

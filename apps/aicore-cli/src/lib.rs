@@ -41,6 +41,24 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-agent-session-smoke-stdio" => {
             commands::kernel::run_component_agent_session_smoke_stdio()
         }
+        [cmd] if cmd == "__component-memory-status-stdio" => {
+            commands::kernel::run_component_memory_status_stdio()
+        }
+        [cmd] if cmd == "__component-memory-search-stdio" => {
+            commands::kernel::run_component_memory_search_stdio()
+        }
+        [cmd] if cmd == "__component-memory-proposals-stdio" => {
+            commands::kernel::run_component_memory_proposals_stdio()
+        }
+        [cmd] if cmd == "__component-memory-audit-stdio" => {
+            commands::kernel::run_component_memory_audit_stdio()
+        }
+        [cmd] if cmd == "__component-memory-wiki-stdio" => {
+            commands::kernel::run_component_memory_wiki_stdio()
+        }
+        [cmd] if cmd == "__component-memory-wiki-page-stdio" => {
+            commands::kernel::run_component_memory_wiki_page_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0

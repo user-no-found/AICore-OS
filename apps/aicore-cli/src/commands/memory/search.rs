@@ -5,12 +5,23 @@ use crate::errors::memory_error;
 use crate::names::{memory_permanence_name, memory_source_name, memory_type_name};
 use crate::terminal::emit_cli_panel_body;
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct MemorySearchOptions {
     pub(crate) memory_type: Option<MemoryType>,
     pub(crate) source: Option<MemorySource>,
     pub(crate) permanence: Option<MemoryPermanence>,
     pub(crate) limit: Option<usize>,
+}
+
+impl MemorySearchOptions {
+    pub(crate) fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": self.memory_type.as_ref().map(memory_type_name),
+            "source": self.source.as_ref().map(memory_source_name),
+            "permanence": self.permanence.as_ref().map(memory_permanence_name),
+            "limit": self.limit
+        })
+    }
 }
 
 pub(crate) fn parse_memory_search_options(args: &[String]) -> Result<MemorySearchOptions, String> {
@@ -100,7 +111,7 @@ pub(crate) fn print_memory_search(query: &str, options: MemorySearchOptions) -> 
     Ok(())
 }
 
-fn parse_memory_type_filter(value: &str) -> Result<MemoryType, String> {
+pub(crate) fn parse_memory_type_filter(value: &str) -> Result<MemoryType, String> {
     match value {
         "core" => Ok(MemoryType::Core),
         "working" => Ok(MemoryType::Working),
@@ -110,7 +121,7 @@ fn parse_memory_type_filter(value: &str) -> Result<MemoryType, String> {
     }
 }
 
-fn parse_memory_source_filter(value: &str) -> Result<MemorySource, String> {
+pub(crate) fn parse_memory_source_filter(value: &str) -> Result<MemorySource, String> {
     match value {
         "user_explicit" => Ok(MemorySource::UserExplicit),
         "user_correction" => Ok(MemorySource::UserCorrection),
@@ -120,7 +131,7 @@ fn parse_memory_source_filter(value: &str) -> Result<MemorySource, String> {
     }
 }
 
-fn parse_memory_permanence_filter(value: &str) -> Result<MemoryPermanence, String> {
+pub(crate) fn parse_memory_permanence_filter(value: &str) -> Result<MemoryPermanence, String> {
     match value {
         "standard" => Ok(MemoryPermanence::Standard),
         "permanent" => Ok(MemoryPermanence::Permanent),

@@ -46,7 +46,7 @@ pub(crate) fn wiki_projection_status_lines(state: &ProjectionState) -> Vec<Strin
     lines
 }
 
-fn resolve_memory_wiki_page(
+pub(crate) fn resolve_memory_wiki_page(
     paths: &MemoryPaths,
     page: &str,
 ) -> Result<(&'static str, PathBuf), String> {

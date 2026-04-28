@@ -13,6 +13,8 @@ use super::install::{
     install_visibility_warnings, installed_binary_path,
 };
 
+mod memory_read_manifest_tests;
+
 #[test]
 fn foundation_workflow_uses_foundation_target_dir() {
     let root = Path::new("/repo");
@@ -324,8 +326,11 @@ fn app_cli_install_writes_global_manifest_with_capabilities() {
     assert!(manifest.contains("app_id = \"aicore-cli\""));
     assert!(manifest.contains("kind = \"app\""));
     assert!(manifest.contains("contract_version = \"kernel.app.v1\""));
-    assert!(manifest.contains("operation = \"memory.status\""));
-    assert!(manifest.contains("operation = \"memory.search\""));
+    assert!(!manifest.contains("operation = \"memory.status\""));
+    assert!(!manifest.contains("operation = \"memory.search\""));
+    assert!(!manifest.contains("operation = \"memory.proposals\""));
+    assert!(!manifest.contains("operation = \"memory.audit\""));
+    assert!(!manifest.contains("operation = \"memory.wiki\""));
     assert!(!manifest.contains("operation = \"provider.smoke\""));
     assert!(!manifest.contains("operation = \"agent.smoke\""));
     assert!(!manifest.contains("operation = \"agent.session_smoke\""));

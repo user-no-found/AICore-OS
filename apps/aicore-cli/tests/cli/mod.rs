@@ -6,6 +6,7 @@ mod config_validate_runtime;
 mod kernel_invoke;
 mod kernel_route;
 mod memory_read;
+mod memory_read_runtime;
 mod memory_write;
 mod provider_agent;
 mod provider_smoke_runtime;
