@@ -12,6 +12,7 @@ pub(in crate::invocation_runtime) struct ComponentProcessSuccess {
 pub(in crate::invocation_runtime) struct ComponentProcessFailure {
     pub(crate) stage: String,
     pub(crate) reason: String,
+    pub(crate) result: Option<KernelHandlerResult>,
     pub(crate) spawned_process: bool,
     pub(crate) exit_code: Option<i32>,
 }

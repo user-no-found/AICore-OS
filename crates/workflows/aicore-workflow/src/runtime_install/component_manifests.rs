@@ -165,6 +165,27 @@ pub(super) fn app_cli_process_manifests(entrypoint: &Path) -> Vec<InstalledCompo
             "user",
             entrypoint,
         ),
+        local_process_manifest(
+            "aicore-memory-remember",
+            "memory.remember",
+            "__component-memory-remember-stdio",
+            "user",
+            entrypoint,
+        ),
+        local_process_manifest(
+            "aicore-memory-accept",
+            "memory.accept",
+            "__component-memory-accept-stdio",
+            "user",
+            entrypoint,
+        ),
+        local_process_manifest(
+            "aicore-memory-reject",
+            "memory.reject",
+            "__component-memory-reject-stdio",
+            "user",
+            entrypoint,
+        ),
     ]
 }
 

@@ -59,6 +59,15 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-memory-wiki-page-stdio" => {
             commands::kernel::run_component_memory_wiki_page_stdio()
         }
+        [cmd] if cmd == "__component-memory-remember-stdio" => {
+            commands::kernel::run_component_memory_remember_stdio()
+        }
+        [cmd] if cmd == "__component-memory-accept-stdio" => {
+            commands::kernel::run_component_memory_accept_stdio()
+        }
+        [cmd] if cmd == "__component-memory-reject-stdio" => {
+            commands::kernel::run_component_memory_reject_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0
@@ -81,6 +90,9 @@ fn dispatch(args: &[String]) -> i32 {
             if group == "kernel" && action == "invoke-readonly" =>
         {
             commands::kernel::print_kernel_invoke_readonly(operation, rest)
+        }
+        [group, action, operation, rest @ ..] if group == "kernel" && action == "invoke-write" => {
+            commands::kernel::print_kernel_invoke_write(operation, rest)
         }
         [group, action, operation] if group == "kernel" && action == "invoke-process-smoke" => {
             commands::kernel::print_kernel_invoke_process_smoke(operation)
@@ -174,14 +186,14 @@ fn dispatch(args: &[String]) -> i32 {
         [group, _] if group == "kernel" => {
             eprintln!("未知 kernel 命令。");
             eprintln!(
-                "可用命令：kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-process-smoke <operation>"
+                "可用命令：kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-write <operation> | kernel invoke-process-smoke <operation>"
             );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-process-smoke <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-write <operation> | kernel invoke-process-smoke <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }

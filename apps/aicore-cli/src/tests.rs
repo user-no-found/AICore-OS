@@ -230,6 +230,39 @@ fn kernel_invocation_adoption_matrix_marks_memory_readonly_as_kernel_native() {
 }
 
 #[test]
+fn kernel_invocation_adoption_matrix_marks_memory_write_as_kernel_native() {
+    let matrix = kernel_invocation_adoption_matrix();
+    for (command, operation) in [
+        (
+            "aicore-cli kernel invoke-write memory.remember",
+            "memory.remember",
+        ),
+        (
+            "aicore-cli kernel invoke-write memory.accept",
+            "memory.accept",
+        ),
+        (
+            "aicore-cli kernel invoke-write memory.reject",
+            "memory.reject",
+        ),
+    ] {
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == command)
+            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+        assert_eq!(entry.operation, operation);
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(entry.structured_result_envelope_used);
+        assert!(!entry.direct_local_execution_allowed_for_now);
+        assert!(!entry.future_migration_required);
+    }
+}
+
+#[test]
 fn kernel_invocation_adoption_matrix_marks_direct_memory_read_as_retained_direct_path() {
     let matrix = kernel_invocation_adoption_matrix();
     for command in [
@@ -250,6 +283,29 @@ fn kernel_invocation_adoption_matrix_marks_direct_memory_read_as_retained_direct
         );
         assert!(entry.direct_local_execution_allowed_for_now);
         assert!(!entry.invocation_runtime_used);
+    }
+}
+
+#[test]
+fn kernel_invocation_adoption_matrix_marks_direct_memory_write_as_retained_direct_path() {
+    let matrix = kernel_invocation_adoption_matrix();
+    for command in [
+        "aicore-cli memory remember <内容>",
+        "aicore-cli memory accept <proposal_id>",
+        "aicore-cli memory reject <proposal_id>",
+    ] {
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == command)
+            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+        assert_eq!(
+            entry.class,
+            KernelInvocationAdoptionClass::AllowedLocalDirectCommand
+        );
+        assert!(entry.direct_local_execution_allowed_for_now);
+        assert!(!entry.invocation_runtime_used);
+        assert!(entry.future_migration_required);
     }
 }
 
@@ -295,25 +351,19 @@ fn kernel_invocation_adoption_matrix_marks_direct_commands_explicitly() {
 }
 
 #[test]
-fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
+fn kernel_invocation_adoption_matrix_keeps_direct_adoption_policy_as_future_target() {
     let matrix = kernel_invocation_adoption_matrix();
-    for command in [
-        "aicore-cli memory remember <内容>",
-        "aicore-cli memory accept <proposal_id>",
-        "aicore-cli memory reject <proposal_id>",
-    ] {
-        let entry = matrix
-            .iter()
-            .find(|entry| entry.command == command)
-            .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+    let entry = matrix
+        .iter()
+        .find(|entry| entry.command == "M3.x direct command adoption policy")
+        .expect("direct command adoption policy entry should exist");
 
-        assert_eq!(
-            entry.class,
-            KernelInvocationAdoptionClass::MustMigrateToKernelInvocationLater
-        );
-        assert!(entry.future_migration_required);
-        assert!(!entry.invocation_runtime_used);
-    }
+    assert_eq!(
+        entry.class,
+        KernelInvocationAdoptionClass::MustMigrateToKernelInvocationLater
+    );
+    assert!(entry.future_migration_required);
+    assert!(!entry.invocation_runtime_used);
 }
 
 #[test]

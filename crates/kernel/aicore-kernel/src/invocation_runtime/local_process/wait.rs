@@ -40,6 +40,7 @@ pub(super) fn wait_with_timeout(
                     return Err(ComponentProcessFailure {
                         stage: "process_timeout".to_string(),
                         reason: "component process timed out and was terminated".to_string(),
+                        result: None,
                         spawned_process: true,
                         exit_code: None,
                     });
@@ -54,6 +55,7 @@ pub(super) fn wait_with_timeout(
                     reason: super::super::protocol::sanitize_process_diagnostic(&format!(
                         "component process status read failed: {error}"
                     )),
+                    result: None,
                     spawned_process: true,
                     exit_code: None,
                 });
@@ -73,6 +75,7 @@ fn read_pipe(pipe: Option<impl Read>, name: &str) -> Result<Vec<u8>, ComponentPr
             reason: super::super::protocol::sanitize_process_diagnostic(&format!(
                 "component process {name} read failed: {error}"
             )),
+            result: None,
             spawned_process: true,
             exit_code: None,
         })?;

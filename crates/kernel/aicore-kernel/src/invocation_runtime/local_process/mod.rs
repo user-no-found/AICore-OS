@@ -193,6 +193,7 @@ impl KernelInvocationRuntime {
                     "unsupported component transport: {}",
                     route.transport.as_str()
                 ),
+                result: None,
                 spawned_process: false,
                 exit_code: None,
             });
@@ -203,6 +204,7 @@ impl KernelInvocationRuntime {
             return Err(ComponentProcessFailure {
                 stage: "missing_entrypoint".to_string(),
                 reason: format!("component entrypoint is missing: {}", route.entrypoint),
+                result: None,
                 spawned_process: false,
                 exit_code: None,
             });
@@ -214,6 +216,7 @@ impl KernelInvocationRuntime {
                     "component entrypoint is not executable: {}",
                     route.entrypoint
                 ),
+                result: None,
                 spawned_process: false,
                 exit_code: None,
             });
@@ -237,6 +240,7 @@ impl KernelInvocationRuntime {
             reason: super::protocol::sanitize_process_diagnostic(&format!(
                 "component process spawn failed: {error}"
             )),
+            result: None,
             spawned_process: false,
             exit_code: None,
         })?;
@@ -251,6 +255,7 @@ impl KernelInvocationRuntime {
                     reason: super::protocol::sanitize_process_diagnostic(&format!(
                         "component ipc write failed: {error}"
                     )),
+                    result: None,
                     spawned_process: true,
                     exit_code: None,
                 });
@@ -263,6 +268,7 @@ impl KernelInvocationRuntime {
                     reason: super::protocol::sanitize_process_diagnostic(&format!(
                         "component ipc write failed: {error}"
                     )),
+                    result: None,
                     spawned_process: true,
                     exit_code: None,
                 });
@@ -282,6 +288,7 @@ impl KernelInvocationRuntime {
                     exit_code,
                     stderr.trim()
                 )),
+                result: None,
                 spawned_process: true,
                 exit_code,
             });
@@ -328,15 +335,7 @@ impl KernelInvocationRuntime {
             status: super::KernelInvocationStatus::Failed,
             route: Some(route.clone()),
             event: None,
-            result: Some(Self::failure_result(
-                envelope,
-                Some(&route),
-                &error.stage,
-                &error.reason,
-                error.spawned_process,
-                false,
-                Some("local_process".to_string()),
-            )),
+            result: Some(Self::process_failure_result(envelope, &route, &error)),
             route_decision_made: true,
             handler_executed: error.spawned_process,
             event_generated: false,
@@ -351,6 +350,47 @@ impl KernelInvocationRuntime {
             ledger_path: None,
             ledger_record_count: 0,
         }
+    }
+}
+
+impl KernelInvocationRuntime {
+    fn process_failure_result(
+        envelope: &KernelInvocationEnvelope,
+        route: &KernelRouteRuntimeOutput,
+        error: &ComponentProcessFailure,
+    ) -> super::KernelInvocationResultEnvelope {
+        if let Some(result) = error.result.clone() {
+            return super::KernelInvocationResultEnvelope {
+                invocation_id: envelope.invocation_id.clone(),
+                trace_id: envelope.trace_context.trace_id.clone(),
+                operation: envelope.operation.clone(),
+                status: super::KernelInvocationStatus::Failed,
+                route: Some(super::KernelInvocationResultRoute {
+                    component_id: route.component_id.clone(),
+                    app_id: route.app_id.clone(),
+                    capability_id: route.capability_id.clone(),
+                    contract_version: crate::format_contract(&route.contract_version),
+                }),
+                handler_kind: Some("local_process".to_string()),
+                result_kind: result.result_kind,
+                summary: result.summary,
+                public_fields: result.public_fields,
+                failure_stage: Some(error.stage.clone()),
+                failure_reason: Some(error.reason.clone()),
+                handler_executed: error.spawned_process,
+                event_generated: false,
+                ledger_appended: false,
+            };
+        }
+        Self::failure_result(
+            envelope,
+            Some(route),
+            &error.stage,
+            &error.reason,
+            error.spawned_process,
+            false,
+            Some("local_process".to_string()),
+        )
     }
 }
 

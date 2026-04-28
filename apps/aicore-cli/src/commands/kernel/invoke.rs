@@ -147,6 +147,26 @@ pub(crate) fn print_kernel_invoke_readonly(operation: &str, args: &[String]) -> 
     if invocation.exit_success { 0 } else { 1 }
 }
 
+pub(crate) fn print_kernel_invoke_write(operation: &str, args: &[String]) -> i32 {
+    let layout = AicoreLayout::from_system_home();
+    let payload = write_payload(operation, args);
+    let envelope = KernelInvocationEnvelope::new("global-main", operation, operation, payload);
+    let invocation = KernelRuntimeBinaryClient::new(layout).invoke_envelope(envelope);
+    let output = invocation.payload;
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_kernel_invocation_payload_json(&output);
+        return if invocation.exit_success { 0 } else { 1 };
+    }
+
+    let title = if payload_status(&output) == Some("completed") {
+        "内核写入调用"
+    } else {
+        "内核写入调用失败"
+    };
+    emit_cli_panel(title, kernel_invocation_payload_rows(&output, operation));
+    if invocation.exit_success { 0 } else { 1 }
+}
+
 fn kernel_smoke_handler(
     envelope: &KernelInvocationEnvelope,
     _route: &KernelRouteRuntimeOutput,
@@ -183,6 +203,22 @@ fn readonly_payload(operation: &str, args: &[String]) -> KernelPayload {
         "memory.wiki_page" => {
             let page = args.first().map(String::as_str).unwrap_or("index");
             KernelPayload::JsonSummary(serde_json::json!({ "page": page }).to_string())
+        }
+        _ => KernelPayload::Empty,
+    }
+}
+
+fn write_payload(operation: &str, args: &[String]) -> KernelPayload {
+    match operation {
+        "memory.remember" => {
+            let content = args.first().map(String::as_str).unwrap_or("");
+            KernelPayload::JsonSummary(serde_json::json!({ "content": content }).to_string())
+        }
+        "memory.accept" | "memory.reject" => {
+            let proposal_id = args.first().map(String::as_str).unwrap_or("");
+            KernelPayload::JsonSummary(
+                serde_json::json!({ "proposal_id": proposal_id }).to_string(),
+            )
         }
         _ => KernelPayload::Empty,
     }

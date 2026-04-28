@@ -2,44 +2,16 @@ use super::super::KernelInvocationAdoptionClass::MustMigrateToKernelInvocationLa
 use super::super::KernelInvocationAdoptionEntry;
 use super::entry;
 
-pub(super) const ENTRIES: &[KernelInvocationAdoptionEntry] = &[
-    entry(
-        "aicore-cli memory remember <内容>",
-        "memory.remember",
-        MustMigrateToKernelInvocationLater,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        "memory write capability needs memory contract and audit boundary",
-    ),
-    entry(
-        "aicore-cli memory accept <proposal_id>",
-        "memory.accept",
-        MustMigrateToKernelInvocationLater,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        "memory write capability needs memory contract and audit boundary",
-    ),
-    entry(
-        "aicore-cli memory reject <proposal_id>",
-        "memory.reject",
-        MustMigrateToKernelInvocationLater,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        "memory write capability needs memory contract and audit boundary",
-    ),
-];
+pub(super) const ENTRIES: &[KernelInvocationAdoptionEntry] = &[entry(
+    "M3.x direct command adoption policy",
+    "policy.direct_command_adoption",
+    MustMigrateToKernelInvocationLater,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    "decide whether direct commands should default to kernel-native paths",
+)];

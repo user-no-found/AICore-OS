@@ -322,6 +322,31 @@ pub(crate) fn seed_memory_read_manifests(home: &PathBuf) {
     }
 }
 
+pub(crate) fn seed_memory_write_manifests(home: &PathBuf) {
+    for (file_name, component_id, operation, arg) in [
+        (
+            "aicore-memory-remember.toml",
+            "aicore-memory-remember",
+            "memory.remember",
+            "__component-memory-remember-stdio",
+        ),
+        (
+            "aicore-memory-accept.toml",
+            "aicore-memory-accept",
+            "memory.accept",
+            "__component-memory-accept-stdio",
+        ),
+        (
+            "aicore-memory-reject.toml",
+            "aicore-memory-reject",
+            "memory.reject",
+            "__component-memory-reject-stdio",
+        ),
+    ] {
+        seed_readonly_component_manifest(home, file_name, component_id, operation, arg);
+    }
+}
+
 fn seed_readonly_component_manifest(
     home: &PathBuf,
     file_name: &str,
@@ -475,6 +500,56 @@ cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 LEDGER
 printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.agent.session","trace_id":"trace.default","operation":"agent.session_smoke","status":"completed","route":{"component_id":"aicore-agent-session-smoke","app_id":"aicore-cli","capability_id":"agent.session_smoke","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"agent.session_smoke","summary":"Agent session smoke 完成：2 turns / conv.fixture","fields":{"operation":"agent.session_smoke","conversation_id":"conv.fixture","turn_count":"2","latest_outcome":"completed","completed_all_inputs":"true","stop_reason":"<none>","event_count":"6","queue_len":"0","turns":"[{\"outcome\":\"completed\"}]","kernel_invocation_path":"binary","real_provider":"false","tool_calling":"false","streaming":"false"}},"failure":{"stage":null,"reason":null}}}'
 exit 0
+fi
+memory_write_operation=""
+memory_write_component=""
+memory_write_fields=""
+memory_write_status="completed"
+memory_write_failure='null'
+case "$request" in
+  *memory.remember*)
+    memory_write_operation="memory.remember"
+    memory_write_component="aicore-memory-remember"
+    if printf '%s' "$request" | grep -q '\\"content\\":\\"\\"'; then
+      memory_write_status="failed"
+      memory_write_failure='"handler_failed"'
+      memory_write_fields='"operation":"memory.remember","write_applied":"false","audit_closed":"true","write_outcome":"failed","idempotency":"not_guaranteed","content_present":"false","content_length":"0","kernel_invocation_path":"binary"'
+    else
+      memory_write_fields='"operation":"memory.remember","write_applied":"true","audit_closed":"true","write_outcome":"applied","idempotency":"not_guaranteed","memory_id":"mem_fixture","memory_type":"core","source":"user_explicit","permanence":"standard","content_present":"true","content_length":"31","kernel_invocation_path":"binary"'
+    fi
+    ;;
+  *memory.accept*)
+    memory_write_operation="memory.accept"
+    memory_write_component="aicore-memory-accept"
+    proposal_id=$(printf '%s' "$request" | sed -n 's/.*\\"proposal_id\\":\\"\([^"\\]*\)\\".*/\1/p')
+    if [ "$proposal_id" = "prop_missing" ]; then
+      memory_write_status="failed"
+      memory_write_failure='"handler_failed"'
+      memory_write_fields='"operation":"memory.accept","write_applied":"false","audit_closed":"true","write_outcome":"failed","idempotency":"not_guaranteed","proposal_id":"prop_missing","kernel_invocation_path":"binary"'
+    else
+      memory_write_fields='"operation":"memory.accept","write_applied":"true","audit_closed":"true","write_outcome":"applied","idempotency":"not_guaranteed","proposal_id":"'"$proposal_id"'","memory_id":"mem_fixture","status":"accepted","kernel_invocation_path":"binary"'
+    fi
+    ;;
+  *memory.reject*)
+    memory_write_operation="memory.reject"
+    memory_write_component="aicore-memory-reject"
+    proposal_id=$(printf '%s' "$request" | sed -n 's/.*\\"proposal_id\\":\\"\([^"\\]*\)\\".*/\1/p')
+    if [ "$proposal_id" = "prop_missing" ]; then
+      memory_write_status="failed"
+      memory_write_failure='"handler_failed"'
+      memory_write_fields='"operation":"memory.reject","write_applied":"false","audit_closed":"true","write_outcome":"failed","idempotency":"not_guaranteed","proposal_id":"prop_missing","kernel_invocation_path":"binary"'
+    else
+      memory_write_fields='"operation":"memory.reject","write_applied":"true","audit_closed":"true","write_outcome":"applied","idempotency":"not_guaranteed","proposal_id":"'"$proposal_id"'","status":"rejected","kernel_invocation_path":"binary"'
+    fi
+    ;;
+esac
+if [ -n "$memory_write_operation" ]; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<LEDGER
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.$memory_write_operation.accepted","timestamp":"0","invocation_id":"invoke.fixture.$memory_write_operation","trace_id":"trace.default","instance_id":"global-main","operation":"$memory_write_operation","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.$memory_write_operation.completed","timestamp":"0","invocation_id":"invoke.fixture.$memory_write_operation","trace_id":"trace.default","instance_id":"global-main","operation":"$memory_write_operation","stage":"invocation_completed","status":"ok","component_id":"$memory_write_component","app_id":"aicore-cli","capability_id":"$memory_write_operation","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.'"$memory_write_operation"'","trace_id":"trace.default","operation":"'"$memory_write_operation"'","status":"'"$memory_write_status"'","route":{"component_id":"'"$memory_write_component"'","app_id":"aicore-cli","capability_id":"'"$memory_write_operation"'","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"'"$memory_write_operation"'","summary":"Memory write fixture completed","fields":{'"$memory_write_fields"'}},"failure":{"stage":'"$memory_write_failure"',"reason":null}}}'
+if [ "$memory_write_status" = "completed" ]; then exit 0; else exit 1; fi
 fi
 memory_operation=""
 memory_component=""

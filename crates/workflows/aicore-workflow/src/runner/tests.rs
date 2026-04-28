@@ -14,6 +14,7 @@ use super::install::{
 };
 
 mod memory_read_manifest_tests;
+mod memory_write_manifest_tests;
 
 #[test]
 fn foundation_workflow_uses_foundation_target_dir() {
@@ -331,6 +332,9 @@ fn app_cli_install_writes_global_manifest_with_capabilities() {
     assert!(!manifest.contains("operation = \"memory.proposals\""));
     assert!(!manifest.contains("operation = \"memory.audit\""));
     assert!(!manifest.contains("operation = \"memory.wiki\""));
+    assert!(!manifest.contains("operation = \"memory.remember\""));
+    assert!(!manifest.contains("operation = \"memory.accept\""));
+    assert!(!manifest.contains("operation = \"memory.reject\""));
     assert!(!manifest.contains("operation = \"provider.smoke\""));
     assert!(!manifest.contains("operation = \"agent.smoke\""));
     assert!(!manifest.contains("operation = \"agent.session_smoke\""));

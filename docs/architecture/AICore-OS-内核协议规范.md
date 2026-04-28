@@ -99,7 +99,7 @@ component process boundary 是 `KernelInvocationRuntime` 调用独立 applicatio
 
 当前最小 local IPC transport 是 `stdio_jsonl`。调用运行时通过 stdin 写入一行 JSON invocation request，通过 stdout 读取一行 JSON result。stdout 只作为 protocol channel 使用，不承载 human log。stderr 可以作为 diagnostic source，但进入 public surface 或 ledger 前必须脱敏、截断并去除不安全终端控制序列。
 
-local process 成功结果必须进入 `KernelInvocationResultEnvelope`，并生成 `KernelEventEnvelope`。失败结果必须结构化表达 failure stage、redacted reason、transport、spawned process 和 exit code 等 metadata。
+local process 成功结果必须进入 `KernelInvocationResultEnvelope`，并生成 `KernelEventEnvelope`。失败结果必须结构化表达 failure stage、redacted reason、transport、spawned process 和 exit code 等 metadata。component handler 的业务失败可以用 protocol-compatible `status = "failed"` result 表达；此时 invocation status 必须是 failed，且可以保留 safe public fields 供机器消费。
 
 unsupported transport、缺失 entrypoint、spawn failure、IPC write/read failure、nonzero exit 与 invalid JSON result 都必须返回结构化 failure，不得静默回落为 in-process handler。
 
@@ -110,6 +110,12 @@ invocation ledger 应记录 local process metadata，例如 handler kind、spawn
 业务只读 operation 可以采用同一条 local process invocation 边界。`config.validate` 是配置校验只读 capability：route decision 来自 installed manifest，Kernel runtime binary 负责启动 component process，component process 通过 stdout 返回 `KernelInvocationResultEnvelope` 可消费字段。`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list`、`cli.status`、`provider.smoke`、`agent.smoke`、`agent.session_smoke` 与 memory read operations 也是只读或 smoke component process capability；它们返回结构化 public fields，并继续禁止 raw config、secret、`secret_ref`、credential material、raw provider request、raw provider payload、full prompt 或 raw memory content 进入 ledger。direct `aicore-cli config validate`、`aicore-cli auth list`、`aicore-cli model show`、`aicore-cli service list`、`aicore-cli runtime smoke`、`aicore-cli instance list`、`aicore-cli status`、`aicore-cli provider smoke`、`aicore-cli agent smoke`、`aicore-cli agent session-smoke` 与 direct memory read commands 可以作为兼容本地命令保留，但不能被标记为 kernel-native invocation。
 
 Memory read operations 包括 `memory.status`、`memory.search`、`memory.proposals`、`memory.audit`、`memory.wiki` 与 `memory.wiki_page`。这些 operation 的 public result 可以按现有 read surface 语义展示记忆摘要、搜索结果、proposal 摘要或 wiki markdown；invocation ledger 仍只记录 lifecycle、route、handler 和 failure metadata，不记录 raw memory content、wiki markdown、search result raw content、raw stdout、raw stderr 或 raw invocation payload。Wiki projection result 必须保留 not truth source 声明，wiki page request 必须继续执行 page 白名单与 path traversal 拒绝。
+
+Memory write operations 包括 `memory.remember`、`memory.accept` 与 `memory.reject`。这些 operation 可以通过 `kernel invoke-write` 类入口进入 installed Kernel runtime binary、installed manifest route、`local_process` component handler 和 `KernelInvocationResultEnvelope`。direct `aicore-cli memory remember`、`aicore-cli memory accept` 与 `aicore-cli memory reject` 可以作为兼容本地命令保留，但不能被标记为 kernel-native invocation。
+
+Memory write 的 audit contract 必须区分 Kernel invocation ledger 与 MemoryKernel 业务事实源。MemoryKernel DB 和 memory event ledger 记录 memory write 的业务事实；Kernel invocation ledger 只记录 invocation lifecycle。write result 的 public fields 必须表达 `write_applied`、`audit_closed`、`write_outcome` 和 `idempotency`。如果没有完整幂等系统，`idempotency` 必须是 `not_guaranteed`，不得声称 exactly-once。result 可以返回 memory_id、proposal_id、event_id 等 safe id，但不得返回 raw memory content 或 proposal content。
+
+Memory write 失败必须结构化。empty content、invalid proposal id 或 MemoryKernel write failure 应返回 failed invocation，并尽量保留安全 public fields，例如 `write_applied = false`、`write_outcome = failed` 和 safe proposal id。若业务写入已经发生但 invocation audit close 失败，public surface 必须表达动作已经发生但审计闭合失败；若无法可靠判断 child process 是否已经应用写入，failure 必须表达 write outcome unknown，而不得静默当作无副作用失败。
 
 ## First-party Read-only Handler Boundary
 
@@ -128,6 +134,8 @@ Memory read operations 包括 `memory.status`、`memory.search`、`memory.propos
 result envelope 至少表达 invocation id、trace id、operation、status、route metadata、handler metadata、result kind、result summary、public fields、failure stage、failure reason、handler_executed、event_generated 和 ledger_appended。
 
 一方只读 operation 应通过 result envelope 返回结构化 public fields。`runtime.status` 类型的只读结果可以表达 global root、foundation installed、kernel installed、manifest count、capability count 和 bin path status 等字段。JSON terminal mode 应输出稳定 result object，调用方不应解析人类 panel body 来获取机器数据。
+
+write operation 也必须通过 result envelope 返回结构化 public fields。JSON terminal mode consumer 必须读取 `result.fields` 中的 write audit fields，不得解析 human summary 或 stderr diagnostic 作为机器数据源。
 
 `KernelEventEnvelope` 可以携带安全 summary，用于事件流和人类摘要，但不得代替 result envelope 作为结构化结果合同。invocation ledger 继续只记录生命周期、路由、handler 和失败 metadata，不记录完整 result payload，也不记录 raw handler output。
 

@@ -1,4 +1,6 @@
-use crate::KernelInvocationEnvelope;
+use std::collections::BTreeMap;
+
+use crate::{KernelHandlerResult, KernelInvocationEnvelope};
 
 use super::ComponentProcessFailure;
 
@@ -72,13 +74,7 @@ fn validate_component_process_result(
             exit_code,
         ));
     }
-    if value.get("status").and_then(|value| value.as_str()) != Some("completed") {
-        return Err(process_failure(
-            "process_result_schema_mismatch",
-            "component process result status must be completed",
-            exit_code,
-        ));
-    }
+    let status = value.get("status").and_then(|value| value.as_str());
     if value
         .get("result_kind")
         .and_then(|value| value.as_str())
@@ -94,6 +90,20 @@ fn validate_component_process_result(
             exit_code,
         ));
     }
+    if status == Some("failed") {
+        let reason = value
+            .get("summary")
+            .and_then(|value| value.as_str())
+            .unwrap_or("component handler failed");
+        return Err(component_handler_failure(value, reason, exit_code));
+    }
+    if status != Some("completed") {
+        return Err(process_failure(
+            "process_result_schema_mismatch",
+            "component process result status must be completed or failed",
+            exit_code,
+        ));
+    }
     Ok(())
 }
 
@@ -101,6 +111,37 @@ fn process_failure(stage: &str, reason: &str, exit_code: Option<i32>) -> Compone
     ComponentProcessFailure {
         stage: stage.to_string(),
         reason: super::super::protocol::sanitize_process_diagnostic(reason),
+        result: None,
+        spawned_process: true,
+        exit_code,
+    }
+}
+
+fn component_handler_failure(
+    value: &serde_json::Value,
+    reason: &str,
+    exit_code: Option<i32>,
+) -> ComponentProcessFailure {
+    let mut fields = BTreeMap::new();
+    if let Some(object) = value.get("fields").and_then(|value| value.as_object()) {
+        for (key, value) in object {
+            fields.insert(
+                key.clone(),
+                super::super::protocol::json_value_to_public_string(value),
+            );
+        }
+    }
+    ComponentProcessFailure {
+        stage: "handler_failed".to_string(),
+        reason: super::super::protocol::sanitize_process_diagnostic(reason),
+        result: Some(KernelHandlerResult::structured(
+            value
+                .get("result_kind")
+                .and_then(|value| value.as_str())
+                .unwrap_or("component.process.result"),
+            fields,
+            reason.to_string(),
+        )),
         spawned_process: true,
         exit_code,
     }

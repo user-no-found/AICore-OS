@@ -47,6 +47,46 @@ pub(crate) fn run_component_report_stdio_with_request(
     0
 }
 
+pub(crate) fn run_component_write_report_stdio_with_request(
+    result_kind: &str,
+    stdin_error: &str,
+    failure_fields: impl FnOnce(&serde_json::Value, &str) -> serde_json::Value,
+    build_report: impl FnOnce(&serde_json::Value) -> Result<(String, serde_json::Value), String>,
+) -> i32 {
+    let mut input = String::new();
+    if let Err(error) = std::io::stdin().read_to_string(&mut input) {
+        eprintln!("{stdin_error}: {error}");
+        return 1;
+    }
+    let request = first_json_line(&input);
+    let invocation_id = request
+        .get("invocation_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("-");
+    let (status, summary, fields) = match build_report(&request) {
+        Ok((summary, fields)) => ("completed", summary, fields),
+        Err(error) => {
+            eprintln!("{result_kind} component 执行失败: {error}");
+            ("failed", error.clone(), failure_fields(&request, &error))
+        }
+    };
+    let result = serde_json::json!({
+        "schema_version": "aicore.local_ipc.result.v1",
+        "protocol": "stdio_jsonl",
+        "protocol_version": "aicore.local_ipc.stdio_jsonl.v1",
+        "invocation_id": invocation_id,
+        "status": status,
+        "result_kind": result_kind,
+        "summary": summary,
+        "fields": fields
+    });
+    println!(
+        "{}",
+        serde_json::to_string(&result).expect("component write result should encode")
+    );
+    0
+}
+
 pub(crate) fn payload_string(request: &serde_json::Value, key: &str, default: &str) -> String {
     request
         .get("payload")
