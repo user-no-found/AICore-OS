@@ -569,6 +569,10 @@ fn insert_runtime_binary_contract_metadata(
     fields: &mut serde_json::Map<String, serde_json::Value>,
 ) {
     fields.insert(
+        "kernel_invocation_path".to_string(),
+        serde_json::Value::String("binary".to_string()),
+    );
+    fields.insert(
         "protocol".to_string(),
         serde_json::Value::String(RUNTIME_BINARY_PROTOCOL.to_string()),
     );

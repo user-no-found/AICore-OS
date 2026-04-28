@@ -156,7 +156,7 @@ fn aicore_top_level_status_uses_kernel_invocation_runtime() {
     assert!(stdout.contains("operation：runtime.status"));
     assert!(stdout.contains("handler executed：true"));
     assert!(stdout.contains("ledger appended：true"));
-    assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("kernel invocation path：binary"));
     assert!(stdout.contains("in-process fallback：false"));
 }
 
@@ -235,7 +235,7 @@ fn aicore_top_level_status_outputs_existing_public_fields() {
     assert!(stdout.contains("bin path status："));
     assert!(stdout.contains("foundation runtime binary"));
     assert!(stdout.contains("kernel runtime binary"));
-    assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("kernel invocation path：binary"));
     assert!(stdout.contains("protocol：stdio_jsonl"));
     assert!(stdout.contains("protocol version：aicore.kernel.runtime_binary.stdio_jsonl.v1"));
     assert!(stdout.contains("runtime contract：kernel.runtime.v1"));
@@ -280,7 +280,7 @@ fn aicore_top_level_status_result_uses_structured_envelope() {
     );
     assert_eq!(
         result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
-        "binary_fixture"
+        "binary"
     );
     assert_eq!(
         result_event["payload"]["result"]["fields"]["protocol"],

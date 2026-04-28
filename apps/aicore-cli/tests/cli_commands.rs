@@ -215,6 +215,17 @@ fn seed_kernel_runtime_binary_fixture(home: &PathBuf) {
     let script = r#"#!/bin/sh
 request=$(cat)
 mkdir -p "$HOME/.aicore/state/kernel"
+if printf '%s' "$request" | grep -q 'component.process.smoke'; then
+cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.process.accepted","timestamp":"0","invocation_id":"invoke.fixture.process","trace_id":"trace.default","instance_id":"global-main","operation":"component.process.smoke","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.process.route","timestamp":"0","invocation_id":"invoke.fixture.process","trace_id":"trace.default","instance_id":"global-main","operation":"component.process.smoke","stage":"route_decision_made","status":"ok","component_id":"aicore-component-smoke","app_id":"aicore-cli","capability_id":"component.process.smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.process.handler","timestamp":"0","invocation_id":"invoke.fixture.process","trace_id":"trace.default","instance_id":"global-main","operation":"component.process.smoke","stage":"handler_executed","status":"ok","component_id":"aicore-component-smoke","app_id":"aicore-cli","capability_id":"component.process.smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":false,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.process.event","timestamp":"0","invocation_id":"invoke.fixture.process","trace_id":"trace.default","instance_id":"global-main","operation":"component.process.smoke","stage":"event_generated","status":"ok","component_id":"aicore-component-smoke","app_id":"aicore-cli","capability_id":"component.process.smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+{"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.process.completed","timestamp":"0","invocation_id":"invoke.fixture.process","trace_id":"trace.default","instance_id":"global-main","operation":"component.process.smoke","stage":"invocation_completed","status":"ok","component_id":"aicore-component-smoke","app_id":"aicore-cli","capability_id":"component.process.smoke","contract_version":"kernel.app.v1","failure_stage":null,"failure_reason":null,"handler_kind":"local_process","handler_executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"transport":"stdio_jsonl","process_exit_code":0}
+LEDGER
+printf '%s\n' '{"event":"kernel.invocation.result","schema_version":"aicore.kernel.runtime_binary.response.v1","protocol":"stdio_jsonl","protocol_version":"aicore.kernel.runtime_binary.stdio_jsonl.v1","contract_version":"kernel.runtime.v1","payload":{"invocation_id":"invoke.fixture.process","trace_id":"trace.default","operation":"component.process.smoke","status":"completed","route":{"component_id":"aicore-component-smoke","app_id":"aicore-cli","capability_id":"component.process.smoke","contract_version":"kernel.app.v1"},"handler":{"kind":"local_process","invocation_mode":"local_process","transport":"stdio_jsonl","process_exit_code":0,"executed":true,"event_generated":true,"spawned_process":true,"called_real_component":false,"first_party_in_process_adapter":false},"ledger":{"appended":true,"path":"fixture-ledger","records":5},"result":{"kind":"component.process.smoke","summary":"process smoke handled by installed kernel runtime binary","fields":{"operation":"component.process.smoke","ipc":"stdio_jsonl","component_process":"ok","kernel_invocation_path":"binary"}},"failure":{"stage":null,"reason":null}}}'
+exit 0
+fi
 if printf '%s' "$request" | grep -q 'provider.smoke'; then
 cat >> "$HOME/.aicore/state/kernel/invocation-ledger.jsonl" <<'LEDGER'
 {"schema_version":"aicore.kernel.invocation_ledger.v1","record_id":"ledger.fixture.accepted","timestamp":"0","invocation_id":"invoke.fixture.binary","trace_id":"trace.default","instance_id":"global-main","operation":"provider.smoke","stage":"accepted","status":"ok","component_id":null,"app_id":null,"capability_id":null,"contract_version":null,"failure_stage":null,"failure_reason":null,"handler_kind":null,"handler_executed":false,"event_generated":false,"spawned_process":false,"called_real_component":false,"transport":null,"process_exit_code":null}
@@ -904,7 +915,7 @@ fn cli_kernel_invoke_readonly_outputs_chinese_summary() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("内核只读调用"));
-    assert!(stdout.contains("kernel invocation path：binary_fixture"));
+    assert!(stdout.contains("kernel invocation path：binary"));
     assert!(stdout.contains("kernel runtime binary"));
     assert!(stdout.contains("protocol：stdio_jsonl"));
     assert!(stdout.contains("protocol version：aicore.kernel.runtime_binary.stdio_jsonl.v1"));
@@ -994,7 +1005,7 @@ fn cli_kernel_invoke_readonly_json_contains_structured_result_fields() {
     );
     assert_eq!(
         result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
-        "binary_fixture"
+        "binary"
     );
     assert_eq!(
         result_event["payload"]["result"]["fields"]["protocol"],
@@ -1192,6 +1203,9 @@ fn app_public_path_does_not_silently_fallback_to_in_process_kernel() {
 #[test]
 fn cli_kernel_invoke_process_smoke_outputs_chinese_summary() {
     let home = temp_root("kernel-process-smoke-chinese");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_process_smoke_manifest(&home);
 
     let output = run_cli_with_env(
@@ -1210,12 +1224,17 @@ fn cli_kernel_invoke_process_smoke_outputs_chinese_summary() {
     assert!(stdout.contains("event generated：true"));
     assert!(stdout.contains("ledger appended：true"));
     assert!(stdout.contains("result kind：component.process.smoke"));
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("in-process fallback：false"));
     assert!(stdout.contains("只验证 local process boundary"));
 }
 
 #[test]
 fn cli_kernel_invoke_process_smoke_json_outputs_structured_result() {
     let home = temp_root("kernel-process-smoke-json");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_process_smoke_manifest(&home);
 
     let output = run_cli_with_env(
@@ -1256,6 +1275,10 @@ fn cli_kernel_invoke_process_smoke_json_outputs_structured_result() {
         result_event["payload"]["result"]["fields"]["ipc"],
         "stdio_jsonl"
     );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary"
+    );
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -1263,6 +1286,9 @@ fn cli_kernel_invoke_process_smoke_json_outputs_structured_result() {
 #[test]
 fn cli_kernel_invoke_process_smoke_writes_process_metadata_to_ledger() {
     let home = temp_root("kernel-process-smoke-ledger");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
     seed_process_smoke_manifest(&home);
 
     let output = run_cli_with_env(
@@ -1293,6 +1319,67 @@ fn cli_kernel_invoke_process_smoke_writes_process_metadata_to_ledger() {
     assert!(ledger.contains("\"transport\":\"stdio_jsonl\""));
     assert!(!ledger.contains("secret_ref"));
     assert!(!ledger.contains("raw provider"));
+}
+
+#[test]
+fn cli_invoke_process_smoke_uses_installed_kernel_runtime_binary() {
+    let home = temp_root("kernel-process-smoke-installed-binary");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("handler kind：local_process"));
+    assert!(stdout.contains("spawned process：true"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(stdout.contains("process smoke handled by installed kernel runtime binary"));
+}
+
+#[test]
+fn missing_kernel_runtime_binary_blocks_process_smoke_without_fallback() {
+    let home = temp_root("kernel-process-smoke-missing-kernel");
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_process_smoke_manifest(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("kernel_runtime_binary_missing"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(!stdout.contains("invocation：completed"));
+    assert!(!stdout.contains("handler executed：true"));
+}
+
+#[test]
+fn missing_foundation_runtime_binary_blocks_process_smoke_without_fallback() {
+    let home = temp_root("kernel-process-smoke-missing-foundation");
+    seed_global_runtime_metadata(&home);
+    seed_kernel_runtime_binary_fixture(&home);
+    seed_process_smoke_manifest(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("foundation_runtime_binary_missing"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(!stdout.contains("invocation：completed"));
+    assert!(!stdout.contains("handler executed：true"));
 }
 
 fn extract_json_string(record: &str, key: &str) -> String {

@@ -403,143 +403,30 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
 
 fn print_kernel_invoke_process_smoke(operation: &str) -> i32 {
     let layout = AicoreLayout::from_system_home();
-    let ledger_path = layout.kernel_state_root.join("invocation-ledger.jsonl");
-    let registry =
-        match aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root) {
-            Ok(registry) => registry,
-            Err(error) => {
-                emit_cli_panel(
-                    "内核组件进程调用失败",
-                    vec![
-                        cli_row("invocation", "failed"),
-                        cli_row("route", "failed"),
-                        cli_row("reason", "manifest registry load failed"),
-                        cli_row("operation", operation),
-                        cli_row("detail", error),
-                        cli_row("handler executed", "false"),
-                        cli_row("event generated", "false"),
-                        cli_row("ledger appended", "false"),
-                        cli_row("ledger path", ledger_path.display().to_string()),
-                        cli_row("ledger records", "0"),
-                    ],
-                );
-                return 1;
-            }
-        };
-    let runtime = KernelInvocationRuntime::new(registry, KernelHandlerRegistry::new());
-    let ledger = KernelInvocationLedger::new(&ledger_path);
     let envelope =
         KernelInvocationEnvelope::new("global-main", operation, operation, KernelPayload::Empty);
-    let invocation_id = envelope.invocation_id.clone();
-    let output = runtime.invoke_with_ledger(envelope, &ledger);
+    let invocation = KernelRuntimeBinaryClient::new(layout).invoke_envelope(envelope);
+    let output = invocation.payload;
 
     if TerminalConfig::current().mode == TerminalMode::Json {
-        emit_kernel_invocation_result_json(&output);
-        return if output.status == KernelInvocationStatus::Completed {
-            0
-        } else {
-            1
-        };
+        emit_kernel_invocation_payload_json(&output);
+        return if invocation.exit_success { 0 } else { 1 };
     }
 
-    if output.status == KernelInvocationStatus::Completed {
-        let route = output
-            .route
-            .as_ref()
-            .expect("completed process invocation must route");
-        let result = output
-            .result
-            .as_ref()
-            .expect("completed process invocation must include result envelope");
-        let mut rows = vec![
-            cli_row("invocation", "completed"),
-            cli_row("invocation id", result.invocation_id.as_str()),
-            cli_row("route", "routed"),
-            cli_row("operation", operation),
-            cli_row("component", route.component_id.as_str()),
-            cli_row("app", route.app_id.as_str()),
-            cli_row("capability", route.capability_id.as_str()),
-            cli_row("contract", format_contract(&route.contract_version)),
-            cli_row("invocation mode", route.invocation_mode.as_str()),
-            cli_row("transport", route.transport.as_str()),
-            cli_row(
-                "handler kind",
-                output.handler_kind.as_deref().unwrap_or("-"),
-            ),
-            cli_row("handler executed", output.handler_executed.to_string()),
-            cli_row("spawned process", output.spawned_process.to_string()),
-            cli_row(
-                "called real component",
-                output.called_real_component.to_string(),
-            ),
-            cli_row("event generated", output.event_generated.to_string()),
-            cli_row("result kind", result.result_kind.as_deref().unwrap_or("-")),
-            cli_row("result summary", result.summary.as_str()),
-            cli_row("ledger appended", output.ledger_appended.to_string()),
-            cli_row(
-                "ledger path",
-                output.ledger_path.as_deref().unwrap_or("-").to_string(),
-            ),
-            cli_row("ledger records", output.ledger_record_count.to_string()),
-            cli_row(
-                "说明",
-                "只验证 local process boundary，不代表业务组件已迁移",
-            ),
-        ];
-        for (key, value) in &result.public_fields {
-            rows.push(cli_row(format!("result.{key}"), value.as_str()));
-        }
-        emit_cli_panel("内核组件进程调用 Smoke", rows);
-        return 0;
-    }
-
-    let route_status = if output.route_decision_made {
-        "routed"
+    let title = if payload_status(&output) == Some("completed") {
+        "内核组件进程调用 Smoke"
     } else {
-        "failed"
+        "内核组件进程调用失败"
     };
-    let mut rows = vec![
-        cli_row("invocation", "failed"),
-        cli_row("invocation id", invocation_id),
-        cli_row("route", route_status),
-        cli_row("operation", operation),
-        cli_row(
-            "failure stage",
-            output.failure_stage.as_deref().unwrap_or("-"),
-        ),
-        cli_row(
-            "reason",
-            output
-                .failure_reason
-                .as_deref()
-                .unwrap_or("unknown failure"),
-        ),
-        cli_row(
-            "handler kind",
-            output.handler_kind.as_deref().unwrap_or("-"),
-        ),
-        cli_row(
-            "transport",
-            output.transport.as_deref().unwrap_or("-").to_string(),
-        ),
-        cli_row("handler executed", output.handler_executed.to_string()),
-        cli_row("spawned process", output.spawned_process.to_string()),
-        cli_row("event generated", output.event_generated.to_string()),
-        cli_row("ledger appended", output.ledger_appended.to_string()),
-        cli_row(
-            "ledger path",
-            output.ledger_path.as_deref().unwrap_or("-").to_string(),
-        ),
-        cli_row("ledger records", output.ledger_record_count.to_string()),
-    ];
-    if let Some(route) = output.route.as_ref() {
-        rows.push(cli_row("component", route.component_id.as_str()));
-        rows.push(cli_row("app", route.app_id.as_str()));
-        rows.push(cli_row("capability", route.capability_id.as_str()));
-        rows.push(cli_row("invocation mode", route.invocation_mode.as_str()));
+    let mut rows = kernel_invocation_payload_rows(&output, operation);
+    if payload_status(&output) == Some("completed") {
+        rows.push(cli_row(
+            "边界",
+            "只验证 local process boundary，不代表业务组件已迁移",
+        ));
     }
-    emit_cli_panel("内核组件进程调用失败", rows);
-    1
+    emit_cli_panel(title, rows);
+    if invocation.exit_success { 0 } else { 1 }
 }
 
 fn run_component_smoke_stdio() -> i32 {
@@ -589,15 +476,6 @@ fn kernel_smoke_handler(
     )))
 }
 
-fn emit_kernel_invocation_result_json(output: &aicore_kernel::KernelInvocationRuntimeOutput) {
-    let payload = kernel_invocation_result_json(output);
-    let payload = serde_json::to_string(&payload).expect("kernel invocation result should encode");
-    emit_document(Document::new(vec![Block::structured_json(
-        "kernel.invocation.result",
-        &payload,
-    )]));
-}
-
 fn emit_kernel_invocation_payload_json(payload: &serde_json::Value) {
     let payload = serde_json::to_string(payload).expect("kernel invocation result should encode");
     emit_document(Document::new(vec![Block::structured_json(
@@ -636,6 +514,13 @@ fn kernel_invocation_payload_rows(
         "contract",
     );
     push_payload_row(&mut rows, payload, &["handler", "kind"], "handler kind");
+    push_payload_row(
+        &mut rows,
+        payload,
+        &["handler", "invocation_mode"],
+        "invocation mode",
+    );
+    push_payload_row(&mut rows, payload, &["handler", "transport"], "transport");
     push_payload_row(
         &mut rows,
         payload,
@@ -744,6 +629,7 @@ fn kernel_invocation_payload_rows(
         &["result", "fields", "binary_health"],
         "binary health",
     );
+    push_additional_result_field_rows(&mut rows, payload);
     push_payload_row(
         &mut rows,
         payload,
@@ -800,10 +686,39 @@ fn kernel_invocation_payload_rows(
     rows
 }
 
-fn kernel_invocation_result_json(
-    output: &aicore_kernel::KernelInvocationRuntimeOutput,
-) -> serde_json::Value {
-    aicore_kernel::kernel_invocation_result_public_json(output)
+fn push_additional_result_field_rows(
+    rows: &mut Vec<(String, String)>,
+    payload: &serde_json::Value,
+) {
+    let Some(fields) = payload
+        .get("result")
+        .and_then(|result| result.get("fields"))
+        .and_then(|fields| fields.as_object())
+    else {
+        return;
+    };
+    let known = [
+        "foundation_installed",
+        "kernel_installed",
+        "manifest_count",
+        "capability_count",
+        "foundation_runtime_binary",
+        "kernel_runtime_binary",
+        "kernel_invocation_path",
+        "protocol",
+        "protocol_version",
+        "runtime_binary_contract_version",
+        "binary_health",
+    ];
+    for (key, value) in fields {
+        if known.contains(&key.as_str()) {
+            continue;
+        }
+        rows.push(cli_row(
+            format!("result.{key}"),
+            public_json_value(value).unwrap_or_else(|| "-".to_string()),
+        ));
+    }
 }
 
 fn push_payload_row(
@@ -842,6 +757,10 @@ fn public_value_at(payload: &serde_json::Value, path: &[&str]) -> Option<String>
     for key in path {
         current = current.get(*key)?;
     }
+    public_json_value(current)
+}
+
+fn public_json_value(current: &serde_json::Value) -> Option<String> {
     match current {
         serde_json::Value::Null => None,
         serde_json::Value::String(value) => Some(value.clone()),

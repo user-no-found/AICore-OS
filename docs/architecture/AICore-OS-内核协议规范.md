@@ -16,6 +16,8 @@
 
 `aicore-foundation` runtime binary 必须存在，kernel runtime binary 才能作为 AICore OS runtime boundary 正常服务。缺少 foundation 或 kernel runtime binary 时，调用方必须返回结构化失败，不得 fallback 成 in-process success。
 
+当 route metadata 指向 `local_process` capability 时，Kernel runtime binary 是 process boundary owner。它负责 route decision、进程启动、stdio JSONL IPC、result envelope 生成与 invocation ledger 写入。应用侧 client 只传入 invocation request 并消费结构化 result，不直接执行 `LocalProcess` branch。
+
 当前 runtime binary boundary 不是 daemon，不是 socket IPC server，不是 component supervisor，也不启动长期 kernel server。后续 socket、supervision、长期进程管理必须通过独立协议边界扩展。
 
 ### Runtime Binary Protocol
@@ -102,6 +104,8 @@ local process 成功结果必须进入 `KernelInvocationResultEnvelope`，并生
 unsupported transport、缺失 entrypoint、spawn failure、IPC write/read failure、nonzero exit 与 invalid JSON result 都必须返回结构化 failure，不得静默回落为 in-process handler。
 
 invocation ledger 应记录 local process metadata，例如 handler kind、spawned process、transport 和 process exit code。ledger 仍只记录审计 metadata，不记录 raw stdout、raw stderr、raw result payload 或 raw request。
+
+应用通过 runtime binary client 触发 local process diagnostic invocation 时，public surface 必须表达 `kernel_invocation_path = binary` 或等价字段，并保持 `in_process_fallback = false`。缺少 foundation 或 kernel runtime binary 时，failure stage 必须结构化表达对应 binary 缺失或不可执行状态。
 
 ## First-party Read-only Handler Boundary
 
