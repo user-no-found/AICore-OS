@@ -383,6 +383,50 @@ impl KernelInvocationRuntime {
                 ledger_appended: false,
             };
         }
+        if is_memory_write_operation(&envelope.operation) {
+            let mut public_fields = BTreeMap::new();
+            public_fields.insert("operation".to_string(), envelope.operation.clone());
+            public_fields.insert(
+                "write_applied".to_string(),
+                if error.spawned_process {
+                    "unknown".to_string()
+                } else {
+                    "false".to_string()
+                },
+            );
+            public_fields.insert("audit_closed".to_string(), "false".to_string());
+            public_fields.insert(
+                "write_outcome".to_string(),
+                if error.spawned_process {
+                    "unknown".to_string()
+                } else {
+                    "not_applied".to_string()
+                },
+            );
+            public_fields.insert("idempotency".to_string(), "not_guaranteed".to_string());
+            public_fields.insert("kernel_invocation_path".to_string(), "binary".to_string());
+            return super::KernelInvocationResultEnvelope {
+                invocation_id: envelope.invocation_id.clone(),
+                trace_id: envelope.trace_context.trace_id.clone(),
+                operation: envelope.operation.clone(),
+                status: super::KernelInvocationStatus::Failed,
+                route: Some(super::KernelInvocationResultRoute {
+                    component_id: route.component_id.clone(),
+                    app_id: route.app_id.clone(),
+                    capability_id: route.capability_id.clone(),
+                    contract_version: crate::format_contract(&route.contract_version),
+                }),
+                handler_kind: Some("local_process".to_string()),
+                result_kind: Some(envelope.operation.clone()),
+                summary: error.reason.clone(),
+                public_fields,
+                failure_stage: Some(error.stage.clone()),
+                failure_reason: Some(error.reason.clone()),
+                handler_executed: error.spawned_process,
+                event_generated: false,
+                ledger_appended: false,
+            };
+        }
         Self::failure_result(
             envelope,
             Some(route),
@@ -393,6 +437,13 @@ impl KernelInvocationRuntime {
             Some("local_process".to_string()),
         )
     }
+}
+
+fn is_memory_write_operation(operation: &str) -> bool {
+    matches!(
+        operation,
+        "memory.remember" | "memory.accept" | "memory.reject"
+    )
 }
 
 fn is_executable_file(path: &Path) -> bool {
