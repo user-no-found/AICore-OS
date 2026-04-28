@@ -7,6 +7,7 @@ mod kernel_route;
 mod memory_read;
 mod memory_write;
 mod provider_agent;
+mod runtime_instance_status_runtime;
 mod status;
 mod support;
 mod terminal_modes;

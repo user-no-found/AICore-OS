@@ -5,7 +5,58 @@ use aicore_kernel::{
 use crate::names::{delivery_identity_name, output_target_name};
 use crate::terminal::emit_cli_panel_body;
 
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeSmokeReport {
+    pub(crate) lines: Vec<String>,
+    pub(crate) cli_decision: String,
+    pub(crate) event_count: usize,
+    pub(crate) cli_output_target: String,
+    pub(crate) cli_delivery_identity: String,
+    pub(crate) external_output_target: String,
+    pub(crate) external_delivery_identity: String,
+    pub(crate) follow_output_target: String,
+    pub(crate) follow_delivery_identity: String,
+}
+
+impl RuntimeSmokeReport {
+    pub(crate) fn summary(&self) -> String {
+        "Runtime smoke 只读检查完成".to_string()
+    }
+
+    pub(crate) fn fields(&self) -> serde_json::Value {
+        serde_json::json!({
+            "operation": "runtime.smoke",
+            "runtime_root": aicore_foundation::AicoreLayout::from_system_home().state_root.display().to_string(),
+            "foundation_runtime_binary": runtime_binary_status("aicore-foundation"),
+            "kernel_runtime_binary": runtime_binary_status("aicore-kernel"),
+            "manifests_present": aicore_foundation::AicoreLayout::from_system_home().manifests_root.exists().to_string(),
+            "ledger_present": aicore_foundation::AicoreLayout::from_system_home().kernel_state_root.join("invocation-ledger.jsonl").exists().to_string(),
+            "status": "ok",
+            "warning_count": "0",
+            "diagnostics": self.lines.join(" | "),
+            "cli_decision": self.cli_decision,
+            "event_count": self.event_count.to_string(),
+            "cli_output_target": self.cli_output_target,
+            "cli_delivery_identity": self.cli_delivery_identity,
+            "external_output_target": self.external_output_target,
+            "external_delivery_identity": self.external_delivery_identity,
+            "follow_output_target": self.follow_output_target,
+            "follow_delivery_identity": self.follow_delivery_identity,
+            "kernel_invocation_path": "binary"
+        })
+    }
+
+    pub(crate) fn into_summary_and_fields(self) -> (String, serde_json::Value) {
+        (self.summary(), self.fields())
+    }
+}
+
 pub(crate) fn print_runtime_smoke() {
+    let report = build_runtime_smoke_report();
+    emit_cli_panel_body("Runtime Smoke：", &report.lines.join("\n"));
+}
+
+pub(crate) fn build_runtime_smoke_report() -> RuntimeSmokeReport {
     let mut cli_runtime = default_runtime();
     let cli_ingress = cli_runtime.handle_ingress(
         TransportEnvelope {
@@ -61,34 +112,44 @@ pub(crate) fn print_runtime_smoke() {
         .find(|event| event.target == OutputTarget::FollowedExternal)
         .expect("follow smoke must include followed external output");
 
-    let body = vec![
+    let cli_output_target = output_target_name(&cli_first.target).to_string();
+    let cli_delivery_identity = delivery_identity_name(&cli_first.identity).to_string();
+    let external_output_target = output_target_name(&external_origin.target).to_string();
+    let external_delivery_identity = delivery_identity_name(&external_origin.identity).to_string();
+    let follow_output_target = output_target_name(&followed_external.target).to_string();
+    let follow_delivery_identity = delivery_identity_name(&followed_external.identity).to_string();
+    let lines = vec![
         "CLI 场景：".to_string(),
         format!("  接收决策：{:?}", cli_ingress.decision),
         format!("  账本消息数：{}", cli_runtime.summary().event_count),
-        format!("  输出目标：{}", output_target_name(&cli_first.target)),
-        format!(
-            "  投递身份：{}",
-            delivery_identity_name(&cli_first.identity)
-        ),
+        format!("  输出目标：{cli_output_target}"),
+        format!("  投递身份：{cli_delivery_identity}"),
         "External Origin 场景：".to_string(),
-        format!(
-            "  输出目标：{}",
-            output_target_name(&external_origin.target)
-        ),
-        format!(
-            "  投递身份：{}",
-            delivery_identity_name(&external_origin.identity)
-        ),
+        format!("  输出目标：{external_output_target}"),
+        format!("  投递身份：{external_delivery_identity}"),
         "Follow 场景：".to_string(),
-        format!(
-            "  输出目标：{}",
-            output_target_name(&followed_external.target)
-        ),
-        format!(
-            "  投递身份：{}",
-            delivery_identity_name(&followed_external.identity)
-        ),
+        format!("  输出目标：{follow_output_target}"),
+        format!("  投递身份：{follow_delivery_identity}"),
     ];
 
-    emit_cli_panel_body("Runtime Smoke：", &body.join("\n"));
+    RuntimeSmokeReport {
+        lines,
+        cli_decision: format!("{:?}", cli_ingress.decision),
+        event_count: cli_runtime.summary().event_count,
+        cli_output_target,
+        cli_delivery_identity,
+        external_output_target,
+        external_delivery_identity,
+        follow_output_target,
+        follow_delivery_identity,
+    }
+}
+
+fn runtime_binary_status(binary_name: &str) -> &'static str {
+    let layout = aicore_foundation::AicoreLayout::from_system_home();
+    if layout.bin_root.join(binary_name).exists() {
+        "installed"
+    } else {
+        "missing"
+    }
 }

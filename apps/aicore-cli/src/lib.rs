@@ -23,6 +23,15 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-service-list-stdio" => {
             commands::kernel::run_component_service_list_stdio()
         }
+        [cmd] if cmd == "__component-runtime-smoke-stdio" => {
+            commands::kernel::run_component_runtime_smoke_stdio()
+        }
+        [cmd] if cmd == "__component-instance-list-stdio" => {
+            commands::kernel::run_component_instance_list_stdio()
+        }
+        [cmd] if cmd == "__component-status-stdio" => {
+            commands::kernel::run_component_status_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0

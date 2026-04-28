@@ -26,7 +26,7 @@
 
 应用作为 component process 接入内核时，应通过 installed manifest 声明 invocation mode、transport、entrypoint、args 和 capability。`stdio_jsonl` component process 的 stdout 只承载协议 result，不承载 human panel。业务只读 handler 应返回结构化 public fields，并由 CLI、TUI 或其他 surface 从 result envelope 派生人类摘要。
 
-`config.validate`、`auth.list`、`model.show`、`service.list` 类只读业务能力可以由 application binary 暴露内部 stdio handler，并通过 Kernel runtime binary 调用。该内部 handler 不属于用户产品命令，不应出现在普通帮助 surface 中。handler 输出必须是单行 JSONL result，且不得输出 human panel、ANSI 或 raw credential material。
+`config.validate`、`auth.list`、`model.show`、`service.list`、`runtime.smoke`、`instance.list`、`cli.status` 类只读业务能力可以由 application binary 暴露内部 stdio handler，并通过 Kernel runtime binary 调用。该内部 handler 不属于用户产品命令，不应出现在普通帮助 surface 中。handler 输出必须是单行 JSONL result，且不得输出 human panel、ANSI 或 raw credential material。
 
 ## 事件 envelope
 
