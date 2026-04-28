@@ -34,6 +34,18 @@
 
 event ledger 与 invocation ledger 是持久审计能力，不属于最小本进程 handler registry 的必要条件。未启用 ledger 时，public surface 必须明确 ledger 未追加。
 
+## Component Process Boundary
+
+component process boundary 是 `KernelInvocationRuntime` 调用独立 application binary 的本地边界。route metadata 必须显式表达 `invocation_mode` 与 `transport`。`in_process` capability 走本进程 handler registry；`local_process` capability 进入本地组件进程调用分支。
+
+当前最小 local IPC transport 是 `stdio_jsonl`。调用运行时通过 stdin 写入一行 JSON invocation request，通过 stdout 读取一行 JSON result。stdout 只作为 protocol channel 使用，不承载 human log。stderr 可以作为 diagnostic source，但进入 public surface 或 ledger 前必须脱敏、截断并去除不安全终端控制序列。
+
+local process 成功结果必须进入 `KernelInvocationResultEnvelope`，并生成 `KernelEventEnvelope`。失败结果必须结构化表达 failure stage、redacted reason、transport、spawned process 和 exit code 等 metadata。
+
+unsupported transport、缺失 entrypoint、spawn failure、IPC write/read failure、nonzero exit 与 invalid JSON result 都必须返回结构化 failure，不得静默回落为 in-process handler。
+
+invocation ledger 应记录 local process metadata，例如 handler kind、spawned process、transport 和 process exit code。ledger 仍只记录审计 metadata，不记录 raw stdout、raw stderr、raw result payload 或 raw request。
+
 ## First-party Read-only Handler Boundary
 
 一方只读 handler 是由 AICore OS 自身提供的受控 read-only adapter，用于读取全局运行时状态、配置路径状态、内核状态等安全摘要。它必须先通过 installed manifest registry 产生 route decision，再经由 `KernelInvocationRuntime` 执行，不得绕过 `KernelRouteRuntime` 直接调用。

@@ -81,6 +81,8 @@ pub struct KernelInvocationLedgerRecord {
     pub event_generated: bool,
     pub spawned_process: bool,
     pub called_real_component: bool,
+    pub transport: Option<String>,
+    pub process_exit_code: Option<i32>,
 }
 
 impl KernelInvocationLedgerRecord {
@@ -114,6 +116,8 @@ impl KernelInvocationLedgerRecord {
             event_generated: false,
             spawned_process: false,
             called_real_component: false,
+            transport: None,
+            process_exit_code: None,
         }
     }
 
@@ -151,6 +155,16 @@ impl KernelInvocationLedgerRecord {
         self
     }
 
+    pub fn with_transport(mut self, transport: Option<&str>) -> Self {
+        self.transport = transport.map(ToOwned::to_owned);
+        self
+    }
+
+    pub fn with_process_exit_code(mut self, code: Option<i32>) -> Self {
+        self.process_exit_code = code;
+        self
+    }
+
     pub fn to_json_line(&self) -> String {
         format!(
             "{{{}}}",
@@ -175,6 +189,8 @@ impl KernelInvocationLedgerRecord {
                 json_bool("event_generated", self.event_generated),
                 json_bool("spawned_process", self.spawned_process),
                 json_bool("called_real_component", self.called_real_component),
+                json_optional_string("transport", self.transport.as_deref()),
+                json_optional_i32("process_exit_code", self.process_exit_code),
             ]
             .join(",")
         )
@@ -216,6 +232,13 @@ fn json_optional_string(key: &str, value: Option<&str>) -> String {
 
 fn json_bool(key: &str, value: bool) -> String {
     format!("\"{}\":{}", escape_json(key), value)
+}
+
+fn json_optional_i32(key: &str, value: Option<i32>) -> String {
+    match value {
+        Some(value) => format!("\"{}\":{}", escape_json(key), value),
+        None => format!("\"{}\":null", escape_json(key)),
+    }
 }
 
 fn escape_json(value: &str) -> String {

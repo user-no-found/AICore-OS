@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::{env, fs, io::Read, path::PathBuf};
 
 use aicore_agent::{
     AgentSessionRunner, AgentSessionStopReason, AgentTurnInput, AgentTurnOutcome, AgentTurnRunner,
@@ -31,6 +31,7 @@ use aicore_terminal::{Block, Document, TerminalConfig, TerminalMode, render_docu
 
 pub fn run_from_args(args: Vec<String>) -> i32 {
     match args.as_slice() {
+        [cmd] if cmd == "__component-smoke-stdio" => run_component_smoke_stdio(),
         [cmd] if cmd == "status" => {
             print_status();
             0
@@ -51,6 +52,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         }
         [group, action, operation] if group == "kernel" && action == "invoke-readonly" => {
             print_kernel_invoke_readonly(operation)
+        }
+        [group, action, operation] if group == "kernel" && action == "invoke-process-smoke" => {
+            print_kernel_invoke_process_smoke(operation)
         }
         [group, action] if group == "config" && action == "smoke" => {
             run_config_command(print_config_smoke)
@@ -131,14 +135,14 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, _] if group == "kernel" => {
             eprintln!("未知 kernel 命令。");
             eprintln!(
-                "可用命令：kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation>"
+                "可用命令：kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-process-smoke <operation>"
             );
             1
         }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | kernel route <operation> | kernel invoke-smoke <operation> | kernel invoke-readonly <operation> | kernel invoke-process-smoke <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -245,6 +249,8 @@ fn print_kernel_route(operation: &str) -> i32 {
                     cli_row("contract", format_contract(&output.contract_version)),
                     cli_row("visibility", output.visibility.as_str()),
                     cli_row("entrypoint", output.entrypoint.as_str()),
+                    cli_row("invocation mode", output.invocation_mode.as_str()),
+                    cli_row("transport", output.transport.as_str()),
                     cli_row(
                         "route reason",
                         format!("{:?}", output.decision.route_reason),
@@ -512,6 +518,184 @@ fn print_kernel_invoke_readonly(operation: &str) -> i32 {
     1
 }
 
+fn print_kernel_invoke_process_smoke(operation: &str) -> i32 {
+    let layout = AicoreLayout::from_system_home();
+    let ledger_path = layout.kernel_state_root.join("invocation-ledger.jsonl");
+    let registry =
+        match aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root) {
+            Ok(registry) => registry,
+            Err(error) => {
+                emit_cli_panel(
+                    "内核组件进程调用失败",
+                    vec![
+                        cli_row("invocation", "failed"),
+                        cli_row("route", "failed"),
+                        cli_row("reason", "manifest registry load failed"),
+                        cli_row("operation", operation),
+                        cli_row("detail", error),
+                        cli_row("handler executed", "false"),
+                        cli_row("event generated", "false"),
+                        cli_row("ledger appended", "false"),
+                        cli_row("ledger path", ledger_path.display().to_string()),
+                        cli_row("ledger records", "0"),
+                    ],
+                );
+                return 1;
+            }
+        };
+    let runtime = KernelInvocationRuntime::new(registry, KernelHandlerRegistry::new());
+    let ledger = KernelInvocationLedger::new(&ledger_path);
+    let envelope =
+        KernelInvocationEnvelope::new("global-main", operation, operation, KernelPayload::Empty);
+    let invocation_id = envelope.invocation_id.clone();
+    let output = runtime.invoke_with_ledger(envelope, &ledger);
+
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_kernel_invocation_result_json(&output);
+        return if output.status == KernelInvocationStatus::Completed {
+            0
+        } else {
+            1
+        };
+    }
+
+    if output.status == KernelInvocationStatus::Completed {
+        let route = output
+            .route
+            .as_ref()
+            .expect("completed process invocation must route");
+        let result = output
+            .result
+            .as_ref()
+            .expect("completed process invocation must include result envelope");
+        let mut rows = vec![
+            cli_row("invocation", "completed"),
+            cli_row("invocation id", result.invocation_id.as_str()),
+            cli_row("route", "routed"),
+            cli_row("operation", operation),
+            cli_row("component", route.component_id.as_str()),
+            cli_row("app", route.app_id.as_str()),
+            cli_row("capability", route.capability_id.as_str()),
+            cli_row("contract", format_contract(&route.contract_version)),
+            cli_row("invocation mode", route.invocation_mode.as_str()),
+            cli_row("transport", route.transport.as_str()),
+            cli_row(
+                "handler kind",
+                output.handler_kind.as_deref().unwrap_or("-"),
+            ),
+            cli_row("handler executed", output.handler_executed.to_string()),
+            cli_row("spawned process", output.spawned_process.to_string()),
+            cli_row(
+                "called real component",
+                output.called_real_component.to_string(),
+            ),
+            cli_row("event generated", output.event_generated.to_string()),
+            cli_row("result kind", result.result_kind.as_deref().unwrap_or("-")),
+            cli_row("result summary", result.summary.as_str()),
+            cli_row("ledger appended", output.ledger_appended.to_string()),
+            cli_row(
+                "ledger path",
+                output.ledger_path.as_deref().unwrap_or("-").to_string(),
+            ),
+            cli_row("ledger records", output.ledger_record_count.to_string()),
+            cli_row(
+                "说明",
+                "只验证 local process boundary，不代表业务组件已迁移",
+            ),
+        ];
+        for (key, value) in &result.public_fields {
+            rows.push(cli_row(format!("result.{key}"), value.as_str()));
+        }
+        emit_cli_panel("内核组件进程调用 Smoke", rows);
+        return 0;
+    }
+
+    let route_status = if output.route_decision_made {
+        "routed"
+    } else {
+        "failed"
+    };
+    let mut rows = vec![
+        cli_row("invocation", "failed"),
+        cli_row("invocation id", invocation_id),
+        cli_row("route", route_status),
+        cli_row("operation", operation),
+        cli_row(
+            "failure stage",
+            output.failure_stage.as_deref().unwrap_or("-"),
+        ),
+        cli_row(
+            "reason",
+            output
+                .failure_reason
+                .as_deref()
+                .unwrap_or("unknown failure"),
+        ),
+        cli_row(
+            "handler kind",
+            output.handler_kind.as_deref().unwrap_or("-"),
+        ),
+        cli_row(
+            "transport",
+            output.transport.as_deref().unwrap_or("-").to_string(),
+        ),
+        cli_row("handler executed", output.handler_executed.to_string()),
+        cli_row("spawned process", output.spawned_process.to_string()),
+        cli_row("event generated", output.event_generated.to_string()),
+        cli_row("ledger appended", output.ledger_appended.to_string()),
+        cli_row(
+            "ledger path",
+            output.ledger_path.as_deref().unwrap_or("-").to_string(),
+        ),
+        cli_row("ledger records", output.ledger_record_count.to_string()),
+    ];
+    if let Some(route) = output.route.as_ref() {
+        rows.push(cli_row("component", route.component_id.as_str()));
+        rows.push(cli_row("app", route.app_id.as_str()));
+        rows.push(cli_row("capability", route.capability_id.as_str()));
+        rows.push(cli_row("invocation mode", route.invocation_mode.as_str()));
+    }
+    emit_cli_panel("内核组件进程调用失败", rows);
+    1
+}
+
+fn run_component_smoke_stdio() -> i32 {
+    let mut input = String::new();
+    if let Err(error) = std::io::stdin().read_to_string(&mut input) {
+        eprintln!("component smoke stdin 读取失败: {error}");
+        return 1;
+    }
+    let line = input
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("{}");
+    let value: serde_json::Value =
+        serde_json::from_str(line).unwrap_or_else(|_| serde_json::json!({}));
+    let operation = value
+        .get("operation")
+        .and_then(|value| value.as_str())
+        .unwrap_or("component.process.smoke");
+    let invocation_id = value
+        .get("invocation_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("-");
+    let result = serde_json::json!({
+        "result_kind": "component.process.smoke",
+        "summary": format!("process smoke handled {operation}"),
+        "fields": {
+            "operation": operation,
+            "ipc": "stdio_jsonl",
+            "invocation_id": invocation_id,
+            "component_process": "ok"
+        }
+    });
+    println!(
+        "{}",
+        serde_json::to_string(&result).expect("component smoke result should encode")
+    );
+    0
+}
+
 fn kernel_smoke_handler(
     envelope: &KernelInvocationEnvelope,
     _route: &KernelRouteRuntimeOutput,
@@ -563,6 +747,9 @@ fn kernel_invocation_result_json(
         "route": route,
         "handler": {
             "kind": output.handler_kind.as_deref(),
+            "invocation_mode": output.route.as_ref().map(|route| route.invocation_mode.as_str()),
+            "transport": output.transport.as_deref(),
+            "process_exit_code": output.process_exit_code,
             "executed": output.handler_executed,
             "event_generated": output.event_generated,
             "spawned_process": output.spawned_process,

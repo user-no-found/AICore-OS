@@ -2,7 +2,9 @@ use std::fs;
 use std::path::Path;
 
 use aicore_foundation::AicoreLayout;
-use aicore_kernel::{InstalledCapability, InstalledComponentManifest};
+use aicore_kernel::{
+    ComponentInvocationMode, ComponentTransport, InstalledCapability, InstalledComponentManifest,
+};
 
 use crate::layers::Workflow;
 
@@ -36,7 +38,17 @@ pub fn install_app_manifest(
             .manifests_root
             .join(format!("{}.toml", manifest.component_id)),
         &manifest.to_toml(),
-    )
+    )?;
+    if workflow == Workflow::AppCli {
+        let smoke_manifest = component_process_smoke_manifest(entrypoint);
+        write_atomic(
+            &layout
+                .manifests_root
+                .join(format!("{}.toml", smoke_manifest.component_id)),
+            &smoke_manifest.to_toml(),
+        )?;
+    }
+    Ok(())
 }
 
 fn ensure_global_runtime_dirs(layout: &AicoreLayout) -> Result<(), String> {
@@ -184,9 +196,34 @@ fn app_manifest_for(workflow: Workflow, entrypoint: &Path) -> Option<InstalledCo
         app_id: component_id.to_string(),
         kind: "app".to_string(),
         entrypoint: entrypoint.display().to_string(),
+        invocation_mode: ComponentInvocationMode::InProcess,
+        transport: ComponentTransport::Unsupported,
+        args: Vec::new(),
+        working_dir: None,
+        env_policy: None,
         contract_version: "kernel.app.v1".to_string(),
         capabilities,
     })
+}
+
+fn component_process_smoke_manifest(entrypoint: &Path) -> InstalledComponentManifest {
+    InstalledComponentManifest {
+        component_id: "aicore-component-smoke".to_string(),
+        app_id: "aicore-cli".to_string(),
+        kind: "app".to_string(),
+        entrypoint: entrypoint.display().to_string(),
+        invocation_mode: ComponentInvocationMode::LocalProcess,
+        transport: ComponentTransport::StdioJsonl,
+        args: vec!["__component-smoke-stdio".to_string()],
+        working_dir: None,
+        env_policy: Some("minimal".to_string()),
+        contract_version: "kernel.app.v1".to_string(),
+        capabilities: vec![InstalledCapability {
+            id: "component.process.smoke".to_string(),
+            operation: "component.process.smoke".to_string(),
+            visibility: "diagnostic".to_string(),
+        }],
+    }
 }
 
 fn capability(id: &str, operation: &str) -> InstalledCapability {

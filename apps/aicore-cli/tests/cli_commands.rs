@@ -170,6 +170,18 @@ fn seed_route_manifest(
     fs::write(manifests.join(file_name), content).expect("manifest should be writable");
 }
 
+fn seed_process_smoke_manifest(home: &PathBuf) {
+    let manifests = home.join(".aicore").join("share").join("manifests");
+    fs::create_dir_all(&manifests).expect("manifest dir should be creatable");
+    let entrypoint = env!("CARGO_BIN_EXE_aicore-cli");
+    let content = format!(
+        "component_id = \"aicore-component-smoke\"\napp_id = \"aicore-cli\"\nkind = \"app\"\nentrypoint = \"{}\"\ninvocation_mode = \"local_process\"\ntransport = \"stdio_jsonl\"\nargs = [\"__component-smoke-stdio\"]\ncontract_version = \"kernel.app.v1\"\n\n[[capabilities]]\nid = \"component.process.smoke\"\noperation = \"component.process.smoke\"\nvisibility = \"diagnostic\"\n",
+        entrypoint.replace('"', "\\\"")
+    );
+    fs::write(manifests.join("aicore-component-smoke.toml"), content)
+        .expect("process smoke manifest should be writable");
+}
+
 fn seed_global_runtime_metadata(home: &PathBuf) {
     let foundation = home.join(".aicore").join("runtime").join("foundation");
     let kernel = home.join(".aicore").join("runtime").join("kernel");
@@ -997,6 +1009,112 @@ fn cli_kernel_invoke_readonly_reports_ledger_status() {
     assert!(stdout.contains("ledger path："));
     assert!(stdout.contains("invocation-ledger.jsonl"));
     assert!(stdout.contains("ledger records：5"));
+}
+
+#[test]
+fn cli_kernel_invoke_process_smoke_outputs_chinese_summary() {
+    let home = temp_root("kernel-process-smoke-chinese");
+    seed_process_smoke_manifest(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核组件进程调用 Smoke"));
+    assert!(stdout.contains("invocation：completed"));
+    assert!(stdout.contains("invocation mode：local_process"));
+    assert!(stdout.contains("transport：stdio_jsonl"));
+    assert!(stdout.contains("handler kind：local_process"));
+    assert!(stdout.contains("spawned process：true"));
+    assert!(stdout.contains("event generated：true"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("result kind：component.process.smoke"));
+    assert!(stdout.contains("只验证 local process boundary"));
+}
+
+#[test]
+fn cli_kernel_invoke_process_smoke_json_outputs_structured_result() {
+    let home = temp_root("kernel-process-smoke-json");
+    seed_process_smoke_manifest(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result_event = events
+        .iter()
+        .find(|event| event["event"] == "kernel.invocation.result")
+        .expect("structured process result event should exist");
+
+    assert_eq!(
+        result_event["payload"]["operation"],
+        "component.process.smoke"
+    );
+    assert_eq!(result_event["payload"]["handler"]["kind"], "local_process");
+    assert_eq!(
+        result_event["payload"]["handler"]["invocation_mode"],
+        "local_process"
+    );
+    assert_eq!(
+        result_event["payload"]["handler"]["transport"],
+        "stdio_jsonl"
+    );
+    assert_eq!(result_event["payload"]["handler"]["spawned_process"], true);
+    assert_eq!(
+        result_event["payload"]["result"]["kind"],
+        "component.process.smoke"
+    );
+    assert_eq!(
+        result_event["payload"]["result"]["fields"]["ipc"],
+        "stdio_jsonl"
+    );
+    assert!(!stdout.contains('╭'));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_kernel_invoke_process_smoke_writes_process_metadata_to_ledger() {
+    let home = temp_root("kernel-process-smoke-ledger");
+    seed_process_smoke_manifest(&home);
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-process-smoke", "component.process.smoke"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+
+    assert_eq!(
+        ledger_stages(&ledger),
+        vec![
+            "accepted",
+            "route_decision_made",
+            "handler_executed",
+            "event_generated",
+            "invocation_completed"
+        ]
+    );
+    assert!(ledger.contains("\"handler_kind\":\"local_process\""));
+    assert!(ledger.contains("\"spawned_process\":true"));
+    assert!(ledger.contains("\"transport\":\"stdio_jsonl\""));
+    assert!(!ledger.contains("secret_ref"));
+    assert!(!ledger.contains("raw provider"));
 }
 
 fn extract_json_string(record: &str, key: &str) -> String {

@@ -743,6 +743,25 @@ mod tests {
     }
 
     #[test]
+    fn app_cli_install_writes_process_smoke_manifest() {
+        let home_root = temp_home("app-cli-process-smoke-manifest");
+        let target_dir = fake_app_target("app-cli-process-smoke-target", "aicore-cli");
+        install_layer_with_shell_env(Workflow::AppCli, &target_dir, &bash_env(&home_root))
+            .expect("app-cli install should succeed");
+        let manifest = fs::read_to_string(
+            home_root.join(".aicore/share/manifests/aicore-component-smoke.toml"),
+        )
+        .expect("process smoke manifest should exist");
+
+        assert!(manifest.contains("component_id = \"aicore-component-smoke\""));
+        assert!(manifest.contains("app_id = \"aicore-cli\""));
+        assert!(manifest.contains("invocation_mode = \"local_process\""));
+        assert!(manifest.contains("transport = \"stdio_jsonl\""));
+        assert!(manifest.contains("args = [\"__component-smoke-stdio\"]"));
+        assert!(manifest.contains("operation = \"component.process.smoke\""));
+    }
+
+    #[test]
     fn app_tui_install_writes_global_manifest() {
         let home_root = temp_home("app-tui-manifest");
         let target_dir = fake_app_target("app-tui-target", "aicore-tui");

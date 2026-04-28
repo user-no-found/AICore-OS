@@ -62,6 +62,7 @@ name = "aicore-kernel"
 version = "0.1.0"
 dependencies = [
  "aicore-foundation",
+ "serde_json",
 ]
 
 [[package]]

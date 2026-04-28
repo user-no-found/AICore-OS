@@ -1,8 +1,8 @@
 use std::fmt;
 
 use crate::{
-    ContractVersion, InstalledManifestRegistry, KernelErrorCode, KernelRouteDecision,
-    KernelRoutePlanner, KernelRouteRequest,
+    ComponentInvocationMode, ComponentTransport, ContractVersion, InstalledManifestRegistry,
+    KernelErrorCode, KernelRouteDecision, KernelRoutePlanner, KernelRouteRequest,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +40,11 @@ pub struct KernelRouteRuntimeOutput {
     pub capability_id: String,
     pub operation: String,
     pub entrypoint: String,
+    pub invocation_mode: ComponentInvocationMode,
+    pub transport: ComponentTransport,
+    pub args: Vec<String>,
+    pub working_dir: Option<String>,
+    pub env_policy: Option<String>,
     pub visibility: String,
     pub contract_version: ContractVersion,
     pub handler_executed: bool,
@@ -205,6 +210,11 @@ impl KernelRouteRuntime {
             capability_id: candidate.capability_id.clone(),
             operation: candidate.operation.clone(),
             entrypoint: candidate.entrypoint.clone(),
+            invocation_mode: candidate.invocation_mode.clone(),
+            transport: candidate.transport.clone(),
+            args: candidate.args.clone(),
+            working_dir: candidate.working_dir.clone(),
+            env_policy: candidate.env_policy.clone(),
             visibility: candidate.visibility.clone(),
             contract_version: candidate.contract_version.clone(),
             handler_executed: false,

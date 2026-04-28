@@ -95,6 +95,8 @@ component_id = "aicore-cli"
 app_id = "aicore-cli"
 kind = "app"
 entrypoint = "/home/user/.aicore/bin/aicore-cli"
+invocation_mode = "in_process"
+transport = "unsupported"
 contract_version = "kernel.app.v1"
 
 [[capabilities]]
@@ -105,9 +107,15 @@ visibility = "user"
 
 `component_id` 与 `app_id` 用于 registry identity。`entrypoint` 指向 installed app binary。`contract_version` 描述应用接入 kernel runtime 的合同版本。`capabilities` 描述该 component 对外声明的用户可见操作。
 
+`invocation_mode` 描述调用目标的执行边界。`in_process` 表示当前 invocation runtime 通过本进程 handler registry 执行；`local_process` 表示 route output 可以进入本地组件进程边界。缺省值为 `in_process`，用于兼容已有 manifest。
+
+`transport` 描述 local IPC transport。当前可执行的最小 transport 是 `stdio_jsonl`；`unix_socket` 仅表示 manifest 可声明该类型，不代表 socket server 已启用；`unsupported` 表示该 component 没有可执行 local IPC transport。
+
+manifest 可以包含 `args`、`working_dir` 和 `env_policy`。`args` 是 entrypoint 的静态参数；`working_dir` 是可选工作目录；`env_policy` 是环境策略标记，不承载完整 env injection 规则。
+
 kernel registry 以 installed manifests 作为运行时 registry 的输入。manifest loader 会读取 `*.toml`，构建 component registry summary 与 capability registry。当前 loader 只读取本地 TOML 文件。
 
-route decision runtime 使用 installed manifests 解析 operation。成功路由时，内核返回目标 component、app、capability、operation、contract version、entrypoint 和 visibility。缺失 operation 返回 missing capability；重复 operation 返回 ambiguous route；contract id 或 major version 不兼容返回 contract version mismatch。
+route decision runtime 使用 installed manifests 解析 operation。成功路由时，内核返回目标 component、app、capability、operation、contract version、entrypoint、invocation mode、transport、args、working directory、env policy 和 visibility。缺失 operation 返回 missing capability；重复 operation 返回 ambiguous route；contract id 或 major version 不兼容返回 contract version mismatch。
 
 route decision runtime 不执行 handler，不启动进程，不做跨进程调用，不写 ledger。invocation ledger 属于调用执行链路，不属于只读 route decision。
 

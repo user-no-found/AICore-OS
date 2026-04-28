@@ -1,12 +1,16 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 use crate::{
-    InstalledManifestRegistry, KernelEventEnvelope, KernelEventPayload, KernelEventType,
-    KernelInvocationEnvelope, KernelInvocationLedger, KernelInvocationLedgerRecord,
-    KernelRouteRuntime, KernelRouteRuntimeError, KernelRouteRuntimeInput, KernelRouteRuntimeOutput,
-    Visibility, format_contract,
+    ComponentInvocationMode, ComponentTransport, InstalledManifestRegistry, KernelEventEnvelope,
+    KernelEventPayload, KernelEventType, KernelInvocationEnvelope, KernelInvocationLedger,
+    KernelInvocationLedgerRecord, KernelRouteRuntime, KernelRouteRuntimeError,
+    KernelRouteRuntimeInput, KernelRouteRuntimeOutput, Visibility, format_contract,
+    redact_failure_reason,
 };
 
 pub type KernelHandlerFn = Arc<
@@ -164,9 +168,25 @@ pub struct KernelInvocationRuntimeOutput {
     pub failure_reason: Option<String>,
     pub spawned_process: bool,
     pub called_real_component: bool,
+    pub transport: Option<String>,
+    pub process_exit_code: Option<i32>,
     pub ledger_appended: bool,
     pub ledger_path: Option<String>,
     pub ledger_record_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ComponentProcessSuccess {
+    result: KernelHandlerResult,
+    exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ComponentProcessFailure {
+    stage: String,
+    reason: String,
+    spawned_process: bool,
+    exit_code: Option<i32>,
 }
 
 #[derive(Clone)]
@@ -191,6 +211,26 @@ impl KernelInvocationRuntime {
             Ok(route) => route,
             Err(error) => return Self::route_failure(&envelope, error),
         };
+
+        if route.invocation_mode == ComponentInvocationMode::LocalProcess {
+            return match Self::invoke_local_process(&envelope, &route) {
+                Ok(success) => {
+                    let (event, result) =
+                        Self::event_from_process_result(&envelope, &route, success.result);
+                    Self::completed_from_event_with_metadata(
+                        route,
+                        event,
+                        Some(result),
+                        Some("local_process".to_string()),
+                        true,
+                        false,
+                        Some("stdio_jsonl".to_string()),
+                        success.exit_code,
+                    )
+                }
+                Err(error) => Self::process_failure(&envelope, route, error),
+            };
+        }
 
         let Some(handler) = self.handlers.get(&envelope.operation) else {
             return Self::missing_handler(&envelope, route);
@@ -299,6 +339,154 @@ impl KernelInvocationRuntime {
                 ledger,
                 ledger_records,
             );
+        }
+
+        if route.invocation_mode == ComponentInvocationMode::LocalProcess {
+            return match Self::invoke_local_process(&envelope, &route) {
+                Ok(success) => {
+                    let (event, result) =
+                        Self::event_from_process_result(&envelope, &route, success.result);
+                    let transport = Some(route.transport.as_str());
+                    if let Err(error) = append(
+                        KernelInvocationLedgerRecord::new("handler_executed", "ok", &envelope)
+                            .with_route(&route)
+                            .with_handler(Some("local_process"), true, false, true, false)
+                            .with_transport(transport)
+                            .with_process_exit_code(success.exit_code),
+                        &mut ledger_records,
+                    ) {
+                        return Self::ledger_failure(
+                            Some(route),
+                            None,
+                            true,
+                            false,
+                            Some("local_process".to_string()),
+                            true,
+                            error,
+                            ledger,
+                            ledger_records,
+                        );
+                    }
+                    if let Err(error) = append(
+                        KernelInvocationLedgerRecord::new("event_generated", "ok", &envelope)
+                            .with_route(&route)
+                            .with_handler(Some("local_process"), true, true, true, false)
+                            .with_transport(transport)
+                            .with_process_exit_code(success.exit_code),
+                        &mut ledger_records,
+                    ) {
+                        return Self::ledger_failure(
+                            Some(route),
+                            Some(event),
+                            true,
+                            true,
+                            Some("local_process".to_string()),
+                            true,
+                            error,
+                            ledger,
+                            ledger_records,
+                        );
+                    }
+                    if let Err(error) = append(
+                        KernelInvocationLedgerRecord::new("invocation_completed", "ok", &envelope)
+                            .with_route(&route)
+                            .with_handler(Some("local_process"), true, true, true, false)
+                            .with_transport(transport)
+                            .with_process_exit_code(success.exit_code),
+                        &mut ledger_records,
+                    ) {
+                        return Self::ledger_failure(
+                            Some(route),
+                            Some(event),
+                            true,
+                            true,
+                            Some("local_process".to_string()),
+                            true,
+                            format!("audit close failed after action happened: {error}"),
+                            ledger,
+                            ledger_records,
+                        );
+                    }
+                    Self::with_ledger(
+                        Self::completed_from_event_with_metadata(
+                            route,
+                            event,
+                            Some(result),
+                            Some("local_process".to_string()),
+                            true,
+                            false,
+                            Some("stdio_jsonl".to_string()),
+                            success.exit_code,
+                        ),
+                        ledger,
+                        ledger_records,
+                        true,
+                    )
+                }
+                Err(error) => {
+                    let transport = Some(route.transport.as_str());
+                    if let Err(ledger_error) = append(
+                        KernelInvocationLedgerRecord::new("handler_failed", "failed", &envelope)
+                            .with_route(&route)
+                            .with_failure(&error.stage, &error.reason)
+                            .with_handler(
+                                Some("local_process"),
+                                error.spawned_process,
+                                false,
+                                error.spawned_process,
+                                false,
+                            )
+                            .with_transport(transport)
+                            .with_process_exit_code(error.exit_code),
+                        &mut ledger_records,
+                    ) {
+                        return Self::ledger_failure(
+                            Some(route),
+                            None,
+                            error.spawned_process,
+                            false,
+                            Some("local_process".to_string()),
+                            true,
+                            ledger_error,
+                            ledger,
+                            ledger_records,
+                        );
+                    }
+                    if let Err(ledger_error) = append(
+                        KernelInvocationLedgerRecord::new("invocation_failed", "failed", &envelope)
+                            .with_route(&route)
+                            .with_failure(&error.stage, &error.reason)
+                            .with_handler(
+                                Some("local_process"),
+                                error.spawned_process,
+                                false,
+                                error.spawned_process,
+                                false,
+                            )
+                            .with_transport(transport)
+                            .with_process_exit_code(error.exit_code),
+                        &mut ledger_records,
+                    ) {
+                        return Self::ledger_failure(
+                            Some(route),
+                            None,
+                            error.spawned_process,
+                            false,
+                            Some("local_process".to_string()),
+                            true,
+                            ledger_error,
+                            ledger,
+                            ledger_records,
+                        );
+                    }
+                    Self::with_ledger(
+                        Self::process_failure(&envelope, route, error),
+                        ledger,
+                        ledger_records,
+                        true,
+                    )
+                }
+            };
         }
 
         let Some(handler) = self.handlers.get(&envelope.operation) else {
@@ -475,6 +663,8 @@ impl KernelInvocationRuntime {
             failure_reason: Some(reason),
             spawned_process: false,
             called_real_component: false,
+            transport: None,
+            process_exit_code: None,
             ledger_appended: false,
             ledger_path: None,
             ledger_record_count: 0,
@@ -507,6 +697,8 @@ impl KernelInvocationRuntime {
             failure_reason: Some(reason.to_string()),
             spawned_process: false,
             called_real_component: false,
+            transport: Some(route.transport.as_str().to_string()),
+            process_exit_code: None,
             ledger_appended: false,
             ledger_path: None,
             ledger_record_count: 0,
@@ -540,10 +732,188 @@ impl KernelInvocationRuntime {
             failure_reason: Some(reason),
             spawned_process: false,
             called_real_component: false,
+            transport: Some(route.transport.as_str().to_string()),
+            process_exit_code: None,
             ledger_appended: false,
             ledger_path: None,
             ledger_record_count: 0,
         }
+    }
+
+    fn process_failure(
+        envelope: &KernelInvocationEnvelope,
+        route: KernelRouteRuntimeOutput,
+        error: ComponentProcessFailure,
+    ) -> KernelInvocationRuntimeOutput {
+        KernelInvocationRuntimeOutput {
+            status: KernelInvocationStatus::Failed,
+            route: Some(route.clone()),
+            event: None,
+            result: Some(Self::failure_result(
+                envelope,
+                Some(&route),
+                &error.stage,
+                &error.reason,
+                error.spawned_process,
+                false,
+                Some("local_process".to_string()),
+            )),
+            route_decision_made: true,
+            handler_executed: error.spawned_process,
+            event_generated: false,
+            handler_kind: Some("local_process".to_string()),
+            failure_stage: Some(error.stage),
+            failure_reason: Some(error.reason),
+            spawned_process: error.spawned_process,
+            called_real_component: false,
+            transport: Some(route.transport.as_str().to_string()),
+            process_exit_code: error.exit_code,
+            ledger_appended: false,
+            ledger_path: None,
+            ledger_record_count: 0,
+        }
+    }
+
+    fn invoke_local_process(
+        envelope: &KernelInvocationEnvelope,
+        route: &KernelRouteRuntimeOutput,
+    ) -> Result<ComponentProcessSuccess, ComponentProcessFailure> {
+        if route.transport != ComponentTransport::StdioJsonl {
+            return Err(ComponentProcessFailure {
+                stage: "transport_unsupported".to_string(),
+                reason: format!(
+                    "unsupported component transport: {}",
+                    route.transport.as_str()
+                ),
+                spawned_process: false,
+                exit_code: None,
+            });
+        }
+
+        if route.entrypoint.trim().is_empty() || !Path::new(&route.entrypoint).exists() {
+            return Err(ComponentProcessFailure {
+                stage: "missing_entrypoint".to_string(),
+                reason: format!("component entrypoint is missing: {}", route.entrypoint),
+                spawned_process: false,
+                exit_code: None,
+            });
+        }
+
+        let mut command = Command::new(&route.entrypoint);
+        command.args(&route.args);
+        if let Some(working_dir) = &route.working_dir {
+            command.current_dir(working_dir);
+        }
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = command.spawn().map_err(|error| ComponentProcessFailure {
+            stage: "process_spawn".to_string(),
+            reason: sanitize_process_diagnostic(&format!(
+                "component process spawn failed: {error}"
+            )),
+            spawned_process: false,
+            exit_code: None,
+        })?;
+
+        let request = local_ipc_request_json(envelope, route);
+        if let Some(stdin) = child.stdin.as_mut() {
+            if let Err(error) = stdin.write_all(request.as_bytes()) {
+                let _ = child.kill();
+                return Err(ComponentProcessFailure {
+                    stage: "ipc_write".to_string(),
+                    reason: sanitize_process_diagnostic(&format!(
+                        "component ipc write failed: {error}"
+                    )),
+                    spawned_process: true,
+                    exit_code: None,
+                });
+            }
+            if let Err(error) = stdin.write_all(b"\n") {
+                let _ = child.kill();
+                return Err(ComponentProcessFailure {
+                    stage: "ipc_write".to_string(),
+                    reason: sanitize_process_diagnostic(&format!(
+                        "component ipc write failed: {error}"
+                    )),
+                    spawned_process: true,
+                    exit_code: None,
+                });
+            }
+        }
+        drop(child.stdin.take());
+
+        let output = child
+            .wait_with_output()
+            .map_err(|error| ComponentProcessFailure {
+                stage: "ipc_read".to_string(),
+                reason: sanitize_process_diagnostic(&format!(
+                    "component process output read failed: {error}"
+                )),
+                spawned_process: true,
+                exit_code: None,
+            })?;
+
+        let exit_code = output.status.code();
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(ComponentProcessFailure {
+                stage: "process_exit".to_string(),
+                reason: sanitize_process_diagnostic(&format!(
+                    "component process exited with code {:?}: {}",
+                    exit_code,
+                    stderr.trim()
+                )),
+                spawned_process: true,
+                exit_code,
+            });
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let Some(line) = stdout.lines().find(|line| !line.trim().is_empty()) else {
+            return Err(ComponentProcessFailure {
+                stage: "ipc_read".to_string(),
+                reason: "component process returned empty stdio_jsonl result".to_string(),
+                spawned_process: true,
+                exit_code,
+            });
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|error| ComponentProcessFailure {
+                stage: "ipc_read".to_string(),
+                reason: sanitize_process_diagnostic(&format!(
+                    "component process returned invalid JSON result: {error}"
+                )),
+                spawned_process: true,
+                exit_code,
+            })?;
+
+        let result_kind = value
+            .get("result_kind")
+            .and_then(|value| value.as_str())
+            .unwrap_or("component.process.result")
+            .to_string();
+        let summary = value
+            .get("summary")
+            .and_then(|value| value.as_str())
+            .unwrap_or("component process completed")
+            .to_string();
+        let mut fields = BTreeMap::new();
+        if let Some(object) = value.get("fields").and_then(|value| value.as_object()) {
+            for (key, value) in object {
+                fields.insert(key.clone(), json_value_to_public_string(value));
+            }
+        }
+        fields
+            .entry("transport".to_string())
+            .or_insert_with(|| route.transport.as_str().to_string());
+
+        Ok(ComponentProcessSuccess {
+            result: KernelHandlerResult::structured(result_kind, fields, summary),
+            exit_code,
+        })
     }
 
     fn completed(
@@ -560,6 +930,23 @@ impl KernelInvocationRuntime {
         route: &KernelRouteRuntimeOutput,
         result: KernelHandlerResult,
     ) -> (KernelEventEnvelope, KernelInvocationResultEnvelope) {
+        Self::event_from_result_with_handler_kind(envelope, route, result, "in_process")
+    }
+
+    fn event_from_process_result(
+        envelope: &KernelInvocationEnvelope,
+        route: &KernelRouteRuntimeOutput,
+        result: KernelHandlerResult,
+    ) -> (KernelEventEnvelope, KernelInvocationResultEnvelope) {
+        Self::event_from_result_with_handler_kind(envelope, route, result, "local_process")
+    }
+
+    fn event_from_result_with_handler_kind(
+        envelope: &KernelInvocationEnvelope,
+        route: &KernelRouteRuntimeOutput,
+        result: KernelHandlerResult,
+        handler_kind: &str,
+    ) -> (KernelEventEnvelope, KernelInvocationResultEnvelope) {
         let mut event = KernelEventEnvelope::new(
             format!("event.{}", envelope.operation),
             KernelEventType::InvocationCompleted,
@@ -570,7 +957,7 @@ impl KernelInvocationRuntime {
         );
         event.payload = KernelEventPayload::Summary(result.summary.clone());
         event.trace_context = envelope.trace_context.clone();
-        let result = Self::success_result(envelope, route, result);
+        let result = Self::success_result(envelope, route, result, handler_kind);
         (event, result)
     }
 
@@ -578,6 +965,28 @@ impl KernelInvocationRuntime {
         route: KernelRouteRuntimeOutput,
         event: KernelEventEnvelope,
         result: Option<KernelInvocationResultEnvelope>,
+    ) -> KernelInvocationRuntimeOutput {
+        Self::completed_from_event_with_metadata(
+            route,
+            event,
+            result,
+            Some("in_process".to_string()),
+            false,
+            false,
+            None,
+            None,
+        )
+    }
+
+    fn completed_from_event_with_metadata(
+        route: KernelRouteRuntimeOutput,
+        event: KernelEventEnvelope,
+        result: Option<KernelInvocationResultEnvelope>,
+        handler_kind: Option<String>,
+        spawned_process: bool,
+        called_real_component: bool,
+        transport: Option<String>,
+        process_exit_code: Option<i32>,
     ) -> KernelInvocationRuntimeOutput {
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Completed,
@@ -587,11 +996,13 @@ impl KernelInvocationRuntime {
             route_decision_made: true,
             handler_executed: true,
             event_generated: true,
-            handler_kind: Some("in_process".to_string()),
+            handler_kind,
             failure_stage: None,
             failure_reason: None,
-            spawned_process: false,
-            called_real_component: false,
+            spawned_process,
+            called_real_component,
+            transport,
+            process_exit_code,
             ledger_appended: false,
             ledger_path: None,
             ledger_record_count: 0,
@@ -602,6 +1013,7 @@ impl KernelInvocationRuntime {
         envelope: &KernelInvocationEnvelope,
         route: &KernelRouteRuntimeOutput,
         result: KernelHandlerResult,
+        handler_kind: &str,
     ) -> KernelInvocationResultEnvelope {
         KernelInvocationResultEnvelope {
             invocation_id: envelope.invocation_id.clone(),
@@ -609,7 +1021,7 @@ impl KernelInvocationRuntime {
             operation: envelope.operation.clone(),
             status: KernelInvocationStatus::Completed,
             route: Some(Self::result_route(route)),
-            handler_kind: Some("in_process".to_string()),
+            handler_kind: Some(handler_kind.to_string()),
             result_kind: result.result_kind,
             summary: result.summary,
             public_fields: result.public_fields,
@@ -683,6 +1095,9 @@ impl KernelInvocationRuntime {
         ledger: &KernelInvocationLedger,
         ledger_record_count: usize,
     ) -> KernelInvocationRuntimeOutput {
+        let transport = route
+            .as_ref()
+            .map(|route| route.transport.as_str().to_string());
         KernelInvocationRuntimeOutput {
             status: KernelInvocationStatus::Failed,
             route,
@@ -696,6 +1111,8 @@ impl KernelInvocationRuntime {
             failure_reason: Some(error),
             spawned_process: false,
             called_real_component: false,
+            transport,
+            process_exit_code: None,
             ledger_appended: false,
             ledger_path: Some(ledger.path().display().to_string()),
             ledger_record_count,
@@ -721,6 +1138,52 @@ impl KernelInvocationRuntime {
             ledger_record_count,
         )
     }
+}
+
+fn local_ipc_request_json(
+    envelope: &KernelInvocationEnvelope,
+    route: &KernelRouteRuntimeOutput,
+) -> String {
+    serde_json::json!({
+        "schema_version": "aicore.local_ipc.invocation.v1",
+        "invocation_id": envelope.invocation_id,
+        "trace_id": envelope.trace_context.trace_id,
+        "instance_id": envelope.instance_id,
+        "operation": envelope.operation,
+        "route": {
+            "component_id": route.component_id,
+            "app_id": route.app_id,
+            "capability_id": route.capability_id,
+            "contract_version": format_contract(&route.contract_version),
+            "invocation_mode": route.invocation_mode.as_str(),
+            "transport": route.transport.as_str(),
+        }
+    })
+    .to_string()
+}
+
+fn json_value_to_public_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::String(value) => value.clone(),
+        value => value.to_string(),
+    }
+}
+
+fn sanitize_process_diagnostic(value: &str) -> String {
+    let without_control = value
+        .chars()
+        .filter(|character| !character.is_control() || matches!(character, '\n' | '\t'))
+        .collect::<String>();
+    let redacted = redact_failure_reason(&without_control);
+    let mut summary = redacted.replace('\n', " ");
+    if summary.chars().count() > 240 {
+        summary = summary.chars().take(240).collect::<String>();
+        summary.push_str("...");
+    }
+    summary
 }
 
 #[cfg(test)]
@@ -1110,6 +1573,195 @@ mod tests {
         assert!(output.event_generated);
         assert!(!output.spawned_process);
         assert!(!output.called_real_component);
+    }
+
+    #[test]
+    fn in_process_runtime_status_still_works() {
+        let registry = registry_with_manifest(&[("runtime.status", "runtime.status")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("runtime.status", structured_status_handler),
+        );
+
+        let output = runtime.invoke(envelope("runtime.status"));
+
+        assert_eq!(output.status, KernelInvocationStatus::Completed);
+        assert_eq!(output.handler_kind.as_deref(), Some("in_process"));
+        assert!(!output.spawned_process);
+        assert_eq!(
+            output.result.expect("result").result_kind.as_deref(),
+            Some("runtime.status")
+        );
+    }
+
+    #[test]
+    fn component_process_smoke_invokes_stdio_jsonl_child() {
+        let root = temp_dir("process-smoke-success");
+        let script = process_fixture_script(
+            &root,
+            "process-smoke-success.sh",
+            r#"read line
+printf '{"result_kind":"component.process.smoke","summary":"process smoke ok","fields":{"operation":"component.process.smoke","ipc":"stdio_jsonl"}}\n'
+"#,
+        );
+        write_process_manifest(&root, &script, "stdio_jsonl", &[]);
+        let ledger_path = temp_dir("process-smoke-success-ledger").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke_with_ledger(envelope("component.process.smoke"), &ledger);
+
+        assert_eq!(output.status, KernelInvocationStatus::Completed);
+        assert!(output.handler_executed);
+        assert!(output.event_generated);
+        assert_eq!(output.handler_kind.as_deref(), Some("local_process"));
+        assert_eq!(output.transport.as_deref(), Some("stdio_jsonl"));
+        assert!(output.spawned_process);
+        assert_eq!(output.process_exit_code, Some(0));
+        let result = output.result.expect("process result envelope");
+        assert_eq!(
+            result.result_kind.as_deref(),
+            Some("component.process.smoke")
+        );
+        assert_eq!(
+            result.public_fields.get("ipc"),
+            Some(&"stdio_jsonl".to_string())
+        );
+    }
+
+    #[test]
+    fn component_process_smoke_writes_invocation_ledger() {
+        let root = temp_dir("process-smoke-ledger");
+        let script = process_fixture_script(
+            &root,
+            "process-smoke-ledger.sh",
+            r#"read line
+printf '{"result_kind":"component.process.smoke","summary":"process smoke ok","fields":{"operation":"component.process.smoke"}}\n'
+"#,
+        );
+        write_process_manifest(&root, &script, "stdio_jsonl", &[]);
+        let ledger_path = temp_dir("process-smoke-ledger-path").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke_with_ledger(envelope("component.process.smoke"), &ledger);
+        let joined = read_ledger_records(&ledger_path).join("\n");
+
+        assert_eq!(output.status, KernelInvocationStatus::Completed);
+        assert_eq!(output.ledger_record_count, 5);
+        assert!(joined.contains("\"handler_kind\":\"local_process\""));
+        assert!(joined.contains("\"spawned_process\":true"));
+        assert!(joined.contains("\"transport\":\"stdio_jsonl\""));
+        assert!(!joined.contains("process smoke ok"));
+    }
+
+    #[test]
+    fn component_process_unsupported_transport_returns_structured_failure() {
+        let root = temp_dir("process-unsupported-transport");
+        write_process_manifest(&root, "/bin/sh", "unix_socket", &[]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke(envelope("component.process.smoke"));
+
+        assert_eq!(output.status, KernelInvocationStatus::Failed);
+        assert_eq!(
+            output.failure_stage.as_deref(),
+            Some("transport_unsupported")
+        );
+        assert_eq!(output.handler_kind.as_deref(), Some("local_process"));
+        assert!(!output.spawned_process);
+        assert!(!output.event_generated);
+    }
+
+    #[test]
+    fn component_process_missing_entrypoint_returns_structured_failure() {
+        let root = temp_dir("process-missing-entrypoint");
+        write_process_manifest(
+            &root,
+            root.join("missing-component")
+                .display()
+                .to_string()
+                .as_str(),
+            "stdio_jsonl",
+            &[],
+        );
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke(envelope("component.process.smoke"));
+
+        assert_eq!(output.status, KernelInvocationStatus::Failed);
+        assert_eq!(output.failure_stage.as_deref(), Some("missing_entrypoint"));
+        assert_eq!(output.handler_kind.as_deref(), Some("local_process"));
+        assert!(!output.spawned_process);
+    }
+
+    #[test]
+    fn component_process_nonzero_exit_returns_structured_failure() {
+        let root = temp_dir("process-nonzero");
+        let script = process_fixture_script(
+            &root,
+            "process-nonzero.sh",
+            r#"read line
+printf 'failed with sk-live-secret-value token=abc123\n' >&2
+exit 42
+"#,
+        );
+        write_process_manifest(&root, &script, "stdio_jsonl", &[]);
+        let ledger_path = temp_dir("process-nonzero-ledger").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke_with_ledger(envelope("component.process.smoke"), &ledger);
+        let joined = read_ledger_records(&ledger_path).join("\n");
+
+        assert_eq!(output.status, KernelInvocationStatus::Failed);
+        assert_eq!(output.failure_stage.as_deref(), Some("process_exit"));
+        assert_eq!(output.process_exit_code, Some(42));
+        assert!(output.spawned_process);
+        assert!(!output.event_generated);
+        assert!(!joined.contains("sk-live-secret-value"));
+        assert!(!joined.contains("token=abc123"));
+        assert!(joined.contains("[redacted"));
+    }
+
+    #[test]
+    fn component_process_invalid_json_returns_structured_failure() {
+        let root = temp_dir("process-invalid-json");
+        let script = process_fixture_script(
+            &root,
+            "process-invalid-json.sh",
+            r#"read line
+printf 'not json\n'
+"#,
+        );
+        write_process_manifest(&root, &script, "stdio_jsonl", &[]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&root).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        let output = runtime.invoke(envelope("component.process.smoke"));
+
+        assert_eq!(output.status, KernelInvocationStatus::Failed);
+        assert_eq!(output.failure_stage.as_deref(), Some("ipc_read"));
+        assert_eq!(output.handler_kind.as_deref(), Some("local_process"));
+        assert!(output.spawned_process);
+        assert!(!output.event_generated);
     }
 
     #[test]
@@ -1606,6 +2258,32 @@ mod tests {
             ));
         }
         fs::write(root.join(file_name), content).expect("write manifest");
+    }
+
+    fn write_process_manifest(root: &PathBuf, entrypoint: &str, transport: &str, args: &[&str]) {
+        let args_toml = args
+            .iter()
+            .map(|arg| format!("\"{}\"", arg.replace('"', "\\\"")))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let content = format!(
+            "component_id = \"aicore-component-smoke\"\napp_id = \"aicore-cli\"\nkind = \"app\"\nentrypoint = \"{}\"\ninvocation_mode = \"local_process\"\ntransport = \"{transport}\"\nargs = [{args_toml}]\ncontract_version = \"kernel.app.v1\"\n\n[[capabilities]]\nid = \"component.process.smoke\"\noperation = \"component.process.smoke\"\nvisibility = \"diagnostic\"\n",
+            entrypoint.replace('"', "\\\"")
+        );
+        fs::write(root.join("aicore-component-smoke.toml"), content).expect("write manifest");
+    }
+
+    fn process_fixture_script(root: &PathBuf, name: &str, body: &str) -> String {
+        let path = root.join(name);
+        fs::write(&path, format!("#!/bin/sh\n{body}")).expect("write process fixture");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&path).expect("script metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&path, permissions).expect("script should be executable");
+        }
+        path.display().to_string()
     }
 
     fn temp_dir(name: &str) -> PathBuf {
