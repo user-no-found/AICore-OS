@@ -9,6 +9,7 @@ use crate::terminal::{cli_row, emit_cli_panel};
 use crate::commands::auth::build_auth_list_report;
 use crate::commands::config::build_config_validate_report;
 use crate::commands::model::build_model_show_report;
+use crate::commands::provider::build_provider_smoke_report;
 use crate::commands::runtime::build_runtime_smoke_report;
 use crate::commands::service::build_service_list_report;
 use crate::commands::status::{build_cli_status_report, build_instance_list_report};
@@ -161,6 +162,14 @@ pub(crate) fn run_component_status_stdio() -> i32 {
         "cli.status",
         "cli status component stdin 读取失败",
         || Ok(build_cli_status_report().into_summary_and_fields()),
+    )
+}
+
+pub(crate) fn run_component_provider_smoke_stdio() -> i32 {
+    run_component_report_stdio(
+        "provider.smoke",
+        "provider smoke component stdin 读取失败",
+        || build_provider_smoke_report().map(|report| (report.summary(), report.fields())),
     )
 }
 

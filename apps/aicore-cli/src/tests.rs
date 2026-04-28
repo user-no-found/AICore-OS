@@ -138,6 +138,24 @@ fn kernel_invocation_adoption_matrix_marks_runtime_instance_status_readonly_as_k
 }
 
 #[test]
+fn kernel_invocation_adoption_matrix_marks_provider_smoke_readonly_as_kernel_native() {
+    let matrix = kernel_invocation_adoption_matrix();
+    let entry = matrix
+        .iter()
+        .find(|entry| entry.command == "aicore-cli kernel invoke-readonly provider.smoke")
+        .expect("provider.smoke readonly adoption entry should exist");
+
+    assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+    assert_eq!(entry.operation, "provider.smoke");
+    assert!(entry.route_runtime_used);
+    assert!(entry.invocation_runtime_used);
+    assert!(entry.ledger_used);
+    assert!(entry.structured_result_envelope_used);
+    assert!(!entry.direct_local_execution_allowed_for_now);
+    assert!(!entry.future_migration_required);
+}
+
+#[test]
 fn kernel_invocation_adoption_matrix_marks_invoke_smoke_as_diagnostic() {
     let matrix = kernel_invocation_adoption_matrix();
     let entry = matrix
@@ -182,7 +200,6 @@ fn kernel_invocation_adoption_matrix_marks_direct_commands_explicitly() {
 fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
     let matrix = kernel_invocation_adoption_matrix();
     for command in [
-        "aicore-cli provider smoke",
         "aicore-cli agent smoke <内容>",
         "aicore-cli memory search <关键词>",
         "aicore-cli memory remember <内容>",
@@ -199,6 +216,22 @@ fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
         assert!(entry.future_migration_required);
         assert!(!entry.invocation_runtime_used);
     }
+}
+
+#[test]
+fn kernel_invocation_adoption_matrix_marks_direct_provider_smoke_as_retained_direct_path() {
+    let matrix = kernel_invocation_adoption_matrix();
+    let entry = matrix
+        .iter()
+        .find(|entry| entry.command == "aicore-cli provider smoke")
+        .expect("provider smoke direct path entry should exist");
+
+    assert_eq!(
+        entry.class,
+        KernelInvocationAdoptionClass::AllowedLocalDirectCommand
+    );
+    assert!(entry.direct_local_execution_allowed_for_now);
+    assert!(!entry.invocation_runtime_used);
 }
 
 #[test]

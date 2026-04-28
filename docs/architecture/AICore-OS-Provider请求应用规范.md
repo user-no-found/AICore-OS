@@ -108,6 +108,14 @@ ProviderRuntime 包含：
 
 ProviderRuntime 不包含明文密钥。
 
+## Provider Smoke 只读 Surface
+
+`provider.smoke` 是 provider 请求应用的只读诊断 surface。该 surface 可以通过 Kernel runtime binary、installed manifest route 和 local process `stdio_jsonl` handler 执行，用于验证 provider resolver、runtime profile、adapter、api_mode、engine 选择和 dummy/smoke 输出边界。
+
+`provider.smoke` 不代表 provider live HTTP、SDK live call 或 provider adapter invocation 已接入。其结构化结果可以包含 provider、provider_kind、adapter、api_mode、engine、engine_status、availability、model、auth_ref、provider_invocation_path、kernel_invocation_path、live_call、sdk_live_call 和 network_used。`live_call`、`sdk_live_call` 与 `network_used` 为 false 时表示没有访问外部网络、没有调用官方 SDK、没有使用真实 provider payload。
+
+`provider.smoke` 的 public surface、JSON result、diagnostic 和 ledger 不得输出 raw secret、secret_ref、credential_lease_ref、raw SDK request、raw provider payload、API key、token 或 cookie。
+
 ## ProviderEngineRequest
 
 ProviderEngineRequest 包含：

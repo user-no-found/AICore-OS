@@ -32,6 +32,9 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-status-stdio" => {
             commands::kernel::run_component_status_stdio()
         }
+        [cmd] if cmd == "__component-provider-smoke-stdio" => {
+            commands::kernel::run_component_provider_smoke_stdio()
+        }
         [cmd] if cmd == "status" => {
             commands::status::print_status();
             0
