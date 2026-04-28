@@ -39,6 +39,19 @@ pub fn default_runtime() -> InstanceRuntime {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard};
+
+    static PROCESS_SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
+    pub(crate) fn process_spawn_lock() -> MutexGuard<'static, ()> {
+        PROCESS_SPAWN_LOCK
+            .lock()
+            .expect("process spawn test lock should not be poisoned")
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{AppManifest, CapabilityDescriptor, KernelRouteRequest};
 

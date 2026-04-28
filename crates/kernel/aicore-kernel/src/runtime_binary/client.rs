@@ -121,6 +121,9 @@ impl KernelRuntimeBinaryClient {
             );
         }
 
+        #[cfg(test)]
+        let _process_spawn_guard = crate::test_support::process_spawn_lock();
+
         let mut child = match Command::new(&kernel_binary)
             .arg("--invoke-stdio-jsonl")
             .stdin(Stdio::piped())

@@ -142,7 +142,10 @@ fn kernel_runtime_binary_client_reports_spawn_failure() {
 fn kernel_runtime_binary_client_reports_non_zero_exit() {
     let layout = temp_layout("non-zero-exit");
     seed_foundation_binary(&layout);
-    seed_kernel_binary(&layout, "#!/bin/sh\necho broken >&2\nexit 7\n");
+    seed_kernel_binary(
+        &layout,
+        "#!/bin/sh\ncat >/dev/null\necho broken >&2\nexit 7\n",
+    );
 
     let invocation = KernelRuntimeBinaryClient::new(layout).invoke_readonly("runtime.status");
 
@@ -165,7 +168,7 @@ fn kernel_runtime_binary_client_reports_non_zero_exit() {
 fn kernel_runtime_binary_client_reports_invalid_jsonl_output() {
     let layout = temp_layout("invalid-jsonl-output");
     seed_foundation_binary(&layout);
-    seed_kernel_binary(&layout, "#!/bin/sh\necho 'not json'\n");
+    seed_kernel_binary(&layout, "#!/bin/sh\ncat >/dev/null\necho 'not json'\n");
 
     let invocation = KernelRuntimeBinaryClient::new(layout).invoke_readonly("runtime.status");
 
@@ -249,7 +252,7 @@ fn runtime_binary_failure_does_not_expose_secret_like_output() {
     seed_foundation_binary(&layout);
     seed_kernel_binary(
         &layout,
-        "#!/bin/sh\necho 'token=super-secret-token api_key=abc123' >&2\nexit 7\n",
+        "#!/bin/sh\ncat >/dev/null\necho 'token=super-secret-token api_key=abc123' >&2\nexit 7\n",
     );
 
     let invocation = KernelRuntimeBinaryClient::new(layout).invoke_readonly("runtime.status");

@@ -229,6 +229,9 @@ impl KernelInvocationRuntime {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        #[cfg(test)]
+        let _process_spawn_guard = crate::test_support::process_spawn_lock();
+
         let mut child = command.spawn().map_err(|error| ComponentProcessFailure {
             stage: "process_spawn_failed".to_string(),
             reason: super::protocol::sanitize_process_diagnostic(&format!(
