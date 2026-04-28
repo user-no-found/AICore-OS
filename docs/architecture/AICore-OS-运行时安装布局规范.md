@@ -104,7 +104,11 @@ visibility = "user"
 
 `component_id` 与 `app_id` 用于 registry identity。`entrypoint` 指向 installed app binary。`contract_version` 描述应用接入 kernel runtime 的合同版本。`capabilities` 描述该 component 对外声明的用户可见操作。
 
-kernel registry 以 installed manifests 作为运行时 registry 的输入。manifest loader 会读取 `*.toml`，构建 component registry summary 与 capability registry。第一轮 loader 只读取本地 TOML 文件，不执行 handler，不做跨进程调用，不写 ledger。
+kernel registry 以 installed manifests 作为运行时 registry 的输入。manifest loader 会读取 `*.toml`，构建 component registry summary 与 capability registry。当前 loader 只读取本地 TOML 文件。
+
+route decision runtime 使用 installed manifests 解析 operation。成功路由时，内核返回目标 component、app、capability、operation、contract version、entrypoint 和 visibility。缺失 operation 返回 missing capability；重复 operation 返回 ambiguous route；contract id 或 major version 不兼容返回 contract version mismatch。
+
+route decision runtime 不执行 handler，不启动进程，不做跨进程调用，不写 ledger。event ledger 与 invocation ledger 属于调用执行链路，不属于只读 route decision。
 
 应用安装阶段只写自身 manifest，不修改 kernel runtime metadata。
 

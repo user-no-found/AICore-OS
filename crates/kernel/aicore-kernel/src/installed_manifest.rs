@@ -21,6 +21,17 @@ pub struct InstalledCapability {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledRouteCandidate {
+    pub component_id: String,
+    pub app_id: String,
+    pub entrypoint: String,
+    pub contract_version: ContractVersion,
+    pub capability_id: String,
+    pub operation: String,
+    pub visibility: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledManifestRegistry {
     manifests: Vec<InstalledComponentManifest>,
 }
@@ -44,6 +55,10 @@ impl InstalledComponentManifest {
             ));
         }
         content
+    }
+
+    pub fn contract_version_descriptor(&self) -> ContractVersion {
+        parse_contract_version(&self.contract_version)
     }
 }
 
@@ -100,7 +115,7 @@ impl InstalledManifestRegistry {
     pub fn to_capability_registry(&self) -> CapabilityRegistry {
         let mut registry = CapabilityRegistry::new();
         for manifest in &self.manifests {
-            let contract = parse_contract_version(&manifest.contract_version);
+            let contract = manifest.contract_version_descriptor();
             for capability in &manifest.capabilities {
                 registry.register(
                     manifest.app_id.clone(),
@@ -111,6 +126,27 @@ impl InstalledManifestRegistry {
             }
         }
         registry
+    }
+
+    pub fn operation_candidates(&self, operation: &str) -> Vec<InstalledRouteCandidate> {
+        self.manifests
+            .iter()
+            .flat_map(|manifest| {
+                manifest
+                    .capabilities
+                    .iter()
+                    .filter(move |capability| capability.operation == operation)
+                    .map(move |capability| InstalledRouteCandidate {
+                        component_id: manifest.component_id.clone(),
+                        app_id: manifest.app_id.clone(),
+                        entrypoint: manifest.entrypoint.clone(),
+                        contract_version: manifest.contract_version_descriptor(),
+                        capability_id: capability.id.clone(),
+                        operation: capability.operation.clone(),
+                        visibility: capability.visibility.clone(),
+                    })
+            })
+            .collect()
     }
 }
 
@@ -203,6 +239,8 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use crate::{ContractVersion, KernelRouteRuntime, KernelRouteRuntimeInput};
+
     use super::InstalledManifestRegistry;
 
     #[test]
@@ -272,6 +310,180 @@ visibility = "user"
         assert_eq!(entry.app_id, "aicore");
         assert_eq!(entry.contract_version.contract_id, "kernel.app");
         assert_eq!(entry.contract_version.major, 1);
+    }
+
+    #[test]
+    fn installed_manifest_registry_routes_memory_search() {
+        let root = temp_dir("route-memory-search");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v1",
+            &[("memory.search", "memory.search")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let output = runtime
+            .route(KernelRouteRuntimeInput::new("memory.search"))
+            .expect("memory.search should route");
+
+        assert_eq!(output.component_id, "aicore-cli");
+        assert_eq!(output.app_id, "aicore-cli");
+        assert_eq!(output.capability_id, "memory.search");
+        assert_eq!(output.decision.request.operation, "memory.search");
+        assert_eq!(output.decision.target.app_id, "aicore-cli");
+        assert_eq!(
+            output.decision.target.contract_version.contract_id,
+            "kernel.app"
+        );
+    }
+
+    #[test]
+    fn installed_manifest_registry_routes_provider_smoke() {
+        let root = temp_dir("route-provider-smoke");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v1",
+            &[("provider.smoke", "provider.smoke")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let output = runtime
+            .route(KernelRouteRuntimeInput::new("provider.smoke"))
+            .expect("provider.smoke should route");
+
+        assert_eq!(output.component_id, "aicore-cli");
+        assert_eq!(output.capability_id, "provider.smoke");
+        assert!(!output.handler_executed);
+    }
+
+    #[test]
+    fn installed_manifest_registry_rejects_missing_operation() {
+        let root = temp_dir("route-missing-operation");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v1",
+            &[("memory.search", "memory.search")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let error = runtime
+            .route(KernelRouteRuntimeInput::new("unknown.operation"))
+            .expect_err("unknown operation should fail");
+
+        assert!(error.to_string().contains("missing capability"));
+        assert!(error.to_string().contains("unknown.operation"));
+    }
+
+    #[test]
+    fn installed_manifest_registry_missing_manifest_dir_returns_no_route() {
+        let root = temp_dir("route-missing-dir").join("missing");
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let error = runtime
+            .route(KernelRouteRuntimeInput::new("memory.search"))
+            .expect_err("missing manifest dir should have no route");
+
+        assert!(error.to_string().contains("missing capability"));
+    }
+
+    #[test]
+    fn route_decision_rejects_contract_version_mismatch() {
+        let root = temp_dir("route-contract-mismatch");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v2",
+            &[("memory.search", "memory.search")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let error = runtime
+            .route(KernelRouteRuntimeInput::new("memory.search"))
+            .expect_err("contract mismatch should fail");
+
+        assert!(error.to_string().contains("contract version mismatch"));
+    }
+
+    #[test]
+    fn route_decision_rejects_requested_contract_version_mismatch() {
+        let root = temp_dir("route-requested-contract-mismatch");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v1",
+            &[("memory.search", "memory.search")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let error = runtime
+            .route(
+                KernelRouteRuntimeInput::new("memory.search")
+                    .with_requested_contract(ContractVersion::new("kernel.app", 2, 0)),
+            )
+            .expect_err("requested contract mismatch should fail");
+
+        assert!(error.to_string().contains("contract version mismatch"));
+    }
+
+    #[test]
+    fn route_decision_rejects_ambiguous_duplicate_capability() {
+        let root = temp_dir("route-duplicate-capability");
+        write_manifest(
+            &root,
+            "aicore-cli.toml",
+            "aicore-cli",
+            "kernel.app.v1",
+            &[("memory.search", "memory.search")],
+        );
+        write_manifest(
+            &root,
+            "aicore-memory.toml",
+            "aicore-memory",
+            "kernel.app.v1",
+            &[("memory.search", "memory.search")],
+        );
+        let registry = InstalledManifestRegistry::load_from_dir(&root).expect("registry");
+        let runtime = KernelRouteRuntime::from_registry(registry);
+
+        let error = runtime
+            .route(KernelRouteRuntimeInput::new("memory.search"))
+            .expect_err("duplicate operation should be ambiguous");
+
+        assert!(error.to_string().contains("ambiguous route"));
+        assert!(error.to_string().contains("aicore-cli"));
+        assert!(error.to_string().contains("aicore-memory"));
+    }
+
+    fn write_manifest(
+        root: &PathBuf,
+        file_name: &str,
+        app_id: &str,
+        contract_version: &str,
+        capabilities: &[(&str, &str)],
+    ) {
+        let mut content = format!(
+            "component_id = \"{app_id}\"\napp_id = \"{app_id}\"\nkind = \"app\"\nentrypoint = \"/home/demo/.aicore/bin/{app_id}\"\ncontract_version = \"{contract_version}\"\n"
+        );
+        for (id, operation) in capabilities {
+            content.push_str(&format!(
+                "\n[[capabilities]]\nid = \"{id}\"\noperation = \"{operation}\"\nvisibility = \"user\"\n"
+            ));
+        }
+        fs::write(root.join(file_name), content).expect("write manifest");
     }
 
     fn temp_dir(name: &str) -> PathBuf {

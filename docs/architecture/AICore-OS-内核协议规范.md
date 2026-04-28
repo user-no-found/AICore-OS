@@ -36,6 +36,16 @@
 
 `KernelRouteDecision` 表达路由结果。它携带目标 app、目标合同版本、路由策略、路由原因和 fallback chain。
 
+## Runtime Route Decision
+
+运行时路由决策以 installed component manifest registry 作为输入源。内核从 `$HOME/.aicore/share/manifests/*.toml` 读取 component manifest，构建 operation 到 capability 的映射，再生成 `KernelRouteRequest` 并产出 `KernelRouteDecision`。
+
+route decision 只决定目标 component、app、capability、operation 与 contract version，不执行 handler，不启动进程，不写 invocation ledger，也不写 event ledger。
+
+当 operation 不存在时，route runtime 返回 missing capability。多个 component 声明同一个 operation 时，route runtime 返回 ambiguous route，不静默选择其中一个。contract id 或 major version 不兼容时，route runtime 返回 contract version mismatch。
+
+route decision 的 public surface 不得暴露 raw secret、`secret_ref`、`credential_lease_ref`、raw provider request、raw provider payload 或 internal handler request。
+
 ## KernelError
 
 `KernelError` 包含机器错误码、错误阶段、中文用户消息、安全详情、重试提示和 secret-safe 标记。错误不得携带 raw secret 或内部 provider request。

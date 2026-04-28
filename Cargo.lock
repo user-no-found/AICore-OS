@@ -34,6 +34,7 @@ dependencies = [
  "aicore-agent",
  "aicore-auth",
  "aicore-config",
+ "aicore-foundation",
  "aicore-kernel",
  "aicore-memory",
  "aicore-provider",

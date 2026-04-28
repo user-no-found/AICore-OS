@@ -8,10 +8,14 @@ use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
-use aicore_kernel::default_control_plane;
+use aicore_foundation::AicoreLayout;
 use aicore_kernel::{
     DeliveryIdentity, GatewaySource, InterruptMode, OutputTarget, TransportEnvelope,
     default_runtime,
+};
+use aicore_kernel::{
+    KernelRouteRuntime, KernelRouteRuntimeError, KernelRouteRuntimeInput, default_control_plane,
+    format_contract,
 };
 use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
@@ -35,6 +39,9 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
         [group, action] if group == "runtime" && action == "smoke" => {
             print_runtime_smoke();
             0
+        }
+        [group, action, operation] if group == "kernel" && action == "route" => {
+            print_kernel_route(operation)
         }
         [group, action] if group == "config" && action == "smoke" => {
             run_config_command(print_config_smoke)
@@ -112,10 +119,15 @@ pub fn run_from_args(args: Vec<String>) -> i32 {
             );
             1
         }
+        [group, _] if group == "kernel" => {
+            eprintln!("未知 kernel 命令。");
+            eprintln!("可用命令：kernel route <operation>");
+            1
+        }
         _ => {
             eprintln!("未知命令。");
             eprintln!(
-                "可用命令：status | instance list | runtime smoke | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
+                "可用命令：status | instance list | runtime smoke | kernel route <operation> | config smoke | config path | config init | config validate | auth list | model show | service list | provider smoke | agent smoke <内容> | agent session-smoke <第一轮内容> <第二轮内容> | memory status | memory audit | memory proposals | memory wiki [page] | memory remember <内容> | memory search <关键词> | memory accept <proposal_id> | memory reject <proposal_id>"
             );
             1
         }
@@ -186,6 +198,74 @@ fn print_instance_list() {
     }
 
     emit_cli_panel_body("实例列表：", &lines.join("\n"));
+}
+
+fn print_kernel_route(operation: &str) -> i32 {
+    let layout = AicoreLayout::from_system_home();
+    let registry =
+        match aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root) {
+            Ok(registry) => registry,
+            Err(error) => {
+                emit_cli_panel(
+                    "内核路由失败",
+                    vec![
+                        cli_row("decision", "route failed"),
+                        cli_row("reason", "manifest registry load failed"),
+                        cli_row("operation", operation),
+                        cli_row("detail", error),
+                        cli_row("handler executed", "false"),
+                    ],
+                );
+                return 1;
+            }
+        };
+    let runtime = KernelRouteRuntime::from_registry(registry);
+
+    match runtime.route(KernelRouteRuntimeInput::new(operation)) {
+        Ok(output) => {
+            emit_cli_panel(
+                "内核路由决策",
+                vec![
+                    cli_row("decision", "routed"),
+                    cli_row("operation", output.operation.as_str()),
+                    cli_row("component", output.component_id.as_str()),
+                    cli_row("app", output.app_id.as_str()),
+                    cli_row("capability", output.capability_id.as_str()),
+                    cli_row("contract", format_contract(&output.contract_version)),
+                    cli_row("visibility", output.visibility.as_str()),
+                    cli_row("entrypoint", output.entrypoint.as_str()),
+                    cli_row(
+                        "route reason",
+                        format!("{:?}", output.decision.route_reason),
+                    ),
+                    cli_row("trace id", output.decision.request.trace_context.trace_id),
+                    cli_row("handler executed", output.handler_executed.to_string()),
+                    cli_row("说明", "只生成 route decision，不会执行 handler"),
+                ],
+            );
+            0
+        }
+        Err(error) => {
+            emit_kernel_route_error(operation, error);
+            1
+        }
+    }
+}
+
+fn emit_kernel_route_error(operation: &str, error: KernelRouteRuntimeError) {
+    let mut rows = vec![
+        cli_row("decision", "route failed"),
+        cli_row("reason", error.code()),
+        cli_row("operation", operation),
+        cli_row("detail", error.to_string()),
+        cli_row("handler executed", "false"),
+    ];
+
+    if let KernelRouteRuntimeError::AmbiguousRoute { candidates, .. } = &error {
+        rows.push(cli_row("candidates", candidates.join(", ")));
+    }
+
+    emit_cli_panel("内核路由失败", rows);
 }
 
 fn print_runtime_smoke() {

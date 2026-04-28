@@ -11,6 +11,7 @@ authors.workspace = true
 aicore-agent.workspace = true
 aicore-auth.workspace = true
 aicore-config.workspace = true
+aicore-foundation.workspace = true
 aicore-kernel.workspace = true
 aicore-memory.workspace = true
 aicore-provider.workspace = true
