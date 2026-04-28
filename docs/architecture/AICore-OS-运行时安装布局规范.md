@@ -123,6 +123,8 @@ $HOME/.aicore/state/kernel/invocation-ledger.jsonl
 
 该文件使用 append-only JSON Lines 格式。每行记录一次 invocation 生命周期中的一个审计 stage。ledger 用于审计和诊断，不是业务事实源，不参与恢复 component state，不提供 replay、query、compaction 或 conversation persistence。
 
+每次调用必须使用单次 invocation 唯一的 `invocation_id`。同一次调用写入的所有 ledger records 与对应 `KernelEventEnvelope` 必须共享同一个 `invocation_id`，连续两次相同 operation 的调用不得复用同一个 `invocation_id`。
+
 调用执行链路负责显式传入 ledger 路径或 writer。kernel crate 不应自行假设 `$HOME`，也不应隐藏读取全局路径。用户入口或应用入口负责从运行时 layout 解析 ledger 路径，并将其传入调用运行时。
 
 ledger 写入失败必须作为结构化调用失败暴露。动作已发生但审计闭合失败时，public surface 必须同时表达 handler/event 状态和 ledger failure 状态。

@@ -40,6 +40,8 @@ event ledger 与 invocation ledger 是持久审计能力，不属于最小本进
 
 invocation ledger 使用 JSON Lines。每行是一条独立 record，schema version 固定为 `aicore.kernel.invocation_ledger.v1`。record 至少表达 record_id、timestamp、invocation_id、trace_id、instance_id、operation、stage、status、route metadata、failure metadata、handler metadata、handler_executed、event_generated、spawned_process 和 called_real_component。
 
+`invocation_id` 标识一次具体 invocation。每次 `KernelInvocationEnvelope` 创建时必须分配唯一 `invocation_id`；同一次 invocation 生成的所有 ledger records 与对应 `KernelEventEnvelope` 必须使用同一个 `invocation_id`。`operation` 不能作为 invocation 唯一性来源。
+
 允许的 stage 包括 `accepted`、`route_decision_made`、`route_failed`、`handler_lookup_failed`、`handler_failed`、`handler_executed`、`event_generated`、`invocation_completed` 和 `invocation_failed`。`handler_executed` 只在 handler 成功执行后记录；handler 返回错误时记录 `handler_failed`；`event_generated` 只在实际生成 `KernelEventEnvelope` 后记录；`invocation_completed` 只在审计闭合成功后记录。
 
 ledger append failure 必须返回结构化失败，不能伪装成 invocation completed。`accepted` record 写入失败时不得继续 route 或执行 handler。handler 已执行且 event 已生成后，如果 `invocation_completed` 写入失败，public surface 必须表达动作已经发生但审计闭合失败。

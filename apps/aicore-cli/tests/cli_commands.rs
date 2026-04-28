@@ -529,6 +529,43 @@ fn cli_kernel_invoke_smoke_json_reports_ledger_status() {
 }
 
 #[test]
+fn cli_kernel_invoke_smoke_repeated_operation_writes_distinct_invocation_ids() {
+    let home = temp_root("kernel-invoke-distinct-invocation-id");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    for _ in 0..2 {
+        let output = run_cli_with_env(
+            &["kernel", "invoke-smoke", "memory.search"],
+            &[("HOME", home.to_str().expect("home path should be utf-8"))],
+        );
+        assert!(output.status.success());
+    }
+
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    let ids = ledger
+        .lines()
+        .map(|record| extract_json_string(record, "invocation_id"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids.len(), 10);
+    assert_eq!(ids[0], ids[4]);
+    assert_eq!(ids[5], ids[9]);
+    assert_ne!(ids[0], ids[5]);
+    assert_ne!(ids[0], "invoke.memory.search");
+    assert_ne!(ids[5], "invoke.memory.search");
+}
+
+#[test]
 fn cli_kernel_invoke_smoke_outputs_chinese_summary() {
     let home = temp_root("kernel-invoke-chinese");
     seed_route_manifest(
@@ -548,6 +585,14 @@ fn cli_kernel_invoke_smoke_outputs_chinese_summary() {
     assert!(stdout.contains("内核调用 Smoke"));
     assert!(stdout.contains("说明：只执行 in-process smoke handler"));
     assert!(stdout.contains("不启动组件进程"));
+}
+
+fn extract_json_string(record: &str, key: &str) -> String {
+    let marker = format!("\"{key}\":\"");
+    let start = record.find(&marker).expect("key should exist") + marker.len();
+    let tail = &record[start..];
+    let end = tail.find('"').expect("value should end");
+    tail[..end].to_string()
 }
 
 #[test]

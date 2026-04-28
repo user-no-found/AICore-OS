@@ -458,7 +458,7 @@ impl KernelInvocationRuntime {
             KernelEventType::InvocationCompleted,
             envelope.instance_id.clone(),
             route.app_id.clone(),
-            format!("invoke.{}", envelope.operation),
+            envelope.invocation_id.clone(),
             Visibility::User,
         );
         event.payload = KernelEventPayload::Summary(result.summary);
@@ -609,13 +609,15 @@ mod tests {
             KernelHandlerRegistry::new().with_handler("memory.search", smoke_handler),
         );
 
-        let output = runtime.invoke(envelope("memory.search"));
+        let envelope = envelope("memory.search");
+        let expected_invocation_id = envelope.invocation_id.clone();
+        let output = runtime.invoke(envelope);
         let event = output.event.expect("event should be generated");
 
         assert_eq!(event.event_type, KernelEventType::InvocationCompleted);
         assert_eq!(event.app_id, "aicore-cli");
         assert_eq!(event.instance_id, "global-main");
-        assert_eq!(event.invocation_id, "invoke.memory.search");
+        assert_eq!(event.invocation_id, expected_invocation_id);
         assert_eq!(event.trace_context.trace_id, "trace.default");
         assert_eq!(
             event.payload,
@@ -887,8 +889,122 @@ mod tests {
         let joined = read_ledger_records(&ledger_path).join("\n");
 
         assert!(joined.contains("\"trace_id\":\"trace.default\""));
-        assert!(joined.contains("\"invocation_id\":\"invoke.memory.search\""));
+        assert!(joined.contains("\"invocation_id\":\"invoke."));
+        assert!(!joined.contains("\"invocation_id\":\"invoke.memory.search\""));
         assert!(joined.contains("\"instance_id\":\"global-main\""));
+    }
+
+    #[test]
+    fn invocation_ledger_uses_same_invocation_id_for_one_invocation() {
+        let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
+        let ledger_path = temp_dir("ledger-same-invocation-id").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("memory.search", smoke_handler),
+        );
+
+        runtime.invoke_with_ledger(envelope("memory.search"), &ledger);
+        let ids = ledger_invocation_ids(&read_ledger_records(&ledger_path));
+
+        assert_eq!(ids.len(), 5);
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_ne!(ids[0], "invoke.memory.search");
+    }
+
+    #[test]
+    fn invocation_ledger_uses_distinct_invocation_id_for_repeated_same_operation() {
+        let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
+        let ledger_path = temp_dir("ledger-distinct-invocation-id").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("memory.search", smoke_handler),
+        );
+
+        runtime.invoke_with_ledger(envelope("memory.search"), &ledger);
+        runtime.invoke_with_ledger(envelope("memory.search"), &ledger);
+        let ids = ledger_invocation_ids(&read_ledger_records(&ledger_path));
+
+        assert_eq!(ids.len(), 10);
+        assert_eq!(ids[0], ids[4]);
+        assert_eq!(ids[5], ids[9]);
+        assert_ne!(ids[0], ids[5]);
+    }
+
+    #[test]
+    fn invocation_event_uses_same_invocation_id_as_envelope() {
+        let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("memory.search", smoke_handler),
+        );
+        let envelope = envelope("memory.search");
+        let expected_invocation_id = envelope.invocation_id.clone();
+
+        let output = runtime.invoke(envelope);
+
+        assert_eq!(
+            output
+                .event
+                .expect("event should be generated")
+                .invocation_id,
+            expected_invocation_id
+        );
+    }
+
+    #[test]
+    fn invocation_route_failure_records_share_same_invocation_id() {
+        let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
+        let ledger_path = temp_dir("ledger-route-failure-id").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("memory.search", smoke_handler),
+        );
+
+        runtime.invoke_with_ledger(envelope("unknown.operation"), &ledger);
+        let ids = ledger_invocation_ids(&read_ledger_records(&ledger_path));
+
+        assert_eq!(ids.len(), 3);
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_ne!(ids[0], "invoke.unknown.operation");
+    }
+
+    #[test]
+    fn invocation_missing_handler_records_share_same_invocation_id() {
+        let registry = registry_with_manifest(&[("provider.smoke", "provider.smoke")]);
+        let ledger_path = temp_dir("ledger-missing-handler-id").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new(),
+        );
+
+        runtime.invoke_with_ledger(envelope("provider.smoke"), &ledger);
+        let ids = ledger_invocation_ids(&read_ledger_records(&ledger_path));
+
+        assert_eq!(ids.len(), 4);
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_ne!(ids[0], "invoke.provider.smoke");
+    }
+
+    #[test]
+    fn invocation_handler_failure_records_share_same_invocation_id() {
+        let registry = registry_with_manifest(&[("memory.search", "memory.search")]);
+        let ledger_path = temp_dir("ledger-handler-failure-id").join("invocation-ledger.jsonl");
+        let ledger = KernelInvocationLedger::new(&ledger_path);
+        let runtime = KernelInvocationRuntime::new(
+            InstalledManifestRegistry::load_from_dir(&registry).expect("registry"),
+            KernelHandlerRegistry::new().with_handler("memory.search", failing_handler),
+        );
+
+        runtime.invoke_with_ledger(envelope("memory.search"), &ledger);
+        let ids = ledger_invocation_ids(&read_ledger_records(&ledger_path));
+
+        assert_eq!(ids.len(), 4);
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_ne!(ids[0], "invoke.memory.search");
     }
 
     #[test]
@@ -1141,5 +1257,20 @@ mod tests {
                     .expect("known stage should exist")
             })
             .collect()
+    }
+
+    fn ledger_invocation_ids(records: &[String]) -> Vec<String> {
+        records
+            .iter()
+            .map(|record| extract_json_string(record, "invocation_id"))
+            .collect()
+    }
+
+    fn extract_json_string(record: &str, key: &str) -> String {
+        let marker = format!("\"{key}\":\"");
+        let start = record.find(&marker).expect("key should exist") + marker.len();
+        let tail = &record[start..];
+        let end = tail.find('"').expect("value should end");
+        tail[..end].to_string()
     }
 }

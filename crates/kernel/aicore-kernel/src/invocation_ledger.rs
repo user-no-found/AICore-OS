@@ -97,7 +97,7 @@ impl KernelInvocationLedgerRecord {
             schema_version: INVOCATION_LEDGER_SCHEMA.to_string(),
             record_id: format!("ledger.{timestamp}.{process_id}.{counter}.{stage}"),
             timestamp,
-            invocation_id: format!("invoke.{}", envelope.operation),
+            invocation_id: envelope.invocation_id.clone(),
             trace_id: envelope.trace_context.trace_id.clone(),
             instance_id: envelope.instance_id.clone(),
             operation: envelope.operation.clone(),
