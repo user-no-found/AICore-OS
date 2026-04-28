@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -10,19 +12,13 @@ use crate::{
 
 use super::{KernelHandlerResult, KernelInvocationRuntime, KernelInvocationRuntimeOutput};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ComponentProcessSuccess {
-    pub(super) result: KernelHandlerResult,
-    pub(super) exit_code: Option<i32>,
-}
+mod types;
+mod validate;
+mod wait;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ComponentProcessFailure {
-    pub(super) stage: String,
-    pub(super) reason: String,
-    pub(super) spawned_process: bool,
-    pub(super) exit_code: Option<i32>,
-}
+use types::{ComponentProcessFailure, ComponentProcessOutput, ComponentProcessSuccess};
+use validate::parse_component_process_result;
+use wait::{timeout_duration, wait_with_timeout};
 
 impl KernelInvocationRuntime {
     pub(super) fn invoke_with_ledger_local_process(
@@ -202,10 +198,22 @@ impl KernelInvocationRuntime {
             });
         }
 
-        if route.entrypoint.trim().is_empty() || !Path::new(&route.entrypoint).exists() {
+        let entrypoint = Path::new(&route.entrypoint);
+        if route.entrypoint.trim().is_empty() || !entrypoint.exists() {
             return Err(ComponentProcessFailure {
                 stage: "missing_entrypoint".to_string(),
                 reason: format!("component entrypoint is missing: {}", route.entrypoint),
+                spawned_process: false,
+                exit_code: None,
+            });
+        }
+        if !is_executable_file(entrypoint) {
+            return Err(ComponentProcessFailure {
+                stage: "entrypoint_not_executable".to_string(),
+                reason: format!(
+                    "component entrypoint is not executable: {}",
+                    route.entrypoint
+                ),
                 spawned_process: false,
                 exit_code: None,
             });
@@ -222,7 +230,7 @@ impl KernelInvocationRuntime {
             .stderr(Stdio::piped());
 
         let mut child = command.spawn().map_err(|error| ComponentProcessFailure {
-            stage: "process_spawn".to_string(),
+            stage: "process_spawn_failed".to_string(),
             reason: super::protocol::sanitize_process_diagnostic(&format!(
                 "component process spawn failed: {error}"
             )),
@@ -234,8 +242,9 @@ impl KernelInvocationRuntime {
         if let Some(stdin) = child.stdin.as_mut() {
             if let Err(error) = stdin.write_all(request.as_bytes()) {
                 let _ = child.kill();
+                let _ = child.wait();
                 return Err(ComponentProcessFailure {
-                    stage: "ipc_write".to_string(),
+                    stage: "process_stdin_failed".to_string(),
                     reason: super::protocol::sanitize_process_diagnostic(&format!(
                         "component ipc write failed: {error}"
                     )),
@@ -245,8 +254,9 @@ impl KernelInvocationRuntime {
             }
             if let Err(error) = stdin.write_all(b"\n") {
                 let _ = child.kill();
+                let _ = child.wait();
                 return Err(ComponentProcessFailure {
-                    stage: "ipc_write".to_string(),
+                    stage: "process_stdin_failed".to_string(),
                     reason: super::protocol::sanitize_process_diagnostic(&format!(
                         "component ipc write failed: {error}"
                     )),
@@ -257,22 +267,13 @@ impl KernelInvocationRuntime {
         }
         drop(child.stdin.take());
 
-        let output = child
-            .wait_with_output()
-            .map_err(|error| ComponentProcessFailure {
-                stage: "ipc_read".to_string(),
-                reason: super::protocol::sanitize_process_diagnostic(&format!(
-                    "component process output read failed: {error}"
-                )),
-                spawned_process: true,
-                exit_code: None,
-            })?;
+        let output = wait_with_timeout(child, timeout_duration(envelope))?;
 
         let exit_code = output.status.code();
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(ComponentProcessFailure {
-                stage: "process_exit".to_string(),
+                stage: "process_non_zero_exit".to_string(),
                 reason: super::protocol::sanitize_process_diagnostic(&format!(
                     "component process exited with code {:?}: {}",
                     exit_code,
@@ -284,23 +285,7 @@ impl KernelInvocationRuntime {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let Some(line) = stdout.lines().find(|line| !line.trim().is_empty()) else {
-            return Err(ComponentProcessFailure {
-                stage: "ipc_read".to_string(),
-                reason: "component process returned empty stdio_jsonl result".to_string(),
-                spawned_process: true,
-                exit_code,
-            });
-        };
-        let value: serde_json::Value =
-            serde_json::from_str(line).map_err(|error| ComponentProcessFailure {
-                stage: "ipc_read".to_string(),
-                reason: super::protocol::sanitize_process_diagnostic(&format!(
-                    "component process returned invalid JSON result: {error}"
-                )),
-                spawned_process: true,
-                exit_code,
-            })?;
+        let value = parse_component_process_result(&stdout, envelope, exit_code)?;
 
         let result_kind = value
             .get("result_kind")
@@ -363,5 +348,21 @@ impl KernelInvocationRuntime {
             ledger_path: None,
             ledger_record_count: 0,
         }
+    }
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        return std::fs::metadata(path)
+            .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(unix))]
+    {
+        true
     }
 }

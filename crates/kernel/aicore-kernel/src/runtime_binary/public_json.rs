@@ -78,6 +78,7 @@ pub fn kernel_invocation_result_public_json(
             "invocation_mode": invocation_mode,
             "transport": transport,
             "process_exit_code": output.process_exit_code,
+            "timeout": output.failure_stage.as_deref() == Some("process_timeout"),
             "executed": output.handler_executed,
             "event_generated": output.event_generated,
             "spawned_process": spawned_process,

@@ -211,7 +211,7 @@ fn kernel_runtime_binary_spawns_component_process_from_manifest_entrypoint() {
     seed_runtime_layout(&home);
     seed_component_process_manifest(
         &home,
-        "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"result_kind\":\"component.process.smoke\",\"summary\":\"process smoke ok\",\"fields\":{\"operation\":\"component.process.smoke\",\"ipc\":\"stdio_jsonl\",\"component_process\":\"ok\"}}'\n",
+        "#!/bin/sh\nline=$(cat)\ninvocation_id=$(printf '%s' \"$line\" | sed -n 's/.*\"invocation_id\":\"\\([^\"]*\\)\".*/\\1/p')\nprintf '{\"schema_version\":\"aicore.local_ipc.result.v1\",\"protocol\":\"stdio_jsonl\",\"protocol_version\":\"aicore.local_ipc.stdio_jsonl.v1\",\"invocation_id\":\"%s\",\"status\":\"completed\",\"result_kind\":\"component.process.smoke\",\"summary\":\"process smoke ok\",\"fields\":{\"operation\":\"component.process.smoke\",\"ipc\":\"stdio_jsonl\",\"component_process\":\"ok\"}}\\n' \"$invocation_id\"\n",
     );
 
     let output = invoke_kernel_binary(&home, &valid_request_for("component.process.smoke"));
@@ -256,7 +256,10 @@ fn kernel_runtime_binary_component_process_non_zero_exit_is_structured() {
     assert!(!output.status.success());
     let event = first_event(&output.stdout);
     assert_eq!(event["payload"]["status"], "failed");
-    assert_eq!(event["payload"]["failure"]["stage"], "process_exit");
+    assert_eq!(
+        event["payload"]["failure"]["stage"],
+        "process_non_zero_exit"
+    );
     assert_eq!(event["payload"]["handler"]["spawned_process"], true);
     assert_eq!(event["payload"]["handler"]["process_exit_code"], 7);
     let payload = event["payload"].to_string();
@@ -278,7 +281,7 @@ fn kernel_runtime_binary_component_process_invalid_jsonl_is_structured() {
     assert!(!output.status.success());
     let event = first_event(&output.stdout);
     assert_eq!(event["payload"]["status"], "failed");
-    assert_eq!(event["payload"]["failure"]["stage"], "ipc_read");
+    assert_eq!(event["payload"]["failure"]["stage"], "process_invalid_json");
     assert_eq!(event["payload"]["handler"]["spawned_process"], true);
     assert_eq!(event["payload"]["handler"]["transport"], "stdio_jsonl");
 }

@@ -19,7 +19,8 @@ fn component_process_smoke_writes_invocation_ledger() {
         &root,
         "process-smoke-ledger.sh",
         r#"read line
-printf '{"result_kind":"component.process.smoke","summary":"process smoke ok","fields":{"operation":"component.process.smoke"}}\n'
+invocation_id=$(printf '%s' "$line" | sed -n 's/.*"invocation_id":"\([^"]*\)".*/\1/p')
+printf '{"schema_version":"aicore.local_ipc.result.v1","protocol":"stdio_jsonl","protocol_version":"aicore.local_ipc.stdio_jsonl.v1","invocation_id":"%s","status":"completed","result_kind":"component.process.smoke","summary":"process smoke ok","fields":{"operation":"component.process.smoke"}}\n' "$invocation_id"
 "#,
     );
     write_process_manifest(&root, &script, "stdio_jsonl", &[]);

@@ -2,12 +2,19 @@ use crate::{
     KernelInvocationEnvelope, KernelRouteRuntimeOutput, format_contract, redact_failure_reason,
 };
 
+pub(super) const LOCAL_IPC_PROTOCOL: &str = "stdio_jsonl";
+pub(super) const LOCAL_IPC_PROTOCOL_VERSION: &str = "aicore.local_ipc.stdio_jsonl.v1";
+pub(super) const LOCAL_IPC_REQUEST_SCHEMA_VERSION: &str = "aicore.local_ipc.invocation.v1";
+pub(super) const LOCAL_IPC_RESULT_SCHEMA_VERSION: &str = "aicore.local_ipc.result.v1";
+
 pub(super) fn local_ipc_request_json(
     envelope: &KernelInvocationEnvelope,
     route: &KernelRouteRuntimeOutput,
 ) -> String {
     serde_json::json!({
-        "schema_version": "aicore.local_ipc.invocation.v1",
+        "schema_version": LOCAL_IPC_REQUEST_SCHEMA_VERSION,
+        "protocol": LOCAL_IPC_PROTOCOL,
+        "protocol_version": LOCAL_IPC_PROTOCOL_VERSION,
         "invocation_id": envelope.invocation_id,
         "trace_id": envelope.trace_context.trace_id,
         "instance_id": envelope.instance_id,

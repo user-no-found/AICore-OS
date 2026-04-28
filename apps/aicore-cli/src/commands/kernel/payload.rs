@@ -51,6 +51,13 @@ pub(crate) fn kernel_invocation_payload_rows(
     push_payload_row(
         &mut rows,
         payload,
+        &["handler", "process_exit_code"],
+        "process exit code",
+    );
+    push_payload_row(&mut rows, payload, &["handler", "timeout"], "timeout");
+    push_payload_row(
+        &mut rows,
+        payload,
         &["handler", "executed"],
         "handler executed",
     );

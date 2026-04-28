@@ -59,6 +59,11 @@ pub(crate) fn run_component_smoke_stdio() -> i32 {
         .and_then(|value| value.as_str())
         .unwrap_or("-");
     let result = serde_json::json!({
+        "schema_version": "aicore.local_ipc.result.v1",
+        "protocol": "stdio_jsonl",
+        "protocol_version": "aicore.local_ipc.stdio_jsonl.v1",
+        "invocation_id": invocation_id,
+        "status": "completed",
         "result_kind": "component.process.smoke",
         "summary": format!("process smoke handled {operation}"),
         "fields": {
