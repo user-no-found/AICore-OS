@@ -15,9 +15,9 @@ use aicore_kernel::{
 };
 use aicore_kernel::{
     KernelEventPayload, KernelHandlerError, KernelHandlerRegistry, KernelHandlerResult,
-    KernelInvocationEnvelope, KernelInvocationRuntime, KernelInvocationStatus, KernelPayload,
-    KernelRouteRuntime, KernelRouteRuntimeError, KernelRouteRuntimeInput, KernelRouteRuntimeOutput,
-    default_control_plane, format_contract,
+    KernelInvocationEnvelope, KernelInvocationLedger, KernelInvocationRuntime,
+    KernelInvocationStatus, KernelPayload, KernelRouteRuntime, KernelRouteRuntimeError,
+    KernelRouteRuntimeInput, KernelRouteRuntimeOutput, default_control_plane, format_contract,
 };
 use aicore_memory::{
     MemoryAuditReport, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryScope, MemorySource,
@@ -259,6 +259,7 @@ fn print_kernel_route(operation: &str) -> i32 {
 
 fn print_kernel_invoke_smoke(operation: &str) -> i32 {
     let layout = AicoreLayout::from_system_home();
+    let ledger_path = layout.kernel_state_root.join("invocation-ledger.jsonl");
     let registry =
         match aicore_kernel::InstalledManifestRegistry::load_from_dir(&layout.manifests_root) {
             Ok(registry) => registry,
@@ -274,6 +275,8 @@ fn print_kernel_invoke_smoke(operation: &str) -> i32 {
                         cli_row("handler executed", "false"),
                         cli_row("event generated", "false"),
                         cli_row("ledger appended", "false"),
+                        cli_row("ledger path", ledger_path.display().to_string()),
+                        cli_row("ledger records", "0"),
                     ],
                 );
                 return 1;
@@ -281,12 +284,11 @@ fn print_kernel_invoke_smoke(operation: &str) -> i32 {
         };
     let handlers = KernelHandlerRegistry::new().with_handler("memory.search", kernel_smoke_handler);
     let runtime = KernelInvocationRuntime::new(registry, handlers);
-    let output = runtime.invoke(KernelInvocationEnvelope::new(
-        "global-main",
-        operation,
-        operation,
-        KernelPayload::Empty,
-    ));
+    let ledger = KernelInvocationLedger::new(&ledger_path);
+    let output = runtime.invoke_with_ledger(
+        KernelInvocationEnvelope::new("global-main", operation, operation, KernelPayload::Empty),
+        &ledger,
+    );
 
     if output.status == KernelInvocationStatus::Completed {
         let route = output
@@ -315,7 +317,12 @@ fn print_kernel_invoke_smoke(operation: &str) -> i32 {
                 cli_row("event generated", output.event_generated.to_string()),
                 cli_row("event type", format!("{:?}", event.event_type)),
                 cli_row("event payload", event_payload_summary(&event.payload)),
-                cli_row("ledger appended", "false"),
+                cli_row("ledger appended", output.ledger_appended.to_string()),
+                cli_row(
+                    "ledger path",
+                    output.ledger_path.as_deref().unwrap_or("-").to_string(),
+                ),
+                cli_row("ledger records", output.ledger_record_count.to_string()),
                 cli_row("spawned process", output.spawned_process.to_string()),
                 cli_row(
                     "called real component",
@@ -349,7 +356,12 @@ fn print_kernel_invoke_smoke(operation: &str) -> i32 {
         ),
         cli_row("handler executed", output.handler_executed.to_string()),
         cli_row("event generated", output.event_generated.to_string()),
-        cli_row("ledger appended", "false"),
+        cli_row("ledger appended", output.ledger_appended.to_string()),
+        cli_row(
+            "ledger path",
+            output.ledger_path.as_deref().unwrap_or("-").to_string(),
+        ),
+        cli_row("ledger records", output.ledger_record_count.to_string()),
     ];
     if let Some(route) = output.route.as_ref() {
         rows.push(cli_row("component", route.component_id.as_str()));

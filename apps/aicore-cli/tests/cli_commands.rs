@@ -401,7 +401,18 @@ fn cli_kernel_invoke_smoke_runs_registered_handler() {
     assert!(stdout.contains("capability：memory.search"));
     assert!(stdout.contains("handler executed：true"));
     assert!(stdout.contains("event generated：true"));
-    assert!(stdout.contains("ledger appended：false"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger path："));
+    assert!(stdout.contains("invocation-ledger.jsonl"));
+    assert!(stdout.contains("ledger records：5"));
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert!(ledger.contains("\"stage\":\"accepted\""));
+    assert!(ledger.contains("\"stage\":\"invocation_completed\""));
 }
 
 #[test]
@@ -425,6 +436,16 @@ fn cli_kernel_invoke_smoke_reports_missing_handler() {
     assert!(stdout.contains("failure stage：handler_lookup"));
     assert!(stdout.contains("missing handler"));
     assert!(stdout.contains("handler executed：false"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger records：4"));
+    let ledger_path = home
+        .join(".aicore")
+        .join("state")
+        .join("kernel")
+        .join("invocation-ledger.jsonl");
+    let ledger = fs::read_to_string(ledger_path).expect("ledger should be written");
+    assert!(ledger.contains("\"stage\":\"handler_lookup_failed\""));
+    assert!(ledger.contains("\"stage\":\"invocation_failed\""));
 }
 
 #[test]
@@ -451,8 +472,60 @@ fn cli_kernel_invoke_smoke_json_outputs_valid_json() {
     assert_has_json_event(&events, "block.panel");
     assert!(stdout.contains("memory.search"));
     assert!(stdout.contains("handler executed"));
+    assert!(stdout.contains("ledger appended"));
+    assert!(stdout.contains("ledger records"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_kernel_invoke_smoke_reports_ledger_appended() {
+    let home = temp_root("kernel-invoke-ledger-appended");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "memory.search"],
+        &[("HOME", home.to_str().expect("home path should be utf-8"))],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("ledger records：5"));
+    assert!(stdout.contains("invocation-ledger.jsonl"));
+}
+
+#[test]
+fn cli_kernel_invoke_smoke_json_reports_ledger_status() {
+    let home = temp_root("kernel-invoke-ledger-json-status");
+    seed_route_manifest(
+        &home,
+        "aicore-cli.toml",
+        "aicore-cli",
+        &[("memory.search", "memory.search")],
+    );
+
+    let output = run_cli_with_env(
+        &["kernel", "invoke-smoke", "memory.search"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "block.panel");
+    assert!(stdout.contains("ledger appended"));
+    assert!(stdout.contains("true"));
+    assert!(stdout.contains("ledger records"));
+    assert!(stdout.contains("5"));
 }
 
 #[test]
