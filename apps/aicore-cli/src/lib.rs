@@ -2036,10 +2036,427 @@ fn parse_memory_permanence_filter(value: &str) -> Result<MemoryPermanence, Strin
 }
 
 #[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KernelInvocationAdoptionClass {
+    KernelNativeNow,
+    KernelDiagnostic,
+    AllowedLocalDirectCommand,
+    MustMigrateToKernelInvocationLater,
+    NotKernelInvocationTarget,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KernelInvocationAdoptionEntry {
+    command: &'static str,
+    operation: &'static str,
+    class: KernelInvocationAdoptionClass,
+    manifest_capability_exists: bool,
+    route_runtime_used: bool,
+    invocation_runtime_used: bool,
+    ledger_used: bool,
+    structured_result_envelope_used: bool,
+    direct_local_execution_allowed_for_now: bool,
+    future_migration_required: bool,
+    reason: &'static str,
+}
+
+#[cfg(test)]
+fn kernel_invocation_adoption_matrix() -> &'static [KernelInvocationAdoptionEntry] {
+    use KernelInvocationAdoptionClass::{
+        AllowedLocalDirectCommand, KernelDiagnostic, KernelNativeNow,
+        MustMigrateToKernelInvocationLater, NotKernelInvocationTarget,
+    };
+
+    &[
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli kernel route <operation>",
+            operation: "<operation>",
+            class: KernelDiagnostic,
+            manifest_capability_exists: true,
+            route_runtime_used: true,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "route decision diagnostic",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli kernel invoke-smoke <operation>",
+            operation: "<operation>",
+            class: KernelDiagnostic,
+            manifest_capability_exists: true,
+            route_runtime_used: true,
+            invocation_runtime_used: true,
+            ledger_used: true,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "dispatcher and ledger diagnostic",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli kernel invoke-readonly runtime.status",
+            operation: "runtime.status",
+            class: KernelNativeNow,
+            manifest_capability_exists: true,
+            route_runtime_used: true,
+            invocation_runtime_used: true,
+            ledger_used: true,
+            structured_result_envelope_used: true,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: false,
+            reason: "first-party readonly kernel-native path",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli status",
+            operation: "system.status",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "local status surface retained until system status adoption",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli runtime smoke",
+            operation: "runtime.smoke",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "runtime capability smoke should adopt invocation boundary",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli instance list",
+            operation: "instance.list",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "local read surface retained until instance readonly adoption",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli config path",
+            operation: "config.path",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "local config path read has low migration priority",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli config init",
+            operation: "config.init",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "bootstrap write command needs explicit config contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli config validate",
+            operation: "config.validate",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "config readonly validation should adopt invocation boundary later",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli auth list",
+            operation: "auth.list",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "auth read surface needs secret-safe invocation boundary",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli model show",
+            operation: "model.show",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "model binding read surface should adopt readonly contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli service list",
+            operation: "service.list",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "service profile read surface should adopt readonly contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli provider smoke",
+            operation: "provider.smoke",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "provider app capability must not remain direct long term",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli agent smoke <内容>",
+            operation: "agent.smoke",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "agent capability should flow through runtime invocation",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli agent session-smoke <第一轮内容> <第二轮内容>",
+            operation: "agent.session_smoke",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "agent session capability should flow through runtime invocation",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory status",
+            operation: "memory.status",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory app read capability should adopt memory contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory search <关键词>",
+            operation: "memory.search",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "current memory.search invoke-smoke is diagnostic only",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory proposals",
+            operation: "memory.proposals",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory app read capability should adopt memory contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory audit",
+            operation: "memory.audit",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory audit should adopt memory contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory wiki [page]",
+            operation: "memory.wiki",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory projection read surface should adopt memory contract",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory remember <内容>",
+            operation: "memory.remember",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory write capability needs memory contract and audit boundary",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory accept <proposal_id>",
+            operation: "memory.accept",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory write capability needs memory contract and audit boundary",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore-cli memory reject <proposal_id>",
+            operation: "memory.reject",
+            class: MustMigrateToKernelInvocationLater,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: false,
+            future_migration_required: true,
+            reason: "memory write capability needs memory contract and audit boundary",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "aicore top-level status",
+            operation: "runtime.status/system.status",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: true,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: true,
+            reason: "top-level status may later reuse result envelope",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "cargo foundation",
+            operation: "foundation.install",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "local bootstrap/install workflow",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "cargo kernel",
+            operation: "kernel.install",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "local kernel runtime install workflow",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "cargo core",
+            operation: "core.workflow",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "local aggregate workflow",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "cargo app-*",
+            operation: "app.install",
+            class: AllowedLocalDirectCommand,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "local app binary and manifest install workflow",
+        },
+        KernelInvocationAdoptionEntry {
+            command: "help / usage / unknown command",
+            operation: "none",
+            class: NotKernelInvocationTarget,
+            manifest_capability_exists: false,
+            route_runtime_used: false,
+            invocation_runtime_used: false,
+            ledger_used: false,
+            structured_result_envelope_used: false,
+            direct_local_execution_allowed_for_now: true,
+            future_migration_required: false,
+            reason: "usage and error text is not a kernel capability invocation",
+        },
+    ]
+}
+
+#[cfg(test)]
 mod tests {
     use aicore_memory::ProjectionState;
 
-    use super::{run_from_args, wiki_projection_status_lines};
+    use super::{
+        KernelInvocationAdoptionClass, kernel_invocation_adoption_matrix, run_from_args,
+        wiki_projection_status_lines,
+    };
 
     #[test]
     fn rejects_unknown_command() {
@@ -2078,5 +2495,95 @@ mod tests {
                 .iter()
                 .any(|line| line == "Projection warning：projection warning")
         );
+    }
+
+    #[test]
+    fn kernel_invocation_adoption_matrix_mentions_runtime_status() {
+        let matrix = kernel_invocation_adoption_matrix();
+
+        assert!(matrix.iter().any(|entry| {
+            entry.command == "aicore-cli kernel invoke-readonly runtime.status"
+                && entry.operation == "runtime.status"
+        }));
+    }
+
+    #[test]
+    fn kernel_invocation_adoption_matrix_marks_invoke_readonly_as_kernel_native() {
+        let matrix = kernel_invocation_adoption_matrix();
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == "aicore-cli kernel invoke-readonly runtime.status")
+            .expect("runtime.status readonly adoption entry should exist");
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelNativeNow);
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(entry.structured_result_envelope_used);
+        assert!(!entry.future_migration_required);
+    }
+
+    #[test]
+    fn kernel_invocation_adoption_matrix_marks_invoke_smoke_as_diagnostic() {
+        let matrix = kernel_invocation_adoption_matrix();
+        let entry = matrix
+            .iter()
+            .find(|entry| entry.command == "aicore-cli kernel invoke-smoke <operation>")
+            .expect("invoke-smoke adoption entry should exist");
+
+        assert_eq!(entry.class, KernelInvocationAdoptionClass::KernelDiagnostic);
+        assert!(entry.route_runtime_used);
+        assert!(entry.invocation_runtime_used);
+        assert!(entry.ledger_used);
+        assert!(!entry.structured_result_envelope_used);
+        assert!(!entry.future_migration_required);
+    }
+
+    #[test]
+    fn kernel_invocation_adoption_matrix_marks_direct_commands_explicitly() {
+        let matrix = kernel_invocation_adoption_matrix();
+        let config_path = matrix
+            .iter()
+            .find(|entry| entry.command == "aicore-cli config path")
+            .expect("config path adoption entry should exist");
+        let workflow = matrix
+            .iter()
+            .find(|entry| entry.command == "cargo foundation")
+            .expect("cargo foundation adoption entry should exist");
+
+        assert_eq!(
+            config_path.class,
+            KernelInvocationAdoptionClass::AllowedLocalDirectCommand
+        );
+        assert!(config_path.direct_local_execution_allowed_for_now);
+        assert_eq!(
+            workflow.class,
+            KernelInvocationAdoptionClass::AllowedLocalDirectCommand
+        );
+        assert!(workflow.direct_local_execution_allowed_for_now);
+        assert!(!workflow.future_migration_required);
+    }
+
+    #[test]
+    fn kernel_invocation_adoption_matrix_marks_future_migration_targets() {
+        let matrix = kernel_invocation_adoption_matrix();
+        for command in [
+            "aicore-cli provider smoke",
+            "aicore-cli agent smoke <内容>",
+            "aicore-cli memory search <关键词>",
+            "aicore-cli memory remember <内容>",
+        ] {
+            let entry = matrix
+                .iter()
+                .find(|entry| entry.command == command)
+                .unwrap_or_else(|| panic!("{command} adoption entry should exist"));
+
+            assert_eq!(
+                entry.class,
+                KernelInvocationAdoptionClass::MustMigrateToKernelInvocationLater
+            );
+            assert!(entry.future_migration_required);
+            assert!(!entry.invocation_runtime_used);
+        }
     }
 }

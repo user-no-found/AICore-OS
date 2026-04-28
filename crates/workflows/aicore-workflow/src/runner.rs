@@ -867,6 +867,45 @@ mod tests {
     }
 
     #[test]
+    fn formal_docs_do_not_include_stage_journal_terms() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let repo_root = manifest_dir
+            .ancestors()
+            .nth(3)
+            .expect("workflow crate should live under crates/workflows");
+        let docs = [
+            repo_root
+                .join("docs")
+                .join("architecture")
+                .join("AICore-OS-内核协议规范.md"),
+            repo_root
+                .join("docs")
+                .join("architecture")
+                .join("AICore-OS-运行时安装布局规范.md"),
+        ];
+        let forbidden_terms = [
+            "提交",
+            "验证命令",
+            "本轮",
+            "修正原因",
+            "之前不合适",
+            "checklist",
+            "下一步",
+        ];
+
+        for doc in docs {
+            let content = std::fs::read_to_string(&doc).expect("formal doc should be readable");
+            for term in forbidden_terms {
+                assert!(
+                    !content.contains(term),
+                    "{} should not contain journal term {term}",
+                    doc.display()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn cargo_workflow_aliases_use_quiet_run() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let repo_root = manifest_dir

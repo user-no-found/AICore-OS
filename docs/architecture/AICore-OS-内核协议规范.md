@@ -54,6 +54,18 @@ result envelope 至少表达 invocation id、trace id、operation、status、rou
 
 `KernelEventEnvelope` 可以携带安全 summary，用于事件流和人类摘要，但不得代替 result envelope 作为结构化结果合同。invocation ledger 继续只记录生命周期、路由、handler 和失败 metadata，不记录完整 result payload，也不记录 raw handler output。
 
+## Runtime Adoption Boundary
+
+Kernel invocation runtime 是组件间能力调用的目标边界。面向业务能力或跨组件能力的 command，应逐步通过 installed manifest registry、route decision runtime、`KernelInvocationRuntime`、invocation ledger 和 result envelope 形成可审计调用链。
+
+route 与 invocation diagnostic command 可以保留为内核链路验证工具。此类 command 用于展示 route decision、dispatcher、ledger 或 result envelope 状态，不代表真实业务 handler 已经接入。
+
+本地 bootstrap、安装、配置路径读取、workflow 执行和 usage/error 输出可以保留 direct local path。此类路径必须被显式分类，不应伪装为 kernel-native business invocation。
+
+provider、agent、memory、tool、MCP、workspace、patch、approval 等应用能力迁移到 kernel invocation 时，必须通过显式 adoption 边界完成。迁移前，direct path 的 public surface 仍需遵守 secret redaction、raw payload 隔离和用户可见语言策略。
+
+CLI、TUI、Web 或 Gateway 不得把 human summary 当成机器数据源。机器可消费结果应来自 result envelope、event envelope 或明确的协议 payload。
+
 ## Invocation Ledger
 
 `invocation-ledger.jsonl` 是内核调用生命周期的 append-only audit ledger。它记录 invocation 被接受、路由、handler 查找、handler 执行、事件生成、调用完成和调用失败等审计事实。它不是业务事实源，不参与恢复 component state，不承担 event sourcing、conversation store、query、replay 或 compaction。
