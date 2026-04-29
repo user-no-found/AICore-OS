@@ -50,12 +50,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-event"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-evolution"
 version = "0.1.0"
 
 [[package]]
 name = "aicore-foundation"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "aicore-kernel"
