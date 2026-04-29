@@ -152,7 +152,34 @@ pub(crate) fn print_kernel_invoke_write(operation: &str, args: &[String]) -> i32
     let payload = write_payload(operation, args);
     let envelope = KernelInvocationEnvelope::new("global-main", operation, operation, payload);
     let invocation = KernelRuntimeBinaryClient::new(layout).invoke_envelope(envelope);
-    let output = invocation.payload;
+    let mut output = invocation.payload;
+
+    // M4.6A: inject recommended_action for memory.remember unknown outcome
+    if operation == "memory.remember" {
+        if let Some(fields) = output.get("result").and_then(|r| r.get("fields")) {
+            if fields.get("write_outcome").and_then(|v| v.as_str()) == Some("unknown") {
+                if let Some(result) = output.get_mut("result") {
+                    if let Some(field_obj) = result.get_mut("fields") {
+                        if let Some(obj) = field_obj.as_object_mut() {
+                            obj.insert(
+                                "recommended_action".to_string(),
+                                serde_json::Value::String(
+                                    "query_memory_fact_source_before_retry".to_string(),
+                                ),
+                            );
+                            obj.insert(
+                                "recommended_action_message".to_string(),
+                                serde_json::Value::String(
+                                    "写入状态不确定，可能已经写入 MemoryKernel DB，请先执行 memory status / memory search 查询确认，不要直接重复提交相同内容".to_string(),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if TerminalConfig::current().mode == TerminalMode::Json {
         emit_kernel_invocation_payload_json(&output);
         return if invocation.exit_success { 0 } else { 1 };
@@ -163,7 +190,27 @@ pub(crate) fn print_kernel_invoke_write(operation: &str, args: &[String]) -> i32
     } else {
         "内核写入调用失败"
     };
-    emit_cli_panel(title, kernel_invocation_payload_rows(&output, operation));
+    let mut rows = kernel_invocation_payload_rows(&output, operation);
+
+    // M4.6A: append human guidance for memory.remember unknown outcome
+    if operation == "memory.remember" {
+        if let Some(fields) = output.get("result").and_then(|r| r.get("fields")) {
+            if fields.get("write_outcome").and_then(|v| v.as_str()) == Some("unknown") {
+                rows.push(cli_row("write_state", "不确定"));
+                rows.push(cli_row(
+                    "注意",
+                    "本次调用可能已经写入 MemoryKernel DB，但审计未闭合",
+                ));
+                rows.push(cli_row(
+                    "建议",
+                    "请先执行 memory status 或 memory search 查询确认",
+                ));
+                rows.push(cli_row("警告", "不要直接重复提交相同内容"));
+            }
+        }
+    }
+
+    emit_cli_panel(title, rows);
     if invocation.exit_success { 0 } else { 1 }
 }
 

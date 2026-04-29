@@ -514,6 +514,8 @@ case "$request" in
       memory_write_status="failed"
       memory_write_failure='"handler_failed"'
       memory_write_fields='"operation":"memory.remember","write_applied":"false","audit_closed":"true","write_outcome":"failed","idempotency":"not_guaranteed","content_present":"false","content_length":"0","kernel_invocation_path":"binary"'
+    elif printf '%s' "$request" | grep -q 'trigger_unknown'; then
+      memory_write_fields='"operation":"memory.remember","write_applied":"false","audit_closed":"true","write_outcome":"unknown","idempotency":"not_guaranteed","content_present":"true","content_length":"14","kernel_invocation_path":"binary"'
     else
       memory_write_fields='"operation":"memory.remember","write_applied":"true","audit_closed":"true","write_outcome":"applied","idempotency":"not_guaranteed","memory_id":"mem_fixture","memory_type":"core","source":"user_explicit","permanence":"standard","content_present":"true","content_length":"31","kernel_invocation_path":"binary"'
     fi

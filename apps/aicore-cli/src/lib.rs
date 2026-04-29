@@ -134,8 +134,10 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, rest @ ..] if group == "memory" && action == "wiki" => {
             commands::memory::run_memory_wiki_command(rest)
         }
-        [group, action, content] if group == "memory" && action == "remember" => {
-            commands::run_memory_command_with_arg(content, commands::memory::print_memory_remember)
+        [group, action, content, rest @ ..] if group == "memory" && action == "remember" => {
+            let mut args = vec![content.clone()];
+            args.extend_from_slice(rest);
+            commands::memory::run_memory_remember_command(&args)
         }
         [group, action, query, rest @ ..] if group == "memory" && action == "search" => {
             commands::memory::run_memory_search_command(query, rest)

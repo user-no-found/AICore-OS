@@ -11,10 +11,9 @@ fn memory_remember_writes_active_record() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入："));
+    assert!(stdout.contains("记忆已写入（local direct）："));
     assert!(stdout.contains("id: mem_"));
     assert!(stdout.contains("type: core"));
-    assert!(stdout.contains("status: active"));
 }
 
 #[test]
@@ -28,10 +27,9 @@ fn cli_memory_remember_rich_uses_terminal_panel() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ 记忆已写入"));
+    assert!(stdout.contains("╭─ 记忆已写入（local direct）"));
     assert!(stdout.contains("id: mem_"));
     assert!(stdout.contains("type: core"));
-    assert!(stdout.contains("status: active"));
 }
 
 #[test]
@@ -45,7 +43,7 @@ fn cli_memory_remember_plain_has_no_ansi() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入："));
+    assert!(stdout.contains("记忆已写入（local direct）："));
     assert!(!stdout.contains("\u{1b}["));
     assert!(!stdout.contains('╭'));
 }
@@ -62,9 +60,13 @@ fn cli_memory_remember_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains("id: mem_"));
-    assert!(stdout.contains("status: active"));
+    assert_has_json_event(&events, "direct.command.result");
+    assert!(stdout.contains("\"operation\":\"memory.remember\""));
+    assert!(stdout.contains("\"success\":true"));
+    assert!(stdout.contains("\"execution_path\":\"local_direct\""));
+    assert!(stdout.contains("\"kernel_invocation_path\":\"not_used\""));
+    assert!(stdout.contains("\"ledger_appended\":false"));
+    assert!(stdout.contains("\"memory_id\":\"mem_"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -570,4 +572,43 @@ fn proposal_pipeline_reject_writes_rejected_event() {
         event.event_kind == aicore_memory::MemoryEventKind::Rejected
             && event.proposal_id.as_deref() == Some(proposal_id.as_str())
     }));
+}
+
+#[test]
+fn memory_remember_empty_content_fails() {
+    let root = temp_root("memory-remember-empty");
+    let output = run_cli_with_config_root(&["memory", "remember", ""], &root);
+
+    assert!(!output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("memory.remember content 不能为空"));
+    assert!(stdout.contains("local_direct"));
+    assert!(stdout.contains("kernel_invocation_path: not_used"));
+    assert!(stdout.contains("ledger_appended: false"));
+}
+
+#[test]
+fn memory_remember_local_flag_position_independent() {
+    let root = temp_root("memory-remember-local-flag");
+    for args in [
+        vec!["memory", "remember", "--local", "local flag test content"],
+        vec!["memory", "remember", "local flag test content", "--local"],
+    ] {
+        let output = run_cli_with_config_root_and_env(&args, &root, &[("AICORE_TERMINAL", "json")]);
+        assert!(output.status.success(), "{args:?} should succeed");
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+        let events = assert_json_lines(&stdout);
+        assert!(
+            events.iter().any(|e| e["event"] == "direct.command.result"),
+            "{args:?} should emit direct.command.result"
+        );
+        let event = events
+            .iter()
+            .find(|e| e["event"] == "direct.command.result")
+            .expect("direct.command.result should exist");
+        assert_eq!(event["success"], true);
+        assert_eq!(event["execution_path"], "local_direct");
+        assert!(!stdout.contains("--local"));
+    }
 }

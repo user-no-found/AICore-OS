@@ -635,6 +635,77 @@ fn memory_remember_default_path_unchanged() {
 }
 
 #[test]
+fn cli_kernel_invoke_write_memory_remember_unknown_recommended_action_json() {
+    let home = runtime_home("kernel-write-remember-unknown-json");
+    let output = run_cli_with_env(
+        &[
+            "kernel",
+            "invoke-write",
+            "memory.remember",
+            "trigger_unknown",
+        ],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["operation"], "memory.remember");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_outcome"],
+        "unknown"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["recommended_action"],
+        "query_memory_fact_source_before_retry"
+    );
+    assert!(
+        result["payload"]["result"]["fields"]["recommended_action_message"]
+            .as_str()
+            .unwrap()
+            .contains("memory status")
+    );
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn cli_kernel_invoke_write_memory_remember_unknown_recommended_action_human() {
+    let home = runtime_home("kernel-write-remember-unknown-human");
+    let output = run_cli_with_env(
+        &[
+            "kernel",
+            "invoke-write",
+            "memory.remember",
+            "trigger_unknown",
+        ],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核写入调用"));
+    assert!(stdout.contains("write_state"));
+    assert!(stdout.contains("不确定"));
+    assert!(stdout.contains("memory status"));
+    assert!(stdout.contains("不要直接重复提交"));
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
 fn direct_memory_write_commands_remain_compatible() {
     let home = runtime_home("direct-memory-write-compatible");
     let root = home.join("config");

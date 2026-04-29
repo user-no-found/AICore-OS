@@ -18,16 +18,3 @@ pub(crate) fn run_config_command(command: fn() -> Result<(), String>) -> i32 {
         }
     }
 }
-
-pub(crate) fn run_memory_command_with_arg(
-    arg: &str,
-    command: fn(&str) -> Result<(), String>,
-) -> i32 {
-    match command(arg) {
-        Ok(()) => 0,
-        Err(error) => {
-            eprintln!("记忆命令失败：{error}");
-            1
-        }
-    }
-}
