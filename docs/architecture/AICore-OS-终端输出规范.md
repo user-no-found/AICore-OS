@@ -161,7 +161,7 @@ compact rich 示例：
 │                                                          │
 │ ⎇ Workflow : core                    ◈ Mode     : rich   │
 │ ◎ Target   : foundation + kernel     ◇ Warnings : report │
-│ □ Root     : /vol1/1000/sun/aicore/AICore-OS             │
+│ □ Root     : <repo-root>                                 │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
@@ -172,7 +172,7 @@ AICore OS
 Composable Rust AgentOS Platform
 Workflow  core
 Mode      plain
-Root      /vol1/1000/sun/aicore/AICore-OS
+Root      <repo-root>
 Target    foundation + kernel
 Warnings  report
 ```

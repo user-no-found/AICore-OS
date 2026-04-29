@@ -206,6 +206,8 @@ fn agent_smoke_kernel_native_command() {
     assert!(stdout.contains("binary"));
     assert!(stdout.contains("in-process fallback"));
     assert!(stdout.contains("false"));
+    assert!(stdout.contains("ledger appended"));
+    assert!(stdout.contains("true"));
 }
 
 #[test]
@@ -224,6 +226,8 @@ fn agent_session_smoke_kernel_native_command() {
     assert!(stdout.contains("binary"));
     assert!(stdout.contains("in-process fallback"));
     assert!(stdout.contains("false"));
+    assert!(stdout.contains("ledger appended"));
+    assert!(stdout.contains("true"));
 }
 
 #[test]
