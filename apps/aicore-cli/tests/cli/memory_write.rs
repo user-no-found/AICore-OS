@@ -234,12 +234,12 @@ fn memory_accept_proposal_creates_record() {
     let root = temp_root("memory-accept-proposal");
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "接受后成为记忆");
 
-    let output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    let output = run_cli_with_config_root(&["memory", "accept", &proposal_id, "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆提案已接受："));
+    assert!(stdout.contains("记忆提案已接受（local direct）："));
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
     assert!(stdout.contains("memory: mem_"));
 
@@ -255,14 +255,14 @@ fn cli_memory_accept_rich_uses_terminal_panel() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "rich accept memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "accept", &proposal_id],
+        &["memory", "accept", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ 记忆提案已接受"));
+    assert!(stdout.contains("╭─ 记忆提案已接受（local direct）"));
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
     assert!(stdout.contains("memory: mem_"));
 }
@@ -273,14 +273,14 @@ fn cli_memory_accept_plain_has_no_ansi() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "plain accept memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "accept", &proposal_id],
+        &["memory", "accept", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "plain")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆提案已接受："));
+    assert!(stdout.contains("记忆提案已接受（local direct）："));
     assert!(!stdout.contains("\u{1b}["));
     assert!(!stdout.contains('╭'));
 }
@@ -291,7 +291,7 @@ fn cli_memory_accept_json_outputs_valid_json_and_creates_record() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "json accept memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "accept", &proposal_id],
+        &["memory", "accept", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -299,9 +299,14 @@ fn cli_memory_accept_json_outputs_valid_json_and_creates_record() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
-    assert!(stdout.contains("memory: mem_"));
+    assert_has_json_event(&events, "direct.command.result");
+    assert!(stdout.contains("\"operation\":\"memory.accept\""));
+    assert!(stdout.contains("\"success\":true"));
+    assert!(stdout.contains("\"execution_path\":\"local_direct\""));
+    assert!(stdout.contains("\"kernel_invocation_path\":\"not_used\""));
+    assert!(stdout.contains("\"ledger_appended\":false"));
+    assert!(stdout.contains(&format!("\"proposal_id\":\"{proposal_id}\"")));
+    assert!(stdout.contains("\"memory_id\":\"mem_"));
     assert!(!stdout.contains("\u{1b}["));
 
     let search_output =
@@ -316,7 +321,8 @@ fn memory_accept_proposal_removes_from_open_list() {
     let root = temp_root("memory-accept-removes-open");
     let proposal_id = seed_open_proposal(&root, MemoryType::Status, "accept removes open");
 
-    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    let accept_output =
+        run_cli_with_config_root(&["memory", "accept", &proposal_id, "--local"], &root);
     assert!(accept_output.status.success());
 
     let proposals_output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
@@ -330,12 +336,12 @@ fn memory_reject_proposal_does_not_create_record() {
     let root = temp_root("memory-reject-proposal");
     let proposal_id = seed_open_proposal(&root, MemoryType::Working, "拒绝后不生成记忆");
 
-    let output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    let output = run_cli_with_config_root(&["memory", "reject", &proposal_id, "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆提案已拒绝："));
+    assert!(stdout.contains("记忆提案已拒绝（local direct）："));
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
 
     let search_output = run_cli_with_config_root(&["memory", "search", "拒绝后", "--local"], &root);
@@ -350,14 +356,14 @@ fn cli_memory_reject_rich_uses_terminal_panel() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Working, "rich reject memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "reject", &proposal_id],
+        &["memory", "reject", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ 记忆提案已拒绝"));
+    assert!(stdout.contains("╭─ 记忆提案已拒绝（local direct）"));
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
 }
 
@@ -367,7 +373,7 @@ fn cli_memory_reject_json_outputs_valid_json_and_does_not_create_record() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Working, "json reject memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "reject", &proposal_id],
+        &["memory", "reject", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -375,8 +381,13 @@ fn cli_memory_reject_json_outputs_valid_json_and_does_not_create_record() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains(&format!("proposal: {proposal_id}")));
+    assert_has_json_event(&events, "direct.command.result");
+    assert!(stdout.contains("\"operation\":\"memory.reject\""));
+    assert!(stdout.contains("\"success\":true"));
+    assert!(stdout.contains("\"execution_path\":\"local_direct\""));
+    assert!(stdout.contains("\"kernel_invocation_path\":\"not_used\""));
+    assert!(stdout.contains("\"ledger_appended\":false"));
+    assert!(stdout.contains(&format!("\"proposal_id\":\"{proposal_id}\"")));
     assert!(!stdout.contains("\u{1b}["));
 
     let search_output =
@@ -392,14 +403,14 @@ fn cli_memory_reject_no_color_has_no_ansi() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Working, "no color reject memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "reject", &proposal_id],
+        &["memory", "reject", &proposal_id, "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆提案已拒绝"));
+    assert!(stdout.contains("记忆提案已拒绝（local direct）"));
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -408,7 +419,8 @@ fn memory_reject_proposal_removes_from_open_list() {
     let root = temp_root("memory-reject-removes-open");
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "reject removes open");
 
-    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    let reject_output =
+        run_cli_with_config_root(&["memory", "reject", &proposal_id, "--local"], &root);
     assert!(reject_output.status.success());
 
     let proposals_output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
@@ -420,23 +432,29 @@ fn memory_reject_proposal_removes_from_open_list() {
 #[test]
 fn memory_accept_unknown_proposal_fails() {
     let root = temp_root("memory-accept-unknown");
-    let output = run_cli_with_config_root(&["memory", "accept", "prop_missing"], &root);
+    let output = run_cli_with_config_root(&["memory", "accept", "prop_missing", "--local"], &root);
 
     assert!(!output.status.success());
 
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
-    assert!(stderr.contains("unknown proposal_id: prop_missing"));
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("unknown proposal_id: prop_missing"));
+    assert!(stdout.contains("local_direct"));
+    assert!(stdout.contains("kernel_invocation_path: not_used"));
+    assert!(stdout.contains("ledger_appended: false"));
 }
 
 #[test]
 fn memory_reject_unknown_proposal_fails() {
     let root = temp_root("memory-reject-unknown");
-    let output = run_cli_with_config_root(&["memory", "reject", "prop_missing"], &root);
+    let output = run_cli_with_config_root(&["memory", "reject", "prop_missing", "--local"], &root);
 
     assert!(!output.status.success());
 
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
-    assert!(stderr.contains("unknown proposal_id: prop_missing"));
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("unknown proposal_id: prop_missing"));
+    assert!(stdout.contains("local_direct"));
+    assert!(stdout.contains("kernel_invocation_path: not_used"));
+    assert!(stdout.contains("ledger_appended: false"));
 }
 
 #[test]
@@ -467,7 +485,8 @@ fn accepted_rule_based_proposal_becomes_searchable_memory() {
         "记住：终端界面优先中文，命令保持英文",
     );
 
-    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    let accept_output =
+        run_cli_with_config_root(&["memory", "accept", &proposal_id, "--local"], &root);
     assert!(accept_output.status.success());
 
     let search_output =
@@ -483,7 +502,8 @@ fn rejected_rule_based_proposal_does_not_create_searchable_memory() {
     let proposal_id =
         seed_rule_based_proposal(&root, MemoryTrigger::Correction, "你看错了，这不是长期记忆");
 
-    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    let reject_output =
+        run_cli_with_config_root(&["memory", "reject", &proposal_id, "--local"], &root);
     assert!(reject_output.status.success());
 
     let search_output =
@@ -518,7 +538,8 @@ fn proposal_pipeline_writes_proposed_and_accepted_events() {
         "已完成 P6.3.4 CLI Proposal Review Smoke",
     );
 
-    let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+    let accept_output =
+        run_cli_with_config_root(&["memory", "accept", &proposal_id, "--local"], &root);
     assert!(accept_output.status.success());
 
     let kernel =
@@ -539,7 +560,8 @@ fn proposal_pipeline_reject_writes_rejected_event() {
     let proposal_id =
         seed_rule_based_proposal(&root, MemoryTrigger::Correction, "纠正：上一条描述不准确");
 
-    let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
+    let reject_output =
+        run_cli_with_config_root(&["memory", "reject", &proposal_id, "--local"], &root);
     assert!(reject_output.status.success());
 
     let kernel =

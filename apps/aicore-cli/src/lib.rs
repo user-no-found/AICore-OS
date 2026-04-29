@@ -140,17 +140,15 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, query, rest @ ..] if group == "memory" && action == "search" => {
             commands::memory::run_memory_search_command(query, rest)
         }
-        [group, action, proposal_id] if group == "memory" && action == "accept" => {
-            commands::run_memory_command_with_arg(
-                proposal_id,
-                commands::memory::print_memory_accept,
-            )
+        [group, action, proposal_id, rest @ ..] if group == "memory" && action == "accept" => {
+            let mut args = vec![proposal_id.clone()];
+            args.extend_from_slice(rest);
+            commands::memory::run_memory_accept_command(&args)
         }
-        [group, action, proposal_id] if group == "memory" && action == "reject" => {
-            commands::run_memory_command_with_arg(
-                proposal_id,
-                commands::memory::print_memory_reject,
-            )
+        [group, action, proposal_id, rest @ ..] if group == "memory" && action == "reject" => {
+            let mut args = vec![proposal_id.clone()];
+            args.extend_from_slice(rest);
+            commands::memory::run_memory_reject_command(&args)
         }
         [group, _] if group == "config" => {
             eprintln!("未知 config 命令。");

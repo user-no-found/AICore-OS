@@ -48,6 +48,19 @@ pub(crate) fn adopt_readonly(
     }
 }
 
+pub(crate) fn adopt_write(
+    operation: &str,
+    args: &[String],
+    run_local_direct: impl FnOnce(&[String]) -> i32,
+) -> i32 {
+    let (is_local, stripped_args) = extract_local_flag(args);
+    if is_local {
+        run_local_direct(&stripped_args)
+    } else {
+        super::invoke::print_kernel_invoke_write(operation, &stripped_args)
+    }
+}
+
 #[cfg(test)]
 mod adoption_tests {
     use super::*;
@@ -139,6 +152,36 @@ mod adoption_tests {
                 .unwrap(),
             "failed"
         );
+    }
+
+    #[test]
+    fn adopt_write_routes_to_local_with_local_flag() {
+        let received = std::cell::RefCell::new(Vec::new());
+        let result = adopt_write(
+            "memory.accept",
+            &["--local".to_string(), "prop_1".to_string()],
+            |stripped| {
+                *received.borrow_mut() = stripped.to_vec();
+                42
+            },
+        );
+        assert_eq!(result, 42);
+        assert_eq!(*received.borrow(), vec!["prop_1"]);
+    }
+
+    #[test]
+    fn adopt_write_filters_local_at_any_position() {
+        let received = std::cell::RefCell::new(Vec::new());
+        let result = adopt_write(
+            "memory.reject",
+            &["prop_2".to_string(), "--local".to_string()],
+            |stripped| {
+                *received.borrow_mut() = stripped.to_vec();
+                7
+            },
+        );
+        assert_eq!(result, 7);
+        assert_eq!(*received.borrow(), vec!["prop_2"]);
     }
 }
 

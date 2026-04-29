@@ -9,4 +9,6 @@ pub(crate) use read::{
 };
 pub(crate) use search::run_memory_search_command;
 pub(crate) use wiki::run_memory_wiki_command;
-pub(crate) use write::{print_memory_accept, print_memory_reject, print_memory_remember};
+pub(crate) use write::{
+    print_memory_remember, run_memory_accept_command, run_memory_reject_command,
+};

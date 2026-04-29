@@ -3,9 +3,9 @@ use std::process::{Command, Stdio};
 
 use super::support::{
     MemoryTrigger, assert_has_json_event, assert_json_lines, run_cli_with_config_root,
-    run_cli_with_env, seed_foundation_runtime_binary, seed_global_runtime_metadata,
-    seed_kernel_runtime_binary_fixture, seed_memory_write_manifests, seed_rule_based_proposal,
-    temp_root,
+    run_cli_with_config_root_and_env, run_cli_with_env, seed_foundation_runtime_binary,
+    seed_global_runtime_metadata, seed_kernel_runtime_binary_fixture, seed_memory_write_manifests,
+    seed_rule_based_proposal, temp_root,
 };
 
 #[test]
@@ -269,17 +269,403 @@ fn cli_kernel_invoke_write_memory_has_no_in_process_fallback() {
 }
 
 #[test]
+fn memory_accept_kernel_native_default_path() {
+    let home = runtime_home("memory-accept-kernel-native-default");
+    let root = home.join("config");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：kernel native accept test",
+    );
+
+    let output = run_cli_with_env(
+        &["memory", "accept", &proposal_id],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_reject_kernel_native_default_path() {
+    let home = runtime_home("memory-reject-kernel-native-default");
+    let root = home.join("config");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：kernel native reject test",
+    );
+
+    let output = run_cli_with_env(
+        &["memory", "reject", &proposal_id],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("in-process fallback：false"));
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_accept_local_direct_human_path() {
+    let root = temp_root("memory-accept-local-direct-human");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local direct accept test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "accept", &proposal_id, "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已接受（local direct）"));
+    assert!(stdout.contains("execution_path: local_direct"));
+    assert!(stdout.contains("kernel_invocation_path: not_used"));
+    assert!(stdout.contains("ledger_appended: false"));
+    assert!(stdout.contains("proposal: "));
+    assert!(stdout.contains("memory: mem_"));
+}
+
+#[test]
+fn memory_reject_local_direct_human_path() {
+    let root = temp_root("memory-reject-local-direct-human");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local direct reject test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "reject", &proposal_id, "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "plain")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆提案已拒绝（local direct）"));
+    assert!(stdout.contains("execution_path: local_direct"));
+    assert!(stdout.contains("kernel_invocation_path: not_used"));
+    assert!(stdout.contains("ledger_appended: false"));
+    assert!(stdout.contains("proposal: "));
+}
+
+#[test]
+fn memory_accept_kernel_native_json_path() {
+    let home = runtime_home("memory-accept-kernel-native-json");
+    let root = home.join("config");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：kernel native accept json",
+    );
+
+    let output = run_cli_with_env(
+        &["memory", "accept", &proposal_id],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["operation"], "memory.accept");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_applied"],
+        "true"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["audit_closed"],
+        "true"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_outcome"],
+        "applied"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary"
+    );
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_reject_kernel_native_json_path() {
+    let home = runtime_home("memory-reject-kernel-native-json");
+    let root = home.join("config");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：kernel native reject json",
+    );
+
+    let output = run_cli_with_env(
+        &["memory", "reject", &proposal_id],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["operation"], "memory.reject");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_applied"],
+        "true"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary"
+    );
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_accept_local_direct_json_path() {
+    let root = temp_root("memory-accept-local-direct-json");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local direct accept json",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "accept", &proposal_id, "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|e| e["event"] == "direct.command.result"));
+    let event = events
+        .iter()
+        .find(|e| e["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.accept");
+    assert_eq!(event["success"], true);
+    assert_eq!(event["execution_path"], "local_direct");
+    assert_eq!(event["kernel_invocation_path"], "not_used");
+    assert_eq!(event["ledger_appended"], false);
+    assert_eq!(event["fields"]["operation"], "memory.accept");
+    assert_eq!(event["fields"]["write_applied"], "true");
+    assert_eq!(event["fields"]["kernel_invocation_path"], "binary");
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_reject_local_direct_json_path() {
+    let root = temp_root("memory-reject-local-direct-json");
+    let proposal_id = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local direct reject json",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "reject", &proposal_id, "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(events.iter().any(|e| e["event"] == "direct.command.result"));
+    let event = events
+        .iter()
+        .find(|e| e["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.reject");
+    assert_eq!(event["success"], true);
+    assert_eq!(event["execution_path"], "local_direct");
+    assert_eq!(event["kernel_invocation_path"], "not_used");
+    assert_eq!(event["ledger_appended"], false);
+    assert_eq!(event["fields"]["operation"], "memory.reject");
+    assert_eq!(event["fields"]["write_applied"], "true");
+    assert_eq!(event["fields"]["kernel_invocation_path"], "binary");
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
+fn memory_accept_invalid_proposal_id_structured_failure() {
+    let home = runtime_home("memory-accept-invalid-json");
+    let root = home.join("config");
+
+    let output = run_cli_with_env(
+        &["memory", "accept", "prop_missing"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["status"], "failed");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_applied"],
+        "false"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_outcome"],
+        "failed"
+    );
+}
+
+#[test]
+fn memory_reject_invalid_proposal_id_structured_failure() {
+    let home = runtime_home("memory-reject-invalid-json");
+    let root = home.join("config");
+
+    let output = run_cli_with_env(
+        &["memory", "reject", "prop_missing"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["status"], "failed");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_applied"],
+        "false"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_outcome"],
+        "failed"
+    );
+}
+
+#[test]
+fn memory_accept_local_flag_not_polluting_proposal_id() {
+    let root = temp_root("memory-accept-local-flag-position");
+    let proposal_id_first = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local flag position test first",
+    );
+    let proposal_id_second = seed_rule_based_proposal(
+        &root,
+        MemoryTrigger::ExplicitRemember,
+        "记住：local flag position test second",
+    );
+
+    for args in [
+        vec!["memory", "accept", &proposal_id_first, "--local"],
+        vec!["memory", "accept", "--local", &proposal_id_second],
+    ] {
+        let output = run_cli_with_config_root_and_env(&args, &root, &[("AICORE_TERMINAL", "json")]);
+        assert!(output.status.success(), "{args:?} should succeed");
+        let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+        let events = assert_json_lines(&stdout);
+        assert!(
+            events.iter().any(|e| e["event"] == "direct.command.result"),
+            "{args:?} should emit direct.command.result"
+        );
+    }
+}
+
+#[test]
+fn memory_remember_default_path_unchanged() {
+    let root = temp_root("memory-remember-unchanged");
+
+    let output =
+        run_cli_with_config_root(&["memory", "remember", "remember unchanged test"], &root);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("记忆已写入"));
+    assert!(stdout.contains("id: mem_"));
+    assert!(stdout.contains("type: core"));
+}
+
+#[test]
 fn direct_memory_write_commands_remain_compatible() {
-    let root = temp_root("direct-memory-write-compatible");
+    let home = runtime_home("direct-memory-write-compatible");
+    let root = home.join("config");
     let proposal_id = seed_rule_based_proposal(
         &root,
         MemoryTrigger::ExplicitRemember,
         "记住：direct accept",
     );
 
-    let remember = run_cli_with_config_root(&["memory", "remember", "direct remember"], &root);
+    let remember = run_cli_with_env(
+        &["memory", "remember", "direct remember"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
     assert!(remember.status.success());
-    let accept = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
+
+    let accept = run_cli_with_env(
+        &["memory", "accept", &proposal_id],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
     assert!(accept.status.success());
 
     let reject_proposal = seed_rule_based_proposal(
@@ -287,7 +673,16 @@ fn direct_memory_write_commands_remain_compatible() {
         MemoryTrigger::ExplicitRemember,
         "记住：direct reject",
     );
-    let reject = run_cli_with_config_root(&["memory", "reject", &reject_proposal], &root);
+    let reject = run_cli_with_env(
+        &["memory", "reject", &reject_proposal],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                root.to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
     assert!(reject.status.success());
 }
 
