@@ -7,6 +7,7 @@ mod payload;
 mod process;
 mod route;
 
+pub(crate) use adoption::{adopt_readonly, emit_local_direct_json};
 pub(crate) use invoke::{
     print_kernel_invoke_readonly, print_kernel_invoke_smoke, print_kernel_invoke_write,
 };

@@ -68,17 +68,12 @@ fn dispatch(args: &[String]) -> i32 {
         [cmd] if cmd == "__component-memory-reject-stdio" => {
             commands::kernel::run_component_memory_reject_stdio()
         }
-        [cmd] if cmd == "status" => {
-            commands::status::print_status();
-            0
+        [cmd, rest @ ..] if cmd == "status" => commands::status::run_status_command(rest),
+        [group, action, rest @ ..] if group == "instance" && action == "list" => {
+            commands::status::run_instance_list_command(rest)
         }
-        [group, action] if group == "instance" && action == "list" => {
-            commands::status::print_instance_list();
-            0
-        }
-        [group, action] if group == "runtime" && action == "smoke" => {
-            commands::runtime::print_runtime_smoke();
-            0
+        [group, action, rest @ ..] if group == "runtime" && action == "smoke" => {
+            commands::runtime::run_runtime_smoke_command(rest)
         }
         [group, action, operation] if group == "kernel" && action == "route" => {
             commands::kernel::print_kernel_route(operation)

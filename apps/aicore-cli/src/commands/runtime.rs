@@ -1,7 +1,9 @@
 use aicore_kernel::{
     GatewaySource, InterruptMode, OutputTarget, TransportEnvelope, default_runtime,
 };
+use aicore_terminal::{TerminalConfig, TerminalMode};
 
+use crate::commands::kernel::{adopt_readonly, emit_local_direct_json};
 use crate::names::{delivery_identity_name, output_target_name};
 use crate::terminal::emit_cli_panel_body;
 
@@ -49,11 +51,6 @@ impl RuntimeSmokeReport {
     pub(crate) fn into_summary_and_fields(self) -> (String, serde_json::Value) {
         (self.summary(), self.fields())
     }
-}
-
-pub(crate) fn print_runtime_smoke() {
-    let report = build_runtime_smoke_report();
-    emit_cli_panel_body("Runtime Smoke：", &report.lines.join("\n"));
 }
 
 pub(crate) fn build_runtime_smoke_report() -> RuntimeSmokeReport {
@@ -152,4 +149,33 @@ fn runtime_binary_status(binary_name: &str) -> &'static str {
     } else {
         "missing"
     }
+}
+
+pub(crate) fn run_runtime_smoke_command(args: &[String]) -> i32 {
+    adopt_readonly("runtime.smoke", args, || run_runtime_smoke_local_direct())
+}
+
+fn run_runtime_smoke_local_direct() -> i32 {
+    let report = build_runtime_smoke_report();
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_local_direct_json("runtime.smoke", true, report.fields());
+        0
+    } else {
+        print_runtime_smoke_with_local_mark(&report);
+        0
+    }
+}
+
+fn print_runtime_smoke_with_local_mark(report: &RuntimeSmokeReport) {
+    let mut lines = report.lines.clone();
+    lines.push(String::new());
+    lines.push("---".to_string());
+    lines.push("execution_path：local_direct".to_string());
+    lines.push("kernel_invocation_path：not_used".to_string());
+    lines.push("ledger_appended：false".to_string());
+    lines.push(
+        "注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
+    emit_cli_panel_body("Runtime Smoke（local direct）：", &lines.join("\n"));
 }

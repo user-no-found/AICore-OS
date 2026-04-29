@@ -1,6 +1,8 @@
 use aicore_foundation::AicoreLayout;
 use aicore_kernel::{InstalledManifestRegistry, default_control_plane, default_runtime};
+use aicore_terminal::{TerminalConfig, TerminalMode};
 
+use crate::commands::kernel::{adopt_readonly, emit_local_direct_json};
 use crate::terminal::{cli_row, emit_cli_panel, emit_cli_panel_body};
 
 #[derive(Debug, Clone)]
@@ -112,27 +114,6 @@ impl InstanceListReport {
     }
 }
 
-pub(crate) fn print_status() {
-    let report = build_cli_status_report();
-
-    emit_cli_panel(
-        "AICore CLI",
-        vec![
-            cli_row("主实例", report.main_instance),
-            cli_row("组件数量", report.component_count.to_string()),
-            cli_row("实例数量", report.instance_count.to_string()),
-            cli_row("Runtime", report.runtime_binding),
-        ],
-    );
-}
-
-pub(crate) fn print_instance_list() {
-    let report = build_instance_list_report();
-    let lines = report.lines();
-
-    emit_cli_panel_body("实例列表：", &lines.join("\n"));
-}
-
 pub(crate) fn build_cli_status_report() -> CliStatusReport {
     let control_plane = default_control_plane();
     let runtime = default_runtime();
@@ -220,4 +201,67 @@ fn bin_path_status(layout: &AicoreLayout) -> String {
 
 fn yes_no(value: bool) -> &'static str {
     if value { "yes" } else { "no" }
+}
+
+pub(crate) fn run_status_command(args: &[String]) -> i32 {
+    crate::commands::kernel::adopt_readonly("cli.status", args, || run_status_local_direct())
+}
+
+fn run_status_local_direct() -> i32 {
+    let report = build_cli_status_report();
+    if aicore_terminal::TerminalConfig::current().mode == aicore_terminal::TerminalMode::Json {
+        crate::commands::kernel::emit_local_direct_json("cli.status", true, report.fields());
+        0
+    } else {
+        print_status_with_local_mark(&report);
+        0
+    }
+}
+
+fn print_status_with_local_mark(report: &CliStatusReport) {
+    emit_cli_panel(
+        "AICore CLI (local direct)",
+        vec![
+            cli_row("主实例", report.main_instance.clone()),
+            cli_row("组件数量", report.component_count.to_string()),
+            cli_row("实例数量", report.instance_count.to_string()),
+            cli_row("Runtime", report.runtime_binding.clone()),
+            cli_row("execution_path", "local_direct"),
+            cli_row("kernel_invocation_path", "not_used"),
+            cli_row("ledger_appended", "false"),
+            cli_row(
+                "注意",
+                "本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger",
+            ),
+        ],
+    );
+}
+
+pub(crate) fn run_instance_list_command(args: &[String]) -> i32 {
+    adopt_readonly("instance.list", args, || run_instance_list_local_direct())
+}
+
+fn run_instance_list_local_direct() -> i32 {
+    let report = build_instance_list_report();
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_local_direct_json("instance.list", true, report.fields());
+        0
+    } else {
+        print_instance_list_with_local_mark(&report);
+        0
+    }
+}
+
+fn print_instance_list_with_local_mark(report: &InstanceListReport) {
+    let mut lines = report.lines();
+    lines.push(String::new());
+    lines.push("---".to_string());
+    lines.push("execution_path：local_direct".to_string());
+    lines.push("kernel_invocation_path：not_used".to_string());
+    lines.push("ledger_appended：false".to_string());
+    lines.push(
+        "注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
+    emit_cli_panel_body("实例列表（local direct）：", &lines.join("\n"));
 }

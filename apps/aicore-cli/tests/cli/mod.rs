@@ -12,6 +12,7 @@ mod memory_write_runtime;
 mod provider_agent;
 mod provider_smoke_runtime;
 mod runtime_instance_status_runtime;
+mod runtime_smoke;
 mod status;
 mod support;
 mod terminal_modes;

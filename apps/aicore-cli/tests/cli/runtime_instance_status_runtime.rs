@@ -130,20 +130,26 @@ fn direct_runtime_instance_status_commands_remain_compatible() {
     let runtime = run_cli_with_env(&["runtime", "smoke"], &[]);
     assert!(runtime.status.success());
     let runtime_stdout = String::from_utf8(runtime.stdout).expect("stdout should be utf-8");
-    assert!(runtime_stdout.contains("Runtime Smoke"));
-    assert!(runtime_stdout.contains("CLI 场景"));
+    assert!(runtime_stdout.contains("内核只读调用"));
+    assert!(runtime_stdout.contains("runtime.smoke"));
+    assert!(runtime_stdout.contains("kernel invocation path"));
+    assert!(runtime_stdout.contains("binary"));
 
     let instances = run_cli_with_env(&["instance", "list"], &[]);
     assert!(instances.status.success());
     let instances_stdout = String::from_utf8(instances.stdout).expect("stdout should be utf-8");
-    assert!(instances_stdout.contains("实例列表"));
-    assert!(instances_stdout.contains("global-main"));
+    assert!(instances_stdout.contains("内核只读调用"));
+    assert!(instances_stdout.contains("instance.list"));
+    assert!(instances_stdout.contains("kernel invocation path"));
+    assert!(instances_stdout.contains("binary"));
 
     let status = run_cli_with_env(&["status"], &[]);
     assert!(status.status.success());
     let status_stdout = String::from_utf8(status.stdout).expect("stdout should be utf-8");
-    assert!(status_stdout.contains("AICore CLI"));
-    assert!(status_stdout.contains("主实例"));
+    assert!(status_stdout.contains("内核只读调用"));
+    assert!(status_stdout.contains("cli.status"));
+    assert!(status_stdout.contains("kernel invocation path"));
+    assert!(status_stdout.contains("binary"));
 }
 
 fn run_component_handler(command: &str, operation: &str) -> std::process::Output {
