@@ -2,9 +2,10 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use super::support::{
-    assert_has_json_event, assert_json_lines, run_cli_with_config_root, run_cli_with_env,
-    seed_foundation_runtime_binary, seed_global_runtime_metadata,
-    seed_kernel_runtime_binary_fixture, seed_provider_smoke_manifest, temp_root,
+    assert_has_json_event, assert_json_lines, run_cli_with_config_root,
+    run_cli_with_config_root_and_env, run_cli_with_env, seed_foundation_runtime_binary,
+    seed_global_runtime_metadata, seed_kernel_runtime_binary_fixture, seed_provider_smoke_manifest,
+    temp_root,
 };
 
 #[test]
@@ -123,20 +124,94 @@ fn cli_kernel_invoke_readonly_provider_smoke_has_no_in_process_fallback() {
 }
 
 #[test]
-fn direct_provider_smoke_remains_compatible() {
-    let root = temp_root("direct-provider-smoke-compatible");
+fn provider_smoke_reads_real_config_root() {
+    let root = temp_root("provider-smoke-local-real-root");
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
-    assert!(stdout.contains("Provider Smoke"));
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Provider Smoke（local direct）"));
     assert!(stdout.contains("auth_ref"));
     assert!(stdout.contains("provider response"));
+    assert!(stdout.contains("live_call：false"));
+    assert!(stdout.contains("sdk_live_call：false"));
+    assert!(stdout.contains("network_used：false"));
+    assert!(stdout.contains("execution_path：local_direct"));
     assert!(!stdout.contains("secret_ref"));
     assert!(!stdout.contains("secret://"));
+}
+
+#[test]
+fn cli_provider_smoke_local_rich_uses_terminal_panel() {
+    let root = temp_root("provider-smoke-local-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Provider Smoke（local direct）"));
+    assert!(stdout.contains("auth_ref"));
+    assert!(stdout.contains("live_call：false"));
+}
+
+#[test]
+fn cli_provider_smoke_local_json_outputs_valid_json() {
+    let root = temp_root("provider-smoke-local-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["provider", "smoke", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "provider.smoke");
+    assert_eq!(event["fields"]["live_call"], "false");
+    assert_eq!(event["fields"]["sdk_live_call"], "false");
+    assert_eq!(event["fields"]["network_used"], "false");
+    assert!(!stdout.contains("Provider Smoke："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn provider_smoke_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["provider", "smoke"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("provider.smoke"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
 }
 
 fn local_ipc_request(operation: &str) -> String {

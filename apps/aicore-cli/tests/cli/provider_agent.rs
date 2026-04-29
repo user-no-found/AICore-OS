@@ -6,12 +6,12 @@ fn provider_smoke_reads_real_config_root() {
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Provider Smoke"));
+    assert!(stdout.contains("Provider Smoke（local direct）"));
     assert!(stdout.contains("实例：global-main"));
     assert!(stdout.contains("auth_ref：auth.dummy.main"));
     assert!(stdout.contains("model：dummy/default-chat"));
@@ -21,8 +21,12 @@ fn provider_smoke_reads_real_config_root() {
     assert!(stdout.contains("api mode：dummy"));
     assert!(stdout.contains("engine：dummy"));
     assert!(stdout.contains("engine status：available"));
-    assert!(stdout.contains("provider response：通过"));
+    assert!(stdout.contains("provider response：skipped"));
     assert!(stdout.contains("runtime output：通过"));
+    assert!(stdout.contains("live_call：false"));
+    assert!(stdout.contains("sdk_live_call：false"));
+    assert!(stdout.contains("network_used：false"));
+    assert!(stdout.contains("execution_path：local_direct"));
     assert!(!stdout.contains("secret://"));
     assert!(!stdout.contains("credential_lease_ref"));
 }
@@ -34,14 +38,14 @@ fn cli_provider_smoke_rich_uses_terminal_panel() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["provider", "smoke"],
+        &["provider", "smoke", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ Provider Smoke"));
+    assert!(stdout.contains("╭─ Provider Smoke（local direct）"));
     assert!(stdout.contains("provider：dummy"));
     assert!(!stdout.contains("secret://"));
 }
@@ -53,14 +57,14 @@ fn cli_provider_smoke_plain_has_no_ansi() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["provider", "smoke"],
+        &["provider", "smoke", "--local"],
         &root,
         &[("AICORE_TERMINAL", "plain")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Provider Smoke"));
+    assert!(stdout.contains("Provider Smoke（local direct）"));
     assert!(!stdout.contains("\u{1b}["));
     assert!(!stdout.contains('╭'));
 }
@@ -72,7 +76,7 @@ fn cli_provider_smoke_json_outputs_valid_json() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["provider", "smoke"],
+        &["provider", "smoke", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -80,7 +84,19 @@ fn cli_provider_smoke_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "provider.smoke");
+    assert_eq!(event["fields"]["live_call"], "false");
+    assert_eq!(event["fields"]["sdk_live_call"], "false");
+    assert_eq!(event["fields"]["network_used"], "false");
     assert!(!stdout.contains("Provider Smoke："));
     assert!(!stdout.contains("\u{1b}["));
     assert!(!stdout.contains("secret://"));
@@ -93,14 +109,14 @@ fn cli_provider_smoke_no_color_has_no_ansi() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["provider", "smoke"],
+        &["provider", "smoke", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Provider Smoke"));
+    assert!(stdout.contains("Provider Smoke（local direct）"));
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -360,7 +376,7 @@ primary_model = "openai/gpt-5"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
     assert!(!output.status.success());
 
@@ -458,7 +474,7 @@ fn cli_provider_smoke_reports_dummy_or_boundary_state_clearly() {
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -471,8 +487,8 @@ fn cli_provider_smoke_reports_dummy_or_boundary_state_clearly() {
 }
 
 #[test]
-fn provider_smoke_real_provider_unavailable_prints_chinese_error() {
-    let root = temp_root("provider-smoke-real-provider-unavailable");
+fn provider_smoke_local_readonly_does_not_invoke_real_provider() {
+    let root = temp_root("provider-smoke-local-readonly-no-live-call");
     fs::create_dir_all(&root).expect("config root should be creatable");
     fs::write(
         root.join("auth.toml"),
@@ -502,14 +518,17 @@ primary_model = "openai/gpt-5"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
-    assert!(stderr.contains("配置命令失败"));
-    assert!(stderr.contains("provider 调用错误"));
-    assert!(stderr.contains("Provider"));
-    assert!(!stderr.contains("secret://"));
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("Provider Smoke（local direct）"));
+    assert!(stdout.contains("provider：openrouter"));
+    assert!(stdout.contains("live_call：false"));
+    assert!(stdout.contains("sdk_live_call：false"));
+    assert!(stdout.contains("network_used：false"));
+    assert!(stdout.contains("provider response：skipped"));
+    assert!(!stdout.contains("secret://"));
 }
 
 #[test]
@@ -544,7 +563,7 @@ primary_model = "dummy/default-chat"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -604,7 +623,7 @@ fn provider_smoke_fails_when_runtime_missing() {
     fs::write(root.join("auth.toml"), "").expect("auth.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["provider", "smoke"], &root);
+    let output = run_cli_with_config_root(&["provider", "smoke", "--local"], &root);
 
     assert!(!output.status.success());
 

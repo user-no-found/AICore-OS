@@ -113,8 +113,8 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, rest @ ..] if group == "service" && action == "list" => {
             commands::service::run_service_list_command(rest)
         }
-        [group, action] if group == "provider" && action == "smoke" => {
-            commands::run_config_command(commands::provider::print_provider_smoke)
+        [group, action, rest @ ..] if group == "provider" && action == "smoke" => {
+            commands::provider::run_provider_smoke_command(rest)
         }
         [group, action, content] if group == "agent" && action == "smoke" => {
             commands::run_config_command_with_arg(content, commands::agent::print_agent_smoke)
