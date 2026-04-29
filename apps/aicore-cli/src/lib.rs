@@ -122,26 +122,23 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, rest @ ..] if group == "agent" && action == "session-smoke" => {
             commands::agent::run_agent_session_smoke_command(rest)
         }
-        [group, action] if group == "memory" && action == "status" => {
-            commands::run_memory_command(commands::memory::print_memory_status)
+        [group, action, rest @ ..] if group == "memory" && action == "status" => {
+            commands::memory::run_memory_status_command(rest)
         }
-        [group, action] if group == "memory" && action == "audit" => {
-            commands::run_memory_command(commands::memory::print_memory_audit)
+        [group, action, rest @ ..] if group == "memory" && action == "audit" => {
+            commands::memory::run_memory_audit_command(rest)
         }
-        [group, action] if group == "memory" && action == "proposals" => {
-            commands::run_memory_command(commands::memory::print_memory_proposals)
+        [group, action, rest @ ..] if group == "memory" && action == "proposals" => {
+            commands::memory::run_memory_proposals_command(rest)
         }
-        [group, action] if group == "memory" && action == "wiki" => {
-            commands::run_memory_command(commands::memory::print_memory_wiki_index)
+        [group, action, rest @ ..] if group == "memory" && action == "wiki" => {
+            commands::memory::run_memory_wiki_command(rest)
         }
         [group, action, content] if group == "memory" && action == "remember" => {
             commands::run_memory_command_with_arg(content, commands::memory::print_memory_remember)
         }
-        [group, action, page] if group == "memory" && action == "wiki" => {
-            commands::run_memory_command_with_arg(page, commands::memory::print_memory_wiki_page)
-        }
         [group, action, query, rest @ ..] if group == "memory" && action == "search" => {
-            commands::run_memory_search_command(query, rest)
+            commands::memory::run_memory_search_command(query, rest)
         }
         [group, action, proposal_id] if group == "memory" && action == "accept" => {
             commands::run_memory_command_with_arg(

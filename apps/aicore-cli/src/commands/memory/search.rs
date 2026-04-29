@@ -1,7 +1,9 @@
-use aicore_memory::{MemoryPermanence, MemorySource, MemoryType, SearchQuery};
+use aicore_memory::{MemoryPermanence, MemorySource, MemoryType};
+use aicore_terminal::{TerminalConfig, TerminalMode};
 
-use crate::config_store::{global_main_memory_scope, real_memory_kernel};
-use crate::errors::memory_error;
+use crate::commands::kernel::adoption::extract_local_flag;
+use crate::commands::kernel::{emit_local_direct_json, print_kernel_invoke_readonly};
+use crate::commands::memory::report::build_memory_search_report;
 use crate::names::{memory_permanence_name, memory_source_name, memory_type_name};
 use crate::terminal::emit_cli_panel_body;
 
@@ -22,6 +24,94 @@ impl MemorySearchOptions {
             "limit": self.limit
         })
     }
+}
+
+pub(crate) fn run_memory_search_command(query: &str, args: &[String]) -> i32 {
+    let (is_local, stripped) = extract_local_flag(args);
+    if is_local {
+        run_memory_search_local_direct(query, &stripped)
+    } else {
+        let mut invoke_args = vec![query.to_string()];
+        invoke_args.extend_from_slice(&stripped);
+        print_kernel_invoke_readonly("memory.search", &invoke_args)
+    }
+}
+
+fn run_memory_search_local_direct(query: &str, args: &[String]) -> i32 {
+    match parse_memory_search_options(args)
+        .and_then(|options| build_memory_search_report(query, options))
+    {
+        Ok((_, fields)) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.search", true, fields);
+                0
+            } else {
+                print_memory_search_with_local_mark(query, &fields);
+                0
+            }
+        }
+        Err(error) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.search", false, serde_json::json!({"error": error}));
+            } else {
+                eprintln!("记忆命令失败：{error}");
+            }
+            1
+        }
+    }
+}
+
+fn print_memory_search_with_local_mark(query: &str, fields: &serde_json::Value) {
+    let mut lines = Vec::new();
+    let result_count = fields
+        .get("result_count")
+        .and_then(|v| v.as_str())
+        .unwrap_or("0")
+        .parse::<usize>()
+        .unwrap_or(0);
+    if result_count == 0 {
+        lines.push("- 无匹配记忆".to_string());
+    } else if let Some(results_str) = fields.get("results").and_then(|v| v.as_str()) {
+        if let Ok(results) = serde_json::from_str::<Vec<serde_json::Value>>(results_str) {
+            for result in results {
+                lines.push(format!(
+                    "- {} [{}] {}",
+                    field_str(&result, "memory_id"),
+                    field_str(&result, "memory_type"),
+                    field_str(&result, "content")
+                ));
+                lines.push(format!("  source: {}", field_str(&result, "source")));
+                lines.push(format!(
+                    "  permanence: {}",
+                    field_str(&result, "permanence")
+                ));
+                lines.push(format!("  score: {}", field_str(&result, "score")));
+                lines.push(format!(
+                    "  matched: {}",
+                    result
+                        .get("matched_fields")
+                        .and_then(|m| m.as_array())
+                        .map(|arr| arr
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(","))
+                        .unwrap_or_default()
+                ));
+            }
+        }
+    }
+    lines.push("- execution_path: local_direct".to_string());
+    lines.push("- kernel_invocation_path: not_used".to_string());
+    lines.push("- ledger_appended: false".to_string());
+    lines.push(
+        "- 注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
+    emit_cli_panel_body(
+        &format!("记忆搜索（local direct）：query = {query}"),
+        &lines.join("\n"),
+    );
 }
 
 pub(crate) fn parse_memory_search_options(args: &[String]) -> Result<MemorySearchOptions, String> {
@@ -71,44 +161,12 @@ pub(crate) fn parse_memory_search_options(args: &[String]) -> Result<MemorySearc
     Ok(options)
 }
 
-pub(crate) fn print_memory_search(query: &str, options: MemorySearchOptions) -> Result<(), String> {
-    let kernel = real_memory_kernel()?;
-    let results = kernel
-        .search(SearchQuery {
-            text: query.to_string(),
-            scope: Some(global_main_memory_scope()),
-            memory_type: options.memory_type,
-            source: options.source,
-            permanence: options.permanence,
-            limit: options.limit,
-        })
-        .map_err(memory_error)?;
-
-    let mut lines = Vec::new();
-    if results.is_empty() {
-        lines.push("- 无匹配记忆".to_string());
-    } else {
-        for result in results {
-            let record = result.record;
-            lines.push(format!(
-                "- {} [{}] {}",
-                record.memory_id,
-                memory_type_name(&record.memory_type),
-                record.content
-            ));
-            lines.push(format!("  source: {}", memory_source_name(&record.source)));
-            lines.push(format!(
-                "  permanence: {}",
-                memory_permanence_name(&record.permanence)
-            ));
-            lines.push(format!("  score: {}", result.score));
-            lines.push(format!("  matched: {}", result.matched_fields.join(",")));
-        }
-    }
-
-    emit_cli_panel_body("记忆搜索：", &lines.join("\n"));
-
-    Ok(())
+fn field_str(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("<none>")
+        .to_string()
 }
 
 pub(crate) fn parse_memory_type_filter(value: &str) -> Result<MemoryType, String> {

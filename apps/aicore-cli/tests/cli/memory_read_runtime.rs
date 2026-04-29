@@ -3,9 +3,9 @@ use std::process::{Command, Stdio};
 
 use super::support::{
     MemoryPermanence, MemoryType, assert_has_json_event, assert_json_lines,
-    run_cli_with_config_root, run_cli_with_env, seed_foundation_runtime_binary,
-    seed_global_runtime_metadata, seed_kernel_runtime_binary_fixture, seed_memory_read_manifests,
-    seed_memory_record, temp_root,
+    run_cli_with_config_root, run_cli_with_config_root_and_env, run_cli_with_env,
+    seed_foundation_runtime_binary, seed_global_runtime_metadata,
+    seed_kernel_runtime_binary_fixture, seed_memory_read_manifests, seed_memory_record, temp_root,
 };
 
 #[test]
@@ -239,12 +239,12 @@ fn direct_memory_read_commands_remain_compatible() {
     );
 
     for args in [
-        vec!["memory", "status"],
-        vec!["memory", "search", "direct"],
-        vec!["memory", "proposals"],
-        vec!["memory", "audit"],
-        vec!["memory", "wiki"],
-        vec!["memory", "wiki", "core"],
+        vec!["memory", "status", "--local"],
+        vec!["memory", "search", "direct", "--local"],
+        vec!["memory", "proposals", "--local"],
+        vec!["memory", "audit", "--local"],
+        vec!["memory", "wiki", "--local"],
+        vec!["memory", "wiki", "core", "--local"],
     ] {
         let output = run_cli_with_config_root(&args, &root);
         assert!(output.status.success(), "{args:?} should succeed");
@@ -313,4 +313,486 @@ fn local_ipc_request(operation: &str, payload: serde_json::Value) -> String {
     })
     .to_string()
         + "\n"
+}
+
+#[test]
+fn memory_status_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "status"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("memory.status"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
+}
+
+#[test]
+fn memory_search_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "search", "test"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("memory.search"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
+}
+
+#[test]
+fn memory_proposals_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "proposals"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("memory.proposals"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+}
+
+#[test]
+fn memory_audit_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "audit"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("memory.audit"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+}
+
+#[test]
+fn memory_wiki_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "wiki"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("memory.wiki"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+}
+
+#[test]
+fn cli_memory_status_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-status-local-rich");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "status", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Memory Status（local direct）"));
+    assert!(stdout.contains("instance: global-main"));
+    assert!(!stdout.contains("Memory Status："));
+}
+
+#[test]
+fn cli_memory_status_local_json_outputs_valid_json() {
+    let root = temp_root("memory-status-local-json");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "status", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.status");
+    assert_eq!(event["fields"]["operation"], "memory.status");
+    assert!(!stdout.contains("Memory Status："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_search_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-search-local-rich");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "local search test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "search", "local", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆搜索（local direct）"));
+    assert!(stdout.contains("local search test"));
+    assert!(!stdout.contains("记忆搜索："));
+}
+
+#[test]
+fn cli_memory_search_local_json_outputs_valid_json() {
+    let root = temp_root("memory-search-local-json");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "local json search",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "search", "json", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.search");
+    assert_eq!(event["fields"]["operation"], "memory.search");
+    assert!(!stdout.contains("记忆搜索："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_search_local_with_filters() {
+    let root = temp_root("memory-search-local-filters");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "filter shared core",
+    );
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Decision,
+        MemoryPermanence::Standard,
+        "filter shared decision",
+    );
+
+    let output = run_cli_with_config_root(
+        &[
+            "memory", "search", "filter", "--type", "decision", "--local",
+        ],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("[decision]"));
+    assert!(!stdout.contains("[core]"));
+}
+
+#[test]
+fn cli_memory_search_local_filter_at_end() {
+    let root = temp_root("memory-search-local-filter-end");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "end filter core",
+    );
+
+    let output = run_cli_with_config_root(
+        &["memory", "search", "end", "--limit", "1", "--local"],
+        &root,
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("end filter core"));
+}
+
+#[test]
+fn cli_memory_proposals_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-proposals-local-rich");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "proposals", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Memory Proposals（local direct）"));
+    assert!(!stdout.contains("Memory Proposals："));
+}
+
+#[test]
+fn cli_memory_proposals_local_json_outputs_valid_json() {
+    let root = temp_root("memory-proposals-local-json");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "proposals", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.proposals");
+    assert_eq!(event["fields"]["operation"], "memory.proposals");
+    assert!(!stdout.contains("Memory Proposals："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_audit_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-audit-local-rich");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "audit", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Memory Audit（local direct）"));
+    assert!(stdout.contains("status: ok"));
+    assert!(!stdout.contains("Memory Audit："));
+}
+
+#[test]
+fn cli_memory_audit_local_json_outputs_valid_json() {
+    let root = temp_root("memory-audit-local-json");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "audit", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.audit");
+    assert_eq!(event["fields"]["operation"], "memory.audit");
+    assert!(!stdout.contains("Memory Audit："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_wiki_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-wiki-local-rich");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki local test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "wiki", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆 Wiki Projection（local direct）"));
+    assert!(stdout.contains("- page: index"));
+    assert!(!stdout.contains("记忆 Wiki Projection："));
+}
+
+#[test]
+fn cli_memory_wiki_local_json_outputs_valid_json() {
+    let root = temp_root("memory-wiki-local-json");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki local json",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "wiki", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.wiki");
+    assert_eq!(event["fields"]["operation"], "memory.wiki");
+    assert!(!stdout.contains("记忆 Wiki Projection："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_wiki_page_local_rich_uses_terminal_panel() {
+    let root = temp_root("memory-wiki-page-local-rich");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki page local test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "wiki", "core", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ 记忆 Wiki Projection（local direct）"));
+    assert!(stdout.contains("- page: core"));
+    assert!(!stdout.contains("记忆 Wiki Projection："));
+}
+
+#[test]
+fn cli_memory_wiki_page_local_json_outputs_valid_json() {
+    let root = temp_root("memory-wiki-page-local-json");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki page local json",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "wiki", "core", "--local"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "memory.wiki_page");
+    assert_eq!(event["fields"]["operation"], "memory.wiki_page");
+    assert!(!stdout.contains("记忆 Wiki Projection："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_memory_wiki_page_local_rejects_path_traversal() {
+    let root = temp_root("memory-wiki-page-local-traversal");
+    let output = run_cli_with_config_root(&["memory", "wiki", "../../secret", "--local"], &root);
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("不允许读取任意 Wiki 路径"));
+}
+
+#[test]
+fn cli_memory_wiki_page_local_position_before_page() {
+    let root = temp_root("memory-wiki-page-local-pos");
+    let _ = seed_memory_record(
+        &root,
+        MemoryType::Core,
+        MemoryPermanence::Standard,
+        "wiki pos test",
+    );
+
+    let output = run_cli_with_config_root_and_env(
+        &["memory", "wiki", "--local", "core"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("- page: core"));
+    assert!(stdout.contains("local direct"));
 }

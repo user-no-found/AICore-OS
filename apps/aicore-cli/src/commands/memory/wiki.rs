@@ -1,17 +1,92 @@
 use std::{fs, path::PathBuf};
 
 use aicore_memory::{MemoryPaths, ProjectionState};
-use aicore_terminal::{Block, Document};
+use aicore_terminal::{Block, Document, TerminalConfig, TerminalMode};
 
+use crate::commands::kernel::adoption::extract_local_flag;
+use crate::commands::kernel::{emit_local_direct_json, print_kernel_invoke_readonly};
+use crate::commands::memory::report::{build_memory_wiki_page_report, build_memory_wiki_report};
 use crate::config_store::real_memory_paths;
 use crate::errors::memory_error;
 use crate::terminal::emit_document;
 
-pub(crate) fn print_memory_wiki_index() -> Result<(), String> {
-    print_memory_wiki_page("index")
+pub(crate) fn run_memory_wiki_command(args: &[String]) -> i32 {
+    let (is_local, stripped) = extract_local_flag(args);
+    if stripped.is_empty() {
+        if is_local {
+            run_memory_wiki_index_local_direct()
+        } else {
+            print_kernel_invoke_readonly("memory.wiki", &[])
+        }
+    } else {
+        let page = &stripped[0];
+        if is_local {
+            run_memory_wiki_page_local_direct(page)
+        } else {
+            print_kernel_invoke_readonly("memory.wiki_page", &[page.to_string()])
+        }
+    }
 }
 
-pub(crate) fn print_memory_wiki_page(page: &str) -> Result<(), String> {
+fn run_memory_wiki_index_local_direct() -> i32 {
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        match build_memory_wiki_report() {
+            Ok((_, fields)) => {
+                emit_local_direct_json("memory.wiki", true, fields);
+                0
+            }
+            Err(error) => {
+                emit_local_direct_json("memory.wiki", false, serde_json::json!({"error": error}));
+                1
+            }
+        }
+    } else {
+        match print_memory_wiki_index_with_local_mark() {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("记忆命令失败：{error}");
+                1
+            }
+        }
+    }
+}
+
+fn run_memory_wiki_page_local_direct(page: &str) -> i32 {
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        match build_memory_wiki_page_report(page) {
+            Ok((_, fields)) => {
+                emit_local_direct_json("memory.wiki_page", true, fields);
+                0
+            }
+            Err(error) => {
+                emit_local_direct_json(
+                    "memory.wiki_page",
+                    false,
+                    serde_json::json!({"error": error}),
+                );
+                1
+            }
+        }
+    } else {
+        match print_memory_wiki_page_with_local_mark(page) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("记忆命令失败：{error}");
+                1
+            }
+        }
+    }
+}
+
+fn print_memory_wiki_index_with_local_mark() -> Result<(), String> {
+    print_memory_wiki_page_with_local_mark_inner("index")
+}
+
+fn print_memory_wiki_page_with_local_mark(page: &str) -> Result<(), String> {
+    print_memory_wiki_page_with_local_mark_inner(page)
+}
+
+fn print_memory_wiki_page_with_local_mark_inner(page: &str) -> Result<(), String> {
     let paths = real_memory_paths()?;
     let kernel = aicore_memory::MemoryKernel::open(paths.clone()).map_err(memory_error)?;
     let (page_name, page_path) = resolve_memory_wiki_page(&paths, page)?;
@@ -26,9 +101,19 @@ pub(crate) fn print_memory_wiki_page(page: &str) -> Result<(), String> {
     let mut metadata = wiki_projection_status_lines(kernel.projection_state());
     metadata.push(format!("- page: {page_name}"));
     metadata.push(format!("- path: {}", page_path.display()));
+    metadata.push("- execution_path: local_direct".to_string());
+    metadata.push("- kernel_invocation_path: not_used".to_string());
+    metadata.push("- ledger_appended: false".to_string());
+    metadata.push(
+        "- 注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
 
     emit_document(Document::new(vec![
-        Block::panel("记忆 Wiki Projection：", &metadata.join("\n")),
+        Block::panel(
+            "记忆 Wiki Projection（local direct）：",
+            &metadata.join("\n"),
+        ),
         Block::markdown(&content),
     ]));
 

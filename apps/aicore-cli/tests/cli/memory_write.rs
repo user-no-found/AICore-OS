@@ -93,7 +93,7 @@ fn memory_remember_preserves_chinese_text() {
     );
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "search", "终端界面"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "终端界面", "--local"], &root);
 
     assert!(output.status.success());
 
@@ -109,7 +109,7 @@ fn memory_remember_persists_across_cli_processes() {
         run_cli_with_config_root(&["memory", "remember", "跨进程持久化记忆"], &root);
     assert!(remember_output.status.success());
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "跨进程"], &root);
+    let search_output = run_cli_with_config_root(&["memory", "search", "跨进程", "--local"], &root);
     assert!(search_output.status.success());
 
     let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
@@ -124,7 +124,7 @@ fn memory_status_reports_real_counts_after_remember() {
         run_cli_with_config_root(&["memory", "remember", "status count memory"], &root);
     assert!(remember_output.status.success());
 
-    let status_output = run_cli_with_config_root(&["memory", "status"], &root);
+    let status_output = run_cli_with_config_root(&["memory", "status", "--local"], &root);
     assert!(status_output.status.success());
 
     let stdout = String::from_utf8(status_output.stdout).expect("stdout should be utf-8");
@@ -136,7 +136,7 @@ fn memory_status_reports_real_counts_after_remember() {
 #[test]
 fn memory_proposals_empty_prints_friendly_message() {
     let root = temp_root("memory-proposals-empty");
-    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
 
     assert!(output.status.success());
 
@@ -150,7 +150,7 @@ fn cli_memory_proposals_rich_uses_terminal_panel_or_table() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "rich proposal memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "proposals"],
+        &["memory", "proposals", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -168,7 +168,7 @@ fn cli_memory_proposals_json_outputs_valid_json() {
     let proposal_id = seed_open_proposal(&root, MemoryType::Core, "json proposal memory");
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "proposals"],
+        &["memory", "proposals", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -176,7 +176,13 @@ fn cli_memory_proposals_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+
     assert!(stdout.contains(&proposal_id));
     assert!(stdout.contains("json proposal memory"));
     assert!(!stdout.contains("\u{1b}["));
@@ -186,7 +192,7 @@ fn cli_memory_proposals_json_outputs_valid_json() {
 fn cli_memory_proposals_empty_json_outputs_valid_json() {
     let root = temp_root("memory-proposals-empty-json-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "proposals"],
+        &["memory", "proposals", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -194,8 +200,12 @@ fn cli_memory_proposals_empty_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains("暂无待审阅记忆提案"));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -208,12 +218,12 @@ fn memory_proposals_lists_open_proposals() {
         "TUI 是类似 Codex 的终端 AI 编程界面",
     );
 
-    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Proposals："));
+    assert!(stdout.contains("Memory Proposals（local direct）："));
     assert!(stdout.contains(&proposal_id));
     assert!(stdout.contains("[core]"));
     assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
@@ -233,7 +243,7 @@ fn memory_accept_proposal_creates_record() {
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
     assert!(stdout.contains("memory: mem_"));
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "接受后"], &root);
+    let search_output = run_cli_with_config_root(&["memory", "search", "接受后", "--local"], &root);
     assert!(search_output.status.success());
     let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(search_stdout.contains("接受后成为记忆"));
@@ -294,7 +304,8 @@ fn cli_memory_accept_json_outputs_valid_json_and_creates_record() {
     assert!(stdout.contains("memory: mem_"));
     assert!(!stdout.contains("\u{1b}["));
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "json accept"], &root);
+    let search_output =
+        run_cli_with_config_root(&["memory", "search", "json accept", "--local"], &root);
     assert!(search_output.status.success());
     let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(search_stdout.contains("json accept memory"));
@@ -308,7 +319,7 @@ fn memory_accept_proposal_removes_from_open_list() {
     let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
     assert!(accept_output.status.success());
 
-    let proposals_output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let proposals_output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
     assert!(proposals_output.status.success());
     let stdout = String::from_utf8(proposals_output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("暂无待审阅记忆提案。"));
@@ -327,7 +338,7 @@ fn memory_reject_proposal_does_not_create_record() {
     assert!(stdout.contains("记忆提案已拒绝："));
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "拒绝后"], &root);
+    let search_output = run_cli_with_config_root(&["memory", "search", "拒绝后", "--local"], &root);
     assert!(search_output.status.success());
     let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(search_stdout.contains("无匹配记忆"));
@@ -368,7 +379,8 @@ fn cli_memory_reject_json_outputs_valid_json_and_does_not_create_record() {
     assert!(stdout.contains(&format!("proposal: {proposal_id}")));
     assert!(!stdout.contains("\u{1b}["));
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "json reject"], &root);
+    let search_output =
+        run_cli_with_config_root(&["memory", "search", "json reject", "--local"], &root);
     assert!(search_output.status.success());
     let search_stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(search_stdout.contains("无匹配记忆"));
@@ -399,7 +411,7 @@ fn memory_reject_proposal_removes_from_open_list() {
     let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
     assert!(reject_output.status.success());
 
-    let proposals_output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let proposals_output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
     assert!(proposals_output.status.success());
     let stdout = String::from_utf8(proposals_output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("暂无待审阅记忆提案。"));
@@ -436,11 +448,11 @@ fn rule_based_agent_output_can_be_submitted_and_listed_by_cli() {
         "记住：TUI 是类似 Codex 的终端 AI 编程界面",
     );
 
-    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Proposals："));
+    assert!(stdout.contains("Memory Proposals（local direct）："));
     assert!(stdout.contains(&proposal_id));
     assert!(stdout.contains("[core]"));
     assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
@@ -458,7 +470,8 @@ fn accepted_rule_based_proposal_becomes_searchable_memory() {
     let accept_output = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
     assert!(accept_output.status.success());
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "终端界面"], &root);
+    let search_output =
+        run_cli_with_config_root(&["memory", "search", "终端界面", "--local"], &root);
     assert!(search_output.status.success());
     let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("终端界面优先中文，命令保持英文"));
@@ -473,7 +486,8 @@ fn rejected_rule_based_proposal_does_not_create_searchable_memory() {
     let reject_output = run_cli_with_config_root(&["memory", "reject", &proposal_id], &root);
     assert!(reject_output.status.success());
 
-    let search_output = run_cli_with_config_root(&["memory", "search", "长期记忆"], &root);
+    let search_output =
+        run_cli_with_config_root(&["memory", "search", "长期记忆", "--local"], &root);
     assert!(search_output.status.success());
     let stdout = String::from_utf8(search_output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("无匹配记忆"));
@@ -488,7 +502,7 @@ fn proposal_pipeline_preserves_localized_summary() {
         "记住：用户更喜欢 CLI 而不是 Web",
     );
 
-    let output = run_cli_with_config_root(&["memory", "proposals"], &root);
+    let output = run_cli_with_config_root(&["memory", "proposals", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");

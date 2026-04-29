@@ -10,11 +10,11 @@ fn memory_wiki_defaults_to_index() {
         "wiki index memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆 Wiki Projection："));
+    assert!(stdout.contains("记忆 Wiki Projection（local direct）："));
     assert!(stdout.contains("- page: index"));
     assert!(stdout.contains("# Memory Wiki"));
     assert!(stdout.contains("[Core](core.md)"));
@@ -30,7 +30,7 @@ fn memory_wiki_reads_core_page() {
         "wiki core memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki", "core"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "core", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -50,7 +50,7 @@ fn memory_wiki_reads_decisions_page() {
         "wiki decision memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki", "decisions"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "decisions", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -69,7 +69,7 @@ fn memory_wiki_reads_status_page() {
         "wiki status memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki", "status"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "status", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -88,7 +88,7 @@ fn memory_wiki_accepts_md_suffix() {
         "wiki suffix memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki", "core.md"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "core.md", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -98,7 +98,7 @@ fn memory_wiki_accepts_md_suffix() {
 #[test]
 fn memory_wiki_rejects_unknown_page() {
     let root = temp_root("memory-wiki-unknown");
-    let output = run_cli_with_config_root(&["memory", "wiki", "unknown"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "unknown", "--local"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -108,7 +108,7 @@ fn memory_wiki_rejects_unknown_page() {
 #[test]
 fn memory_wiki_rejects_path_traversal() {
     let root = temp_root("memory-wiki-traversal");
-    let output = run_cli_with_config_root(&["memory", "wiki", "../../secret"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "../../secret", "--local"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -118,7 +118,7 @@ fn memory_wiki_rejects_path_traversal() {
 #[test]
 fn memory_wiki_reports_missing_projection() {
     let root = temp_root("memory-wiki-missing");
-    let output = run_cli_with_config_root(&["memory", "wiki"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "--local"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -135,7 +135,7 @@ fn memory_wiki_output_preserves_not_truth_source_notice() {
         "wiki notice memory",
     );
 
-    let output = run_cli_with_config_root(&["memory", "wiki", "index"], &root);
+    let output = run_cli_with_config_root(&["memory", "wiki", "index", "--local"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -155,7 +155,7 @@ fn cli_memory_wiki_rich_uses_terminal_markdown_or_panel() {
     );
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "wiki"],
+        &["memory", "wiki", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -179,7 +179,7 @@ fn cli_memory_wiki_json_outputs_valid_json() {
     );
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "wiki"],
+        &["memory", "wiki", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -187,8 +187,12 @@ fn cli_memory_wiki_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert_has_json_event(&events, "block.markdown");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(stdout.contains("不是事实来源"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
@@ -205,7 +209,7 @@ fn cli_memory_wiki_page_json_outputs_valid_json() {
     );
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "wiki", "core"],
+        &["memory", "wiki", "core", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -213,8 +217,12 @@ fn cli_memory_wiki_page_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert_has_json_event(&events, "block.markdown");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(stdout.contains(&memory_id));
     assert!(stdout.contains("wiki page json terminal memory"));
     assert!(!stdout.contains("\u{1b}["));
@@ -223,12 +231,12 @@ fn cli_memory_wiki_page_json_outputs_valid_json() {
 #[test]
 fn memory_status_command_succeeds() {
     let root = temp_root("memory-status");
-    let output = run_cli_with_config_root(&["memory", "status"], &root);
+    let output = run_cli_with_config_root(&["memory", "status", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Status："));
+    assert!(stdout.contains("Memory Status（local direct）："));
     assert!(stdout.contains("instance: global-main"));
     assert!(stdout.contains("records: 0"));
     assert!(stdout.contains("proposals: 0"));
@@ -240,7 +248,7 @@ fn memory_status_command_succeeds() {
 fn cli_memory_status_rich_uses_terminal_panel() {
     let root = temp_root("memory-status-rich-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "status"],
+        &["memory", "status", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -256,7 +264,7 @@ fn cli_memory_status_rich_uses_terminal_panel() {
 fn cli_memory_status_plain_has_no_ansi() {
     let root = temp_root("memory-status-plain-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "status"],
+        &["memory", "status", "--local"],
         &root,
         &[("AICORE_TERMINAL", "plain")],
     );
@@ -272,7 +280,7 @@ fn cli_memory_status_plain_has_no_ansi() {
 fn cli_memory_status_json_outputs_valid_json() {
     let root = temp_root("memory-status-json-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "status"],
+        &["memory", "status", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -280,7 +288,12 @@ fn cli_memory_status_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -289,7 +302,7 @@ fn cli_memory_status_json_outputs_valid_json() {
 fn cli_memory_status_no_color_has_no_ansi() {
     let root = temp_root("memory-status-no-color-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "status"],
+        &["memory", "status", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
     );
@@ -308,12 +321,12 @@ fn memory_search_returns_remembered_record() {
     );
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "search", "TUI"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "TUI", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("记忆搜索（local direct）："));
     assert!(stdout.contains("mem_"));
     assert!(stdout.contains("[core]"));
     assert!(stdout.contains("TUI 是类似 Codex 的终端 AI 编程界面"));
@@ -330,7 +343,7 @@ fn cli_memory_search_rich_uses_terminal_panel_or_table() {
     );
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "search", "rich"],
+        &["memory", "search", "rich", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -354,7 +367,7 @@ fn cli_memory_search_json_outputs_valid_json() {
     );
 
     let output = run_cli_with_config_root_and_env(
-        &["memory", "search", "json"],
+        &["memory", "search", "json", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -362,7 +375,12 @@ fn cli_memory_search_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(stdout.contains("json search memory"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
@@ -372,7 +390,7 @@ fn cli_memory_search_json_outputs_valid_json() {
 fn cli_memory_search_empty_result_json_outputs_valid_json() {
     let root = temp_root("memory-search-empty-json-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "search", "missing"],
+        &["memory", "search", "missing", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -380,8 +398,12 @@ fn cli_memory_search_empty_result_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains("无匹配记忆"));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -396,12 +418,12 @@ fn memory_search_uses_real_config_root() {
     );
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "search", "root a"], &other_root);
+    let output = run_cli_with_config_root(&["memory", "search", "root a", "--local"], &other_root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("记忆搜索（local direct）："));
     assert!(stdout.contains("无匹配记忆"));
 }
 
@@ -421,8 +443,10 @@ fn memory_search_accepts_type_filter() {
         "type filter shared",
     );
 
-    let output =
-        run_cli_with_config_root(&["memory", "search", "type", "--type", "decision"], &root);
+    let output = run_cli_with_config_root(
+        &["memory", "search", "type", "--type", "decision", "--local"],
+        &root,
+    );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -441,7 +465,14 @@ fn memory_search_accepts_source_filter() {
     let _ = run_cli_with_config_root(&["memory", "accept", &proposal_id], &root);
 
     let output = run_cli_with_config_root(
-        &["memory", "search", "source", "--source", "rule_based_agent"],
+        &[
+            "memory",
+            "search",
+            "source",
+            "--source",
+            "rule_based_agent",
+            "--local",
+        ],
         &root,
     );
 
@@ -467,7 +498,14 @@ fn memory_search_accepts_permanence_filter() {
     );
 
     let output = run_cli_with_config_root(
-        &["memory", "search", "permanence", "--permanence", "standard"],
+        &[
+            "memory",
+            "search",
+            "permanence",
+            "--permanence",
+            "standard",
+            "--local",
+        ],
         &root,
     );
 
@@ -493,7 +531,10 @@ fn memory_search_accepts_limit() {
         "limit shared b",
     );
 
-    let output = run_cli_with_config_root(&["memory", "search", "limit", "--limit", "1"], &root);
+    let output = run_cli_with_config_root(
+        &["memory", "search", "limit", "--limit", "1", "--local"],
+        &root,
+    );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -504,7 +545,10 @@ fn memory_search_accepts_limit() {
 #[test]
 fn memory_search_rejects_unknown_type() {
     let root = temp_root("memory-search-bad-type");
-    let output = run_cli_with_config_root(&["memory", "search", "x", "--type", "unknown"], &root);
+    let output = run_cli_with_config_root(
+        &["memory", "search", "x", "--type", "unknown", "--local"],
+        &root,
+    );
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -514,7 +558,10 @@ fn memory_search_rejects_unknown_type() {
 #[test]
 fn memory_search_rejects_unknown_source() {
     let root = temp_root("memory-search-bad-source");
-    let output = run_cli_with_config_root(&["memory", "search", "x", "--source", "unknown"], &root);
+    let output = run_cli_with_config_root(
+        &["memory", "search", "x", "--source", "unknown", "--local"],
+        &root,
+    );
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -524,8 +571,17 @@ fn memory_search_rejects_unknown_source() {
 #[test]
 fn memory_search_rejects_unknown_permanence() {
     let root = temp_root("memory-search-bad-permanence");
-    let output =
-        run_cli_with_config_root(&["memory", "search", "x", "--permanence", "unknown"], &root);
+    let output = run_cli_with_config_root(
+        &[
+            "memory",
+            "search",
+            "x",
+            "--permanence",
+            "unknown",
+            "--local",
+        ],
+        &root,
+    );
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -535,7 +591,8 @@ fn memory_search_rejects_unknown_permanence() {
 #[test]
 fn memory_search_rejects_invalid_limit() {
     let root = temp_root("memory-search-bad-limit");
-    let output = run_cli_with_config_root(&["memory", "search", "x", "--limit", "0"], &root);
+    let output =
+        run_cli_with_config_root(&["memory", "search", "x", "--limit", "0", "--local"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -549,7 +606,7 @@ fn memory_search_default_behavior_still_works() {
         run_cli_with_config_root(&["memory", "remember", "default behavior memory"], &root);
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "search", "default"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "default", "--local"], &root);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("default behavior memory"));
@@ -562,7 +619,7 @@ fn memory_search_output_includes_score_and_matched_fields() {
         run_cli_with_config_root(&["memory", "remember", "score fields memory"], &root);
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "search", "score"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "score", "--local"], &root);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("score:"));
@@ -587,7 +644,7 @@ fn memory_search_filters_do_not_return_archived_records() {
         MemoryKernel::open(memory_paths_for_root(&root)).expect("memory kernel should reopen");
     kernel.archive(&memory_id).expect("archive should succeed");
 
-    let output = run_cli_with_config_root(&["memory", "search", "archived"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "archived", "--local"], &root);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("无匹配记忆"));
@@ -596,24 +653,24 @@ fn memory_search_filters_do_not_return_archived_records() {
 #[test]
 fn memory_search_empty_result_prints_friendly_message() {
     let root = temp_root("memory-empty-search");
-    let output = run_cli_with_config_root(&["memory", "search", "missing"], &root);
+    let output = run_cli_with_config_root(&["memory", "search", "missing", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆搜索："));
+    assert!(stdout.contains("记忆搜索（local direct）："));
     assert!(stdout.contains("无匹配记忆"));
 }
 
 #[test]
 fn memory_status_shows_memory_root() {
     let root = temp_root("memory-status-root");
-    let output = run_cli_with_config_root(&["memory", "status"], &root);
+    let output = run_cli_with_config_root(&["memory", "status", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Status："));
+    assert!(stdout.contains("Memory Status（local direct）："));
     assert!(stdout.contains(&format!(
         "root: {}",
         root.join("instances")
@@ -626,7 +683,7 @@ fn memory_status_shows_memory_root() {
 #[test]
 fn memory_status_shows_projection_metadata() {
     let root = temp_root("memory-status-projection-meta");
-    let output = run_cli_with_config_root(&["memory", "status"], &root);
+    let output = run_cli_with_config_root(&["memory", "status", "--local"], &root);
 
     assert!(output.status.success());
 
@@ -639,12 +696,12 @@ fn memory_status_shows_projection_metadata() {
 #[test]
 fn memory_audit_command_succeeds() {
     let root = temp_root("memory-audit");
-    let output = run_cli_with_config_root(&["memory", "audit"], &root);
+    let output = run_cli_with_config_root(&["memory", "audit", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Audit："));
+    assert!(stdout.contains("Memory Audit（local direct）："));
     assert!(stdout.contains("checked events: 0"));
     assert!(stdout.contains("status: ok"));
 }
@@ -653,7 +710,7 @@ fn memory_audit_command_succeeds() {
 fn cli_memory_audit_rich_uses_terminal_diagnostic_or_panel() {
     let root = temp_root("memory-audit-rich-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "audit"],
+        &["memory", "audit", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -669,7 +726,7 @@ fn cli_memory_audit_rich_uses_terminal_diagnostic_or_panel() {
 fn cli_memory_audit_json_outputs_valid_json() {
     let root = temp_root("memory-audit-json-terminal");
     let output = run_cli_with_config_root_and_env(
-        &["memory", "audit"],
+        &["memory", "audit", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -677,8 +734,12 @@ fn cli_memory_audit_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "block.panel");
-    assert!(stdout.contains("checked events: 0"));
+
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -688,12 +749,12 @@ fn memory_audit_reports_ok_for_valid_memory_store() {
     let remember_output = run_cli_with_config_root(&["memory", "remember", "测试记忆审计"], &root);
     assert!(remember_output.status.success());
 
-    let output = run_cli_with_config_root(&["memory", "audit"], &root);
+    let output = run_cli_with_config_root(&["memory", "audit", "--local"], &root);
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Memory Audit："));
+    assert!(stdout.contains("Memory Audit（local direct）："));
     assert!(stdout.contains("checked events: 1"));
     assert!(stdout.contains("status: ok"));
 }

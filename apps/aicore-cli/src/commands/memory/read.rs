@@ -1,95 +1,210 @@
-use aicore_memory::MemoryAuditReport;
+use aicore_terminal::{TerminalConfig, TerminalMode};
 
-use crate::config_store::{real_memory_kernel, real_memory_paths};
-use crate::names::memory_type_name;
+use crate::commands::kernel::adoption::extract_local_flag;
+use crate::commands::kernel::{emit_local_direct_json, print_kernel_invoke_readonly};
+use crate::commands::memory::report::{
+    build_memory_audit_report, build_memory_proposals_report, build_memory_status_report,
+};
 use crate::terminal::emit_cli_panel_body;
 
-pub(crate) fn print_memory_status() -> Result<(), String> {
-    let paths = real_memory_paths()?;
-    let kernel =
-        aicore_memory::MemoryKernel::open(paths.clone()).map_err(crate::errors::memory_error)?;
+pub(crate) fn run_memory_status_command(args: &[String]) -> i32 {
+    let (is_local, stripped) = extract_local_flag(args);
+    if is_local {
+        run_memory_status_local_direct()
+    } else {
+        print_kernel_invoke_readonly("memory.status", &stripped)
+    }
+}
 
-    let body = [
-        "- instance: global-main".to_string(),
-        format!("- root: {}", paths.root.display()),
-        format!("- records: {}", kernel.records().len()),
-        format!("- proposals: {}", kernel.proposals().len()),
-        format!("- events: {}", kernel.events().len()),
-        format!("- projection stale: {}", kernel.projection_state().stale),
+fn run_memory_status_local_direct() -> i32 {
+    match build_memory_status_report() {
+        Ok((_, fields)) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.status", true, fields);
+                0
+            } else {
+                print_memory_status_with_local_mark(&fields);
+                0
+            }
+        }
+        Err(error) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.status", false, serde_json::json!({"error": error}));
+            } else {
+                eprintln!("记忆命令失败：{error}");
+            }
+            1
+        }
+    }
+}
+
+fn print_memory_status_with_local_mark(fields: &serde_json::Value) {
+    let mut lines = vec![
+        format!("- instance: {}", field_str(fields, "scope")),
+        format!("- root: {}", field_str(fields, "memory_root")),
+        format!("- records: {}", field_str(fields, "record_count")),
+        format!("- proposals: {}", field_str(fields, "proposal_count")),
+        format!("- events: {}", field_str(fields, "event_count")),
+        format!(
+            "- projection stale: {}",
+            field_str(fields, "projection_stale")
+        ),
         format!(
             "- projection warning: {}",
-            kernel
-                .projection_state()
-                .warning
-                .as_deref()
-                .unwrap_or("<none>")
+            field_str(fields, "projection_warning")
         ),
         format!(
             "- last rebuild at: {}",
-            kernel
-                .projection_state()
-                .last_rebuild_at
-                .as_deref()
-                .unwrap_or("<none>")
+            field_str(fields, "last_rebuild_at")
         ),
-    ]
-    .join("\n");
-
-    emit_cli_panel_body("Memory Status：", &body);
-
-    Ok(())
-}
-
-pub(crate) fn print_memory_audit() -> Result<(), String> {
-    let kernel = real_memory_kernel()?;
-    let report = kernel.verify_ledger_consistency();
-
-    render_memory_audit(&report);
-    Ok(())
-}
-
-pub(crate) fn print_memory_proposals() -> Result<(), String> {
-    let kernel = real_memory_kernel()?;
-    let proposals = kernel.list_open_proposals();
-
-    if proposals.is_empty() {
-        emit_cli_panel_body("Memory Proposals：", "暂无待审阅记忆提案。");
-        return Ok(());
-    }
-
-    let mut lines = Vec::new();
-    for proposal in proposals {
-        let display_text = if !proposal.localized_summary.is_empty() {
-            proposal.localized_summary
-        } else if !proposal.content.is_empty() {
-            proposal.content
-        } else {
-            proposal.normalized_content
-        };
-        lines.push(format!(
-            "- {} [{}] {}",
-            proposal.proposal_id,
-            memory_type_name(&proposal.memory_type),
-            display_text
-        ));
-    }
-
-    emit_cli_panel_body("Memory Proposals：", &lines.join("\n"));
-
-    Ok(())
-}
-
-pub(crate) fn render_memory_audit(report: &MemoryAuditReport) {
-    let mut lines = vec![
-        format!("- checked events: {}", report.checked_events),
-        format!("- status: {}", if report.ok { "ok" } else { "failed" }),
     ];
+    lines.push("- execution_path: local_direct".to_string());
+    lines.push("- kernel_invocation_path: not_used".to_string());
+    lines.push("- ledger_appended: false".to_string());
+    lines.push(
+        "- 注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
+    emit_cli_panel_body("Memory Status（local direct）：", &lines.join("\n"));
+}
 
-    if !report.ok {
-        for issue in &report.issues {
-            lines.push(format!("- issue: {issue}"));
+pub(crate) fn run_memory_audit_command(args: &[String]) -> i32 {
+    let (is_local, stripped) = extract_local_flag(args);
+    if is_local {
+        run_memory_audit_local_direct()
+    } else {
+        print_kernel_invoke_readonly("memory.audit", &stripped)
+    }
+}
+
+fn run_memory_audit_local_direct() -> i32 {
+    match build_memory_audit_report() {
+        Ok((_, fields)) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.audit", true, fields);
+                0
+            } else {
+                print_memory_audit_with_local_mark(&fields);
+                0
+            }
+        }
+        Err(error) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.audit", false, serde_json::json!({"error": error}));
+            } else {
+                eprintln!("记忆命令失败：{error}");
+            }
+            1
         }
     }
+}
 
-    emit_cli_panel_body("Memory Audit：", &lines.join("\n"));
+fn print_memory_audit_with_local_mark(fields: &serde_json::Value) {
+    let mut lines = vec![
+        format!("- checked events: {}", field_str(fields, "checked_events")),
+        format!(
+            "- status: {}",
+            if field_str(fields, "ok") == "true" {
+                "ok"
+            } else {
+                "failed"
+            }
+        ),
+    ];
+    if let Some(errors) = fields.get("errors").and_then(|v| v.as_str()) {
+        if let Ok(issues) = serde_json::from_str::<Vec<String>>(errors) {
+            for issue in issues {
+                lines.push(format!("- issue: {issue}"));
+            }
+        }
+    }
+    lines.push("- execution_path: local_direct".to_string());
+    lines.push("- kernel_invocation_path: not_used".to_string());
+    lines.push("- ledger_appended: false".to_string());
+    lines.push(
+        "- 注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger"
+            .to_string(),
+    );
+    emit_cli_panel_body("Memory Audit（local direct）：", &lines.join("\n"));
+}
+
+pub(crate) fn run_memory_proposals_command(args: &[String]) -> i32 {
+    let (is_local, stripped) = extract_local_flag(args);
+    if is_local {
+        run_memory_proposals_local_direct()
+    } else {
+        print_kernel_invoke_readonly("memory.proposals", &stripped)
+    }
+}
+
+fn run_memory_proposals_local_direct() -> i32 {
+    match build_memory_proposals_report() {
+        Ok((_, fields)) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("memory.proposals", true, fields);
+                0
+            } else {
+                print_memory_proposals_with_local_mark(&fields);
+                0
+            }
+        }
+        Err(error) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json(
+                    "memory.proposals",
+                    false,
+                    serde_json::json!({"error": error}),
+                );
+            } else {
+                eprintln!("记忆命令失败：{error}");
+            }
+            1
+        }
+    }
+}
+
+fn print_memory_proposals_with_local_mark(fields: &serde_json::Value) {
+    let mut body = String::new();
+    if let Some(proposals_str) = fields.get("proposals").and_then(|v| v.as_str()) {
+        if let Ok(proposals) = serde_json::from_str::<Vec<serde_json::Value>>(proposals_str) {
+            if proposals.is_empty() {
+                body.push_str("暂无待审阅记忆提案。");
+            } else {
+                let lines: Vec<String> = proposals
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "- {} [{}] {}",
+                            field_str(p, "proposal_id"),
+                            field_str(p, "memory_type"),
+                            field_str(p, "content")
+                        )
+                    })
+                    .collect();
+                body.push_str(&lines.join("\n"));
+            }
+        } else {
+            body.push_str("暂无待审阅记忆提案。");
+        }
+    } else {
+        body.push_str("暂无待审阅记忆提案。");
+    }
+    if !body.is_empty() {
+        body.push('\n');
+    }
+    body.push_str("- execution_path: local_direct\n");
+    body.push_str("- kernel_invocation_path: not_used\n");
+    body.push_str("- ledger_appended: false\n");
+    body.push_str(
+        "- 注意：本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger",
+    );
+    emit_cli_panel_body("Memory Proposals（local direct）：", &body);
+}
+
+fn field_str(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("<none>")
+        .to_string()
 }
