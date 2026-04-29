@@ -101,17 +101,17 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action] if group == "config" && action == "init" => {
             commands::run_config_command(commands::config::print_config_init)
         }
-        [group, action] if group == "config" && action == "validate" => {
-            commands::run_config_command(commands::config::print_config_validate)
+        [group, action, rest @ ..] if group == "config" && action == "validate" => {
+            commands::config::run_config_validate_command(rest)
         }
-        [group, action] if group == "auth" && action == "list" => {
-            commands::run_config_command(commands::auth::print_auth_list)
+        [group, action, rest @ ..] if group == "auth" && action == "list" => {
+            commands::auth::run_auth_list_command(rest)
         }
-        [group, action] if group == "model" && action == "show" => {
-            commands::run_config_command(commands::model::print_model_show)
+        [group, action, rest @ ..] if group == "model" && action == "show" => {
+            commands::model::run_model_show_command(rest)
         }
-        [group, action] if group == "service" && action == "list" => {
-            commands::run_config_command(commands::service::print_service_list)
+        [group, action, rest @ ..] if group == "service" && action == "list" => {
+            commands::service::run_service_list_command(rest)
         }
         [group, action] if group == "provider" && action == "smoke" => {
             commands::run_config_command(commands::provider::print_provider_smoke)

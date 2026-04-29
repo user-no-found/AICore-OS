@@ -1,6 +1,8 @@
 use aicore_auth::GlobalAuthPool;
 use aicore_config::{ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig};
+use aicore_terminal::{TerminalConfig, TerminalMode};
 
+use crate::commands::kernel::{adopt_readonly, emit_local_direct_json};
 use crate::config_store::{
     demo_auth_pool, demo_runtime_config, demo_service_profiles, initialize_real_config,
     prepare_demo_config_store, real_config_paths, real_config_store,
@@ -121,29 +123,6 @@ pub(crate) fn print_config_init() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn print_config_validate() -> Result<(), String> {
-    let store = real_config_store()?;
-    let auth_pool = store.load_auth_pool().map_err(config_error)?;
-    let runtime = store
-        .load_instance_runtime("global-main")
-        .map_err(map_runtime_load_error)?;
-    let services = store.load_services().map_err(config_error)?;
-
-    ConfigStore::validate_runtime_config(&runtime, &auth_pool).map_err(config_error)?;
-    ConfigStore::validate_service_profiles(&services, &auth_pool).map_err(config_error)?;
-
-    emit_cli_panel(
-        "配置校验",
-        vec![
-            cli_row("认证池", "已读取"),
-            cli_row("实例运行配置", "通过"),
-            cli_row("服务角色配置", "通过"),
-        ],
-    );
-
-    Ok(())
-}
-
 pub(crate) fn build_config_validate_report() -> ConfigValidateReport {
     let paths = match real_config_paths() {
         Ok(paths) => paths,
@@ -254,4 +233,63 @@ fn ensure_demo_matches(
     ConfigStore::validate_service_profiles(&loaded_services, &loaded_auth_pool)
         .map_err(config_error)?;
     Ok(())
+}
+
+pub(crate) fn run_config_validate_command(args: &[String]) -> i32 {
+    adopt_readonly("config.validate", args, || {
+        run_config_validate_local_direct()
+    })
+}
+
+fn run_config_validate_local_direct() -> i32 {
+    let report = build_config_validate_report();
+    let success = report.valid;
+    if TerminalConfig::current().mode == TerminalMode::Json {
+        emit_local_direct_json("config.validate", success, report.fields());
+        if success { 0 } else { 1 }
+    } else {
+        if !success {
+            for diagnostic in &report.diagnostics {
+                eprintln!("配置命令失败：{diagnostic}");
+            }
+        }
+        print_config_validate_with_local_mark(&report);
+        if success { 0 } else { 1 }
+    }
+}
+
+fn print_config_validate_with_local_mark(report: &ConfigValidateReport) {
+    let rows = vec![
+        cli_row("valid", report.valid.to_string()),
+        cli_row("config_root", report.config_root.clone()),
+        cli_row("auth_pool_present", report.auth_pool_present.to_string()),
+        cli_row(
+            "runtime_config_present",
+            report.runtime_config_present.to_string(),
+        ),
+        cli_row(
+            "service_profiles_present",
+            report.service_profiles_present.to_string(),
+        ),
+        cli_row(
+            "provider_profiles_present",
+            report.provider_profiles_present.to_string(),
+        ),
+        cli_row("error_count", report.error_count.to_string()),
+        cli_row("warning_count", report.warning_count.to_string()),
+        cli_row("diagnostics", report.diagnostics.join(" | ")),
+        cli_row("execution_path", "local_direct"),
+        cli_row("kernel_invocation_path", "not_used"),
+        cli_row("ledger_appended", "false"),
+        cli_row(
+            "注意",
+            "本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger",
+        ),
+    ];
+    let title = if report.valid {
+        "配置校验（local direct）"
+    } else {
+        "配置校验失败（local direct）"
+    };
+    emit_cli_panel(title, rows);
 }

@@ -211,15 +211,15 @@ fn cli_config_validate_rich_uses_terminal_panel() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["config", "validate"],
+        &["config", "validate", "--local"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ 配置校验"));
-    assert!(stdout.contains("实例运行配置：通过"));
+    assert!(stdout.contains("╭─ 配置校验（local direct）"));
+    assert!(stdout.contains("runtime_config_present：true"));
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn cli_config_validate_json_outputs_valid_json() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["config", "validate"],
+        &["config", "validate", "--local"],
         &root,
         &[("AICORE_TERMINAL", "json")],
     );
@@ -237,7 +237,12 @@ fn cli_config_validate_json_outputs_valid_json() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert!(events.iter().any(|event| event["event"] == "block.panel"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    assert!(stdout.contains("config.validate"));
     assert!(!stdout.contains("配置校验："));
     assert!(!stdout.contains("\u{1b}["));
 }
@@ -254,7 +259,7 @@ fn config_validate_accepts_initialized_config() {
     assert!(init_output.status.success());
 
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
-        .args(["config", "validate"])
+        .args(["config", "validate", "--local"])
         .env("AICORE_CONFIG_ROOT", &root)
         .output()
         .expect("aicore-cli should run");
@@ -262,10 +267,11 @@ fn config_validate_accepts_initialized_config() {
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("配置校验"));
-    assert!(stdout.contains("认证池：已读取"));
-    assert!(stdout.contains("实例运行配置：通过"));
-    assert!(stdout.contains("服务角色配置：通过"));
+    assert!(stdout.contains("配置校验（local direct）"));
+    assert!(stdout.contains("auth_pool_present：true"));
+    assert!(stdout.contains("runtime_config_present：true"));
+    assert!(stdout.contains("service_profiles_present：true"));
+    assert!(stdout.contains("execution_path：local_direct"));
 }
 
 #[test]
@@ -276,7 +282,7 @@ fn config_validate_fails_when_runtime_missing() {
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
-        .args(["config", "validate"])
+        .args(["config", "validate", "--local"])
         .env("AICORE_CONFIG_ROOT", &root)
         .output()
         .expect("aicore-cli should run");
@@ -285,6 +291,24 @@ fn config_validate_fails_when_runtime_missing() {
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
     assert!(stderr.contains("缺少 global-main runtime 配置，请先运行 config init 或配置模型。"));
+}
+
+#[test]
+fn config_validate_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "validate"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("config.validate"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
 }
 
 #[test]

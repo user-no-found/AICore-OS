@@ -1,3 +1,6 @@
+use aicore_terminal::{TerminalConfig, TerminalMode};
+
+use crate::commands::kernel::{adopt_readonly, emit_local_direct_json};
 use crate::config_store::{load_real_auth_pool, real_config_store};
 use crate::errors::map_runtime_load_error;
 use crate::names::auth_kind_name;
@@ -16,28 +19,6 @@ impl ModelShowReport {
     pub(crate) fn fields(&self) -> serde_json::Value {
         self.fields.clone()
     }
-}
-
-pub(crate) fn print_model_show() -> Result<(), String> {
-    let store = real_config_store()?;
-    let runtime = store
-        .load_instance_runtime("global-main")
-        .map_err(map_runtime_load_error)?;
-
-    let mut rows = vec![
-        cli_row("instance", runtime.instance_id),
-        cli_row("primary auth_ref", runtime.primary.auth_ref.as_str()),
-        cli_row("primary model", runtime.primary.model),
-    ];
-    if let Some(fallback) = runtime.fallback {
-        rows.push(cli_row("fallback auth_ref", fallback.auth_ref.as_str()));
-        rows.push(cli_row("fallback model", fallback.model));
-    } else {
-        rows.push(cli_row("fallback", "未配置"));
-    }
-    emit_cli_panel("实例模型配置", rows);
-
-    Ok(())
 }
 
 pub(crate) fn build_model_show_report() -> Result<ModelShowReport, String> {
@@ -81,4 +62,83 @@ pub(crate) fn build_model_show_report() -> Result<ModelShowReport, String> {
             "kernel_invocation_path": "binary"
         }),
     })
+}
+
+pub(crate) fn run_model_show_command(args: &[String]) -> i32 {
+    adopt_readonly("model.show", args, || run_model_show_local_direct())
+}
+
+fn run_model_show_local_direct() -> i32 {
+    match build_model_show_report() {
+        Ok(report) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("model.show", true, report.fields());
+                0
+            } else {
+                print_model_show_with_local_mark(&report);
+                0
+            }
+        }
+        Err(error) => {
+            if TerminalConfig::current().mode == TerminalMode::Json {
+                emit_local_direct_json("model.show", false, serde_json::json!({"error": error}));
+            } else {
+                eprintln!("配置命令失败：{error}");
+            }
+            1
+        }
+    }
+}
+
+fn print_model_show_with_local_mark(report: &ModelShowReport) {
+    let instance = report
+        .fields
+        .get("instance")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let primary_auth_ref = report
+        .fields
+        .get("primary_auth_ref")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let primary_model = report
+        .fields
+        .get("primary_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let fallback = report
+        .fields
+        .get("fallback")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let fallback_auth_ref = report
+        .fields
+        .get("fallback_auth_ref")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let fallback_model = report
+        .fields
+        .get("fallback_model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+
+    let mut rows = vec![
+        cli_row("instance", instance),
+        cli_row("primary auth_ref", primary_auth_ref),
+        cli_row("primary model", primary_model),
+    ];
+    if fallback == "configured" {
+        rows.push(cli_row("fallback auth_ref", fallback_auth_ref));
+        rows.push(cli_row("fallback model", fallback_model));
+    } else {
+        rows.push(cli_row("fallback", "未配置"));
+    }
+    rows.push(cli_row("execution_path", "local_direct"));
+    rows.push(cli_row("kernel_invocation_path", "not_used"));
+    rows.push(cli_row("ledger_appended", "false"));
+    rows.push(cli_row(
+        "注意",
+        "本次未经过 installed Kernel runtime binary，不写 kernel invocation ledger",
+    ));
+    emit_cli_panel("实例模型配置（local direct）", rows);
 }
