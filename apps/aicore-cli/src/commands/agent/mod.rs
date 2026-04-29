@@ -9,7 +9,12 @@ use crate::names::{
     agent_session_stop_reason_name, agent_turn_failure_stage_name, agent_turn_outcome_name,
     bool_status_name,
 };
-use crate::terminal::{cli_row, emit_cli_panel};
+
+pub(crate) mod session;
+pub(crate) mod smoke;
+
+pub(crate) use session::run_agent_session_smoke_command;
+pub(crate) use smoke::run_agent_smoke_command;
 
 pub(crate) struct AgentSmokeReport {
     pub summary: String,
@@ -24,41 +29,6 @@ impl AgentSmokeReport {
     pub(crate) fn fields(&self) -> serde_json::Value {
         self.fields.clone()
     }
-}
-
-pub(crate) fn print_agent_smoke(content: &str) -> Result<(), String> {
-    let report = build_agent_smoke_report(content)?;
-    emit_cli_panel(
-        "Agent Loop",
-        vec![
-            cli_row("status", "通过"),
-            cli_row("实例", "global-main"),
-            cli_row("outcome", field(&report.fields, "outcome")),
-            cli_row(
-                "memory pack",
-                format!("{} 条", field(&report.fields, "memory_pack")),
-            ),
-            cli_row("prompt builder", "通过"),
-            cli_row("ingress source", "cli"),
-            cli_row(
-                "provider invoked",
-                field(&report.fields, "provider_invoked"),
-            ),
-            cli_row("provider", field(&report.fields, "provider_kind")),
-            cli_row("provider name", field(&report.fields, "provider_name")),
-            cli_row(
-                "assistant output present",
-                field(&report.fields, "assistant_output_present"),
-            ),
-            cli_row("failure stage", field(&report.fields, "failure_stage")),
-            cli_row("runtime output", "已追加"),
-            cli_row("conversation", field(&report.fields, "conversation_id")),
-            cli_row("event count", field(&report.fields, "event_count")),
-            cli_row("queue len", field(&report.fields, "queue_len")),
-        ],
-    );
-
-    Ok(())
 }
 
 pub(crate) fn build_agent_smoke_report(content: &str) -> Result<AgentSmokeReport, String> {
@@ -118,62 +88,6 @@ pub(crate) fn build_agent_smoke_report(content: &str) -> Result<AgentSmokeReport
             "streaming": "false"
         }),
     })
-}
-
-pub(crate) fn print_agent_session_smoke(first: &str, second: &str) -> Result<(), String> {
-    let report = build_agent_session_smoke_report(first, second)?;
-    let mut rows = vec![
-        cli_row("status", "通过"),
-        cli_row("conversation", field(&report.fields, "conversation_id")),
-        cli_row("turns", field(&report.fields, "turn_count")),
-        cli_row(
-            "completed all inputs",
-            bool_field_status(&report.fields, "completed_all_inputs"),
-        ),
-        cli_row("stop reason", field(&report.fields, "stop_reason")),
-        cli_row("latest outcome", field(&report.fields, "latest_outcome")),
-        cli_row(
-            "conversation status",
-            field(&report.fields, "conversation_status"),
-        ),
-        cli_row("event count", field(&report.fields, "event_count")),
-        cli_row("queue len", field(&report.fields, "queue_len")),
-    ];
-    if let Some(turns) = report
-        .fields
-        .get("turns")
-        .and_then(|value| value.as_array())
-    {
-        for (index, turn) in turns.iter().enumerate() {
-            rows.push(cli_row(
-                format!("turn {} outcome", index + 1),
-                turn.get("outcome")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("<none>"),
-            ));
-            rows.push(cli_row(
-                format!("turn {} provider invoked", index + 1),
-                turn.get("provider_invoked")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("no"),
-            ));
-            rows.push(cli_row(
-                format!("turn {} assistant output present", index + 1),
-                turn.get("assistant_output_present")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("no"),
-            ));
-            rows.push(cli_row(
-                format!("turn {} failure stage", index + 1),
-                turn.get("failure_stage")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or("<none>"),
-            ));
-        }
-    }
-    emit_cli_panel("Agent Session", rows);
-
-    Ok(())
 }
 
 pub(crate) fn build_agent_session_smoke_report(
@@ -273,7 +187,7 @@ fn cli_turn_input(instance_id: &str, content: &str) -> AgentTurnInput {
     }
 }
 
-fn field(fields: &serde_json::Value, key: &str) -> String {
+pub(crate) fn field(fields: &serde_json::Value, key: &str) -> String {
     fields
         .get(key)
         .and_then(|value| value.as_str())
@@ -281,7 +195,7 @@ fn field(fields: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
-fn bool_field_status(fields: &serde_json::Value, key: &str) -> &'static str {
+pub(crate) fn bool_field_status(fields: &serde_json::Value, key: &str) -> &'static str {
     match fields.get(key).and_then(|value| value.as_str()) {
         Some("true") => "yes",
         Some("false") => "no",

@@ -116,15 +116,11 @@ fn dispatch(args: &[String]) -> i32 {
         [group, action, rest @ ..] if group == "provider" && action == "smoke" => {
             commands::provider::run_provider_smoke_command(rest)
         }
-        [group, action, content] if group == "agent" && action == "smoke" => {
-            commands::run_config_command_with_arg(content, commands::agent::print_agent_smoke)
+        [group, action, rest @ ..] if group == "agent" && action == "smoke" => {
+            commands::agent::run_agent_smoke_command(rest)
         }
-        [group, action, first, second] if group == "agent" && action == "session-smoke" => {
-            commands::run_config_command_with_two_args(
-                first,
-                second,
-                commands::agent::print_agent_session_smoke,
-            )
+        [group, action, rest @ ..] if group == "agent" && action == "session-smoke" => {
+            commands::agent::run_agent_session_smoke_command(rest)
         }
         [group, action] if group == "memory" && action == "status" => {
             commands::run_memory_command(commands::memory::print_memory_status)

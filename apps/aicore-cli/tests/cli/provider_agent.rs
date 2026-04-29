@@ -126,7 +126,8 @@ fn cli_agent_smoke_runs() {
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "agent smoke request"], &root);
+    let output =
+        run_cli_with_config_root(&["agent", "smoke", "--local", "agent smoke request"], &root);
 
     assert!(output.status.success());
 }
@@ -137,11 +138,11 @@ fn cli_agent_smoke_outputs_chinese_status() {
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "继续实现"], &root);
+    let output = run_cli_with_config_root(&["agent", "smoke", "--local", "继续实现"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Agent Loop"));
+    assert!(stdout.contains("Agent Loop（local direct）"));
     assert!(stdout.contains("status：通过"));
     assert!(stdout.contains("实例：global-main"));
     assert!(stdout.contains("runtime output：已追加"));
@@ -159,7 +160,7 @@ fn cli_agent_smoke_reports_memory_prompt_provider_runtime_status() {
         "agent loop memory context",
     );
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "agent loop"], &root);
+    let output = run_cli_with_config_root(&["agent", "smoke", "--local", "agent loop"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -189,7 +190,7 @@ fn cli_agent_smoke_does_not_print_prompt() {
         "sensitive prompt context should stay internal",
     );
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "please answer"], &root);
+    let output = run_cli_with_config_root(&["agent", "smoke", "--local", "please answer"], &root);
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
@@ -205,7 +206,7 @@ fn cli_agent_smoke_rich_uses_terminal_summary() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["agent", "smoke", "hello"],
+        &["agent", "smoke", "--local", "hello"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
@@ -224,14 +225,14 @@ fn cli_agent_smoke_plain_has_no_ansi() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["agent", "smoke", "hello"],
+        &["agent", "smoke", "--local", "hello"],
         &root,
         &[("AICORE_TERMINAL", "plain")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("Agent Loop"));
+    assert!(stdout.contains("Agent Loop（local direct）"));
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -242,7 +243,13 @@ fn cli_agent_session_smoke_runs() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root(
-        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &[
+            "agent",
+            "session-smoke",
+            "--local",
+            "第一轮请求",
+            "第二轮请求",
+        ],
         &root,
     );
 
@@ -256,14 +263,14 @@ fn cli_agent_session_smoke_rich_uses_terminal_summary() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["agent", "session-smoke", "first", "second"],
+        &["agent", "session-smoke", "--local", "first", "second"],
         &root,
         &[("AICORE_TERMINAL", "rich")],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ Agent Session"));
+    assert!(stdout.contains("╭─ Agent Session（local direct）"));
     assert!(stdout.contains("turn 1 outcome：completed"));
     assert!(stdout.contains("turn 2 outcome：completed"));
     assert!(!stdout.contains("SYSTEM:"));
@@ -276,7 +283,7 @@ fn cli_agent_session_smoke_plain_has_no_ansi() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root_and_env(
-        &["agent", "session-smoke", "first", "second"],
+        &["agent", "session-smoke", "--local", "first", "second"],
         &root,
         &[("AICORE_TERMINAL", "plain")],
     );
@@ -294,7 +301,13 @@ fn cli_agent_session_smoke_outputs_chinese_summary() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root(
-        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &[
+            "agent",
+            "session-smoke",
+            "--local",
+            "第一轮请求",
+            "第二轮请求",
+        ],
         &root,
     );
 
@@ -322,7 +335,13 @@ fn cli_agent_session_smoke_does_not_print_prompt() {
     assert!(init_output.status.success());
 
     let output = run_cli_with_config_root(
-        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &[
+            "agent",
+            "session-smoke",
+            "--local",
+            "第一轮请求",
+            "第二轮请求",
+        ],
         &root,
     );
 
@@ -345,7 +364,13 @@ fn cli_agent_session_summary_consumes_public_surface() {
     );
 
     let output = run_cli_with_config_root(
-        &["agent", "session-smoke", "第一轮请求", "第二轮请求"],
+        &[
+            "agent",
+            "session-smoke",
+            "--local",
+            "第一轮请求",
+            "第二轮请求",
+        ],
         &root,
     );
 
@@ -415,7 +440,7 @@ primary_model = "openai/gpt-5"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "需要失败"], &root);
+    let output = run_cli_with_config_root(&["agent", "smoke", "--local", "需要失败"], &root);
 
     assert!(!output.status.success());
 
@@ -457,7 +482,7 @@ primary_model = "dummy/default-chat"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "non chat auth"], &root);
+    let output = run_cli_with_config_root(&["agent", "smoke", "--local", "non chat auth"], &root);
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
@@ -605,7 +630,10 @@ primary_model = "openai/gpt-5"
     .expect("runtime.toml should be writable");
     fs::write(root.join("services.toml"), "").expect("services.toml should be writable");
 
-    let output = run_cli_with_config_root(&["agent", "smoke", "需要 provider gate 失败"], &root);
+    let output = run_cli_with_config_root(
+        &["agent", "smoke", "--local", "需要 provider gate 失败"],
+        &root,
+    );
 
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");

@@ -2,8 +2,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 use super::support::{
-    assert_has_json_event, assert_json_lines, run_cli_with_config_root, run_cli_with_env,
-    seed_agent_smoke_manifests, seed_foundation_runtime_binary, seed_global_runtime_metadata,
+    assert_has_json_event, assert_json_lines, run_cli_with_config_root,
+    run_cli_with_config_root_and_env, run_cli_with_env, seed_agent_smoke_manifests,
+    seed_foundation_runtime_binary, seed_global_runtime_metadata,
     seed_kernel_runtime_binary_fixture, temp_root,
 };
 
@@ -171,19 +172,162 @@ fn direct_agent_smoke_commands_remain_compatible() {
     let init_output = run_cli_with_config_root(&["config", "init"], &root);
     assert!(init_output.status.success());
 
-    let smoke = run_cli_with_config_root(&["agent", "smoke", "hello"], &root);
+    let smoke = run_cli_with_config_root(&["agent", "smoke", "--local", "hello"], &root);
     assert!(smoke.status.success());
     let smoke_stdout = String::from_utf8(smoke.stdout).expect("stdout should be utf-8");
-    assert!(smoke_stdout.contains("Agent Loop"));
+    assert!(smoke_stdout.contains("Agent Loop（local direct）"));
     assert!(smoke_stdout.contains("provider invoked"));
     assert!(!smoke_stdout.contains("CURRENT USER REQUEST"));
 
-    let session = run_cli_with_config_root(&["agent", "session-smoke", "first", "second"], &root);
+    let session = run_cli_with_config_root(
+        &["agent", "session-smoke", "--local", "first", "second"],
+        &root,
+    );
     assert!(session.status.success());
     let session_stdout = String::from_utf8(session.stdout).expect("stdout should be utf-8");
-    assert!(session_stdout.contains("Agent Session"));
+    assert!(session_stdout.contains("Agent Session（local direct）"));
     assert!(session_stdout.contains("turns：2"));
     assert!(!session_stdout.contains("CURRENT USER REQUEST"));
+}
+
+#[test]
+fn agent_smoke_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["agent", "smoke", "hello"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("agent.smoke"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
+}
+
+#[test]
+fn agent_session_smoke_kernel_native_command() {
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["agent", "session-smoke", "first", "second"])
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("内核只读调用"));
+    assert!(stdout.contains("agent.session_smoke"));
+    assert!(stdout.contains("kernel invocation path"));
+    assert!(stdout.contains("binary"));
+    assert!(stdout.contains("in-process fallback"));
+    assert!(stdout.contains("false"));
+}
+
+#[test]
+fn cli_agent_smoke_local_rich_uses_terminal_panel() {
+    let root = temp_root("agent-smoke-local-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "smoke", "--local", "hello"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Agent Loop（local direct）"));
+    assert!(stdout.contains("outcome：completed"));
+    assert!(!stdout.contains("SYSTEM:"));
+}
+
+#[test]
+fn cli_agent_smoke_local_json_outputs_valid_json() {
+    let root = temp_root("agent-smoke-local-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "smoke", "--local", "hello"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "agent.smoke");
+    assert_eq!(event["fields"]["real_provider"], "false");
+    assert_eq!(event["fields"]["tool_calling"], "false");
+    assert_eq!(event["fields"]["streaming"], "false");
+    assert!(!stdout.contains("Agent Loop："));
+    assert!(!stdout.contains("\u{1b}["));
+}
+
+#[test]
+fn cli_agent_session_smoke_local_rich_uses_terminal_panel() {
+    let root = temp_root("agent-session-smoke-local-rich-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "session-smoke", "--local", "first", "second"],
+        &root,
+        &[("AICORE_TERMINAL", "rich")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains("╭─ Agent Session（local direct）"));
+    assert!(stdout.contains("turn 1 outcome：completed"));
+    assert!(stdout.contains("turn 2 outcome：completed"));
+    assert!(!stdout.contains("SYSTEM:"));
+}
+
+#[test]
+fn cli_agent_session_smoke_local_json_outputs_valid_json() {
+    let root = temp_root("agent-session-smoke-local-json-terminal");
+    let init_output = run_cli_with_config_root(&["config", "init"], &root);
+    assert!(init_output.status.success());
+
+    let output = run_cli_with_config_root_and_env(
+        &["agent", "session-smoke", "--local", "first", "second"],
+        &root,
+        &[("AICORE_TERMINAL", "json")],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert!(
+        events
+            .iter()
+            .any(|event| event["event"] == "direct.command.result")
+    );
+    let event = events
+        .iter()
+        .find(|event| event["event"] == "direct.command.result")
+        .expect("direct.command.result should exist");
+    assert_eq!(event["operation"], "agent.session_smoke");
+    assert_eq!(event["fields"]["turn_count"], "2");
+    assert_eq!(event["fields"]["real_provider"], "false");
+    assert_eq!(event["fields"]["tool_calling"], "false");
+    assert_eq!(event["fields"]["streaming"], "false");
+    assert!(!stdout.contains("Agent Session："));
+    assert!(!stdout.contains("\u{1b}["));
 }
 
 fn runtime_home(name: &str) -> std::path::PathBuf {
