@@ -3,9 +3,10 @@ use std::process::{Command, Stdio};
 
 use super::support::{
     MemoryTrigger, assert_has_json_event, assert_json_lines, run_cli_with_config_root,
-    run_cli_with_config_root_and_env, run_cli_with_env, seed_foundation_runtime_binary,
-    seed_global_runtime_metadata, seed_kernel_runtime_binary_fixture, seed_memory_write_manifests,
-    seed_rule_based_proposal, temp_root,
+    run_cli_with_config_root_and_env, run_cli_with_env, runtime_home,
+    seed_foundation_runtime_binary, seed_global_runtime_metadata,
+    seed_kernel_runtime_binary_fixture, seed_memory_write_manifests, seed_rule_based_proposal,
+    temp_root,
 };
 
 #[test]
@@ -622,16 +623,24 @@ fn memory_accept_local_flag_not_polluting_proposal_id() {
 
 #[test]
 fn memory_remember_default_path_unchanged() {
-    let root = temp_root("memory-remember-unchanged");
-
-    let output =
-        run_cli_with_config_root(&["memory", "remember", "remember unchanged test"], &root);
+    let home = runtime_home("memory-remember-unchanged");
+    let output = run_cli_with_env(
+        &["memory", "remember", "remember unchanged test"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入"));
-    assert!(stdout.contains("id: mem_"));
-    assert!(stdout.contains("type: core"));
+    assert!(stdout.contains("内核写入调用"));
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("in-process fallback：false"));
 }
 
 #[test]
@@ -706,6 +715,43 @@ fn cli_kernel_invoke_write_memory_remember_unknown_recommended_action_human() {
 }
 
 #[test]
+fn memory_remember_kernel_native_json_outputs_structured_fields() {
+    let home = runtime_home("memory-remember-kernel-native-json");
+    let output = run_cli_with_env(
+        &["memory", "remember", "kernel native remember test"],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let events = assert_json_lines(&stdout);
+    assert_has_json_event(&events, "kernel.invocation.result");
+    let result = result_event(&events);
+    assert_eq!(result["payload"]["operation"], "memory.remember");
+    assert_eq!(result["payload"]["status"], "completed");
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_applied"],
+        "true"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["write_outcome"],
+        "applied"
+    );
+    assert_eq!(
+        result["payload"]["result"]["fields"]["kernel_invocation_path"],
+        "binary"
+    );
+    assert!(!stdout.contains("secret_ref"));
+}
+
+#[test]
 fn direct_memory_write_commands_remain_compatible() {
     let home = runtime_home("direct-memory-write-compatible");
     let root = home.join("config");
@@ -755,15 +801,6 @@ fn direct_memory_write_commands_remain_compatible() {
         ],
     );
     assert!(reject.status.success());
-}
-
-fn runtime_home(name: &str) -> std::path::PathBuf {
-    let home = temp_root(name);
-    seed_global_runtime_metadata(&home);
-    seed_foundation_runtime_binary(&home);
-    seed_kernel_runtime_binary_fixture(&home);
-    seed_memory_write_manifests(&home);
-    home
 }
 
 fn result_event(events: &[serde_json::Value]) -> &serde_json::Value {

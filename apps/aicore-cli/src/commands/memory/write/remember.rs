@@ -1,15 +1,13 @@
 use aicore_terminal::{TerminalConfig, TerminalMode};
 
-use crate::commands::kernel::adoption::extract_local_flag;
+use crate::commands::kernel::adoption::adopt_write;
 use crate::commands::kernel::emit_local_direct_json;
 use crate::terminal::emit_cli_panel_body;
 
 use super::core::{build_memory_remember_write_report, memory_write_failure_fields};
 
 pub(crate) fn run_memory_remember_command(args: &[String]) -> i32 {
-    let (_is_local, stripped_args) = extract_local_flag(args);
-    // M4.6A: 默认路径仍为 local direct。M4.6B 再接入 adopt_write。
-    run_memory_remember_local_direct(&stripped_args)
+    adopt_write("memory.remember", args, run_memory_remember_local_direct)
 }
 
 fn run_memory_remember_local_direct(args: &[String]) -> i32 {

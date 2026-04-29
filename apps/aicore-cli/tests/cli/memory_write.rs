@@ -2,87 +2,118 @@ use super::support::*;
 
 #[test]
 fn memory_remember_writes_active_record() {
-    let root = temp_root("memory-remember");
-    let output = run_cli_with_config_root(
+    let home = runtime_home("memory-remember");
+    let output = run_cli_with_env(
         &["memory", "remember", "TUI 是类似 Codex 的终端 AI 编程界面"],
-        &root,
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+        ],
     );
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入（local direct）："));
-    assert!(stdout.contains("id: mem_"));
-    assert!(stdout.contains("type: core"));
+    assert!(stdout.contains("内核写入调用"));
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
+    assert!(stdout.contains("in-process fallback：false"));
 }
 
 #[test]
 fn cli_memory_remember_rich_uses_terminal_panel() {
-    let root = temp_root("memory-remember-rich-terminal");
-    let output = run_cli_with_config_root_and_env(
+    let home = runtime_home("memory-remember-rich-terminal");
+    let output = run_cli_with_env(
         &["memory", "remember", "rich remember memory"],
-        &root,
-        &[("AICORE_TERMINAL", "rich")],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "rich"),
+        ],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("╭─ 记忆已写入（local direct）"));
-    assert!(stdout.contains("id: mem_"));
-    assert!(stdout.contains("type: core"));
+    assert!(stdout.contains("╭─ 内核写入调用"));
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
 }
 
 #[test]
 fn cli_memory_remember_plain_has_no_ansi() {
-    let root = temp_root("memory-remember-plain-terminal");
-    let output = run_cli_with_config_root_and_env(
+    let home = runtime_home("memory-remember-plain-terminal");
+    let output = run_cli_with_env(
         &["memory", "remember", "plain remember memory"],
-        &root,
-        &[("AICORE_TERMINAL", "plain")],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "plain"),
+        ],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入（local direct）："));
+    assert!(stdout.contains("内核写入调用"));
     assert!(!stdout.contains("\u{1b}["));
     assert!(!stdout.contains('╭'));
 }
 
 #[test]
 fn cli_memory_remember_json_outputs_valid_json() {
-    let root = temp_root("memory-remember-json-terminal");
-    let output = run_cli_with_config_root_and_env(
+    let home = runtime_home("memory-remember-json-terminal");
+    let output = run_cli_with_env(
         &["memory", "remember", "json remember memory"],
-        &root,
-        &[("AICORE_TERMINAL", "json")],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "json"),
+        ],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     let events = assert_json_lines(&stdout);
-    assert_has_json_event(&events, "direct.command.result");
+    assert_has_json_event(&events, "kernel.invocation.result");
     assert!(stdout.contains("\"operation\":\"memory.remember\""));
-    assert!(stdout.contains("\"success\":true"));
-    assert!(stdout.contains("\"execution_path\":\"local_direct\""));
-    assert!(stdout.contains("\"kernel_invocation_path\":\"not_used\""));
-    assert!(stdout.contains("\"ledger_appended\":false"));
-    assert!(stdout.contains("\"memory_id\":\"mem_"));
+    assert!(stdout.contains("\"status\":\"completed\""));
+    assert_eq!(stdout.matches("kernel_invocation_path").count(), 1);
+    assert!(stdout.contains("\"kernel_invocation_path\":\"binary\""));
+    assert!(stdout.contains("\"appended\":true"));
     assert!(!stdout.contains('╭'));
     assert!(!stdout.contains("\u{1b}["));
 }
 
 #[test]
 fn cli_memory_remember_no_color_has_no_ansi() {
-    let root = temp_root("memory-remember-no-color-terminal");
-    let output = run_cli_with_config_root_and_env(
+    let home = runtime_home("memory-remember-no-color-terminal");
+    let output = run_cli_with_env(
         &["memory", "remember", "no color remember memory"],
-        &root,
-        &[("AICORE_TERMINAL", "rich"), ("NO_COLOR", "1")],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+            ("AICORE_TERMINAL", "rich"),
+            ("NO_COLOR", "1"),
+        ],
     );
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("记忆已写入"));
+    assert!(stdout.contains("内核写入调用"));
     assert!(!stdout.contains("\u{1b}["));
 }
 
@@ -90,7 +121,12 @@ fn cli_memory_remember_no_color_has_no_ansi() {
 fn memory_remember_preserves_chinese_text() {
     let root = temp_root("memory-remember-chinese");
     let remember_output = run_cli_with_config_root(
-        &["memory", "remember", "记住：终端界面优先中文，命令保持英文"],
+        &[
+            "memory",
+            "remember",
+            "记住：终端界面优先中文，命令保持英文",
+            "--local",
+        ],
         &root,
     );
     assert!(remember_output.status.success());
@@ -107,8 +143,10 @@ fn memory_remember_preserves_chinese_text() {
 fn memory_remember_persists_across_cli_processes() {
     let root = temp_root("memory-persist-process");
 
-    let remember_output =
-        run_cli_with_config_root(&["memory", "remember", "跨进程持久化记忆"], &root);
+    let remember_output = run_cli_with_config_root(
+        &["memory", "remember", "跨进程持久化记忆", "--local"],
+        &root,
+    );
     assert!(remember_output.status.success());
 
     let search_output = run_cli_with_config_root(&["memory", "search", "跨进程", "--local"], &root);
@@ -122,8 +160,10 @@ fn memory_remember_persists_across_cli_processes() {
 fn memory_status_reports_real_counts_after_remember() {
     let root = temp_root("memory-status-after-remember");
 
-    let remember_output =
-        run_cli_with_config_root(&["memory", "remember", "status count memory"], &root);
+    let remember_output = run_cli_with_config_root(
+        &["memory", "remember", "status count memory", "--local"],
+        &root,
+    );
     assert!(remember_output.status.success());
 
     let status_output = run_cli_with_config_root(&["memory", "status", "--local"], &root);
@@ -576,16 +616,24 @@ fn proposal_pipeline_reject_writes_rejected_event() {
 
 #[test]
 fn memory_remember_empty_content_fails() {
-    let root = temp_root("memory-remember-empty");
-    let output = run_cli_with_config_root(&["memory", "remember", ""], &root);
+    let home = runtime_home("memory-remember-empty");
+    let output = run_cli_with_env(
+        &["memory", "remember", ""],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf-8")),
+            (
+                "AICORE_CONFIG_ROOT",
+                home.join("config").to_str().expect("config root utf-8"),
+            ),
+        ],
+    );
 
     assert!(!output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("memory.remember content 不能为空"));
-    assert!(stdout.contains("local_direct"));
-    assert!(stdout.contains("kernel_invocation_path: not_used"));
-    assert!(stdout.contains("ledger_appended: false"));
+    assert!(stdout.contains("内核写入调用失败"));
+    assert!(stdout.contains("kernel invocation path：binary"));
+    assert!(stdout.contains("ledger appended：true"));
 }
 
 #[test]

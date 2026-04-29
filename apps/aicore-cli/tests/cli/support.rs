@@ -627,3 +627,12 @@ pub(crate) fn ledger_stages(ledger: &str) -> Vec<String> {
         .map(|record| extract_json_string(record, "stage"))
         .collect()
 }
+
+pub(crate) fn runtime_home(name: &str) -> std::path::PathBuf {
+    let home = temp_root(name);
+    seed_global_runtime_metadata(&home);
+    seed_foundation_runtime_binary(&home);
+    seed_kernel_runtime_binary_fixture(&home);
+    seed_memory_write_manifests(&home);
+    home
+}
