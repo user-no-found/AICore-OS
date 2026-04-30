@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use aicore_event::{
     EventEnvelope, EventGetRequest, EventGetResponse, EventQueryRequest, EventQueryResponse,
@@ -38,6 +38,16 @@ impl SqliteEventStore {
             connection: Mutex::new(connection),
         })
     }
+
+    pub(crate) fn instance_id(&self) -> &str {
+        self.instance_id.as_str()
+    }
+
+    pub(crate) fn lock_connection(&self) -> AicoreResult<MutexGuard<'_, Connection>> {
+        self.connection.lock().map_err(|_| {
+            aicore_foundation::AicoreError::Unavailable("sqlite mutex poisoned".to_string())
+        })
+    }
 }
 
 impl EventWriter for SqliteEventStore {
@@ -52,9 +62,7 @@ impl EventWriter for SqliteEventStore {
             )));
         }
 
-        let mut connection = self.connection.lock().map_err(|_| {
-            aicore_foundation::AicoreError::Unavailable("sqlite mutex poisoned".to_string())
-        })?;
+        let mut connection = self.lock_connection()?;
 
         let tx = connection.transaction().map_err(sqlite_write_error)?;
 
@@ -139,9 +147,7 @@ impl EventReader for SqliteEventStore {
     }
 
     fn get(&self, request: &EventGetRequest) -> AicoreResult<EventGetResponse> {
-        let connection = self.connection.lock().map_err(|_| {
-            aicore_foundation::AicoreError::Unavailable("sqlite mutex poisoned".to_string())
-        })?;
+        let connection = self.lock_connection()?;
 
         let row = connection
             .query_row(

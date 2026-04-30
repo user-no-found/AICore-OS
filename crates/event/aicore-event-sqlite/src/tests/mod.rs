@@ -1,3 +1,4 @@
+mod retention;
 mod schema;
 mod store;
 mod transaction;
@@ -6,9 +7,11 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aicore_event::{
-    EventEnvelope, EventGetRequest, EventReader, EventTag, EventTagSet, EventWriter, RetentionClass,
+    EventEnvelope, EventGetRequest, EventReader, EventStatus, EventTag, EventTagSet, EventWriter,
+    RetentionClass,
 };
 use aicore_foundation::{ComponentId, EventId, InstanceId, Timestamp};
+use rusqlite::Connection;
 
 use crate::SqliteEventStore;
 
@@ -68,6 +71,52 @@ fn sample_envelope_with_optionals() -> EventEnvelope {
     .expect("optional envelope should build")
 }
 
+fn sample_envelope_with_retention(
+    event_id: &str,
+    occurred_at_millis: u128,
+    recorded_at_millis: u128,
+    retention_class: RetentionClass,
+) -> EventEnvelope {
+    EventEnvelope::builder(
+        EventId::new(event_id).expect("valid event id"),
+        "memory.remembered",
+        Timestamp::from_unix_millis(occurred_at_millis),
+        ComponentId::new("aicore-memory").expect("valid component id"),
+        InstanceId::global_main(),
+        "memory",
+        format!("memory.{event_id}"),
+        format!("summary for {event_id}"),
+        retention_class,
+    )
+    .recorded_at(Timestamp::from_unix_millis(recorded_at_millis))
+    .status(EventStatus::Recorded)
+    .build()
+    .expect("retention envelope should build")
+}
+
+fn sample_compressed_envelope(
+    event_id: &str,
+    occurred_at_millis: u128,
+    recorded_at_millis: u128,
+    retention_class: RetentionClass,
+) -> EventEnvelope {
+    EventEnvelope::builder(
+        EventId::new(event_id).expect("valid event id"),
+        "memory.remembered",
+        Timestamp::from_unix_millis(occurred_at_millis),
+        ComponentId::new("aicore-memory").expect("valid component id"),
+        InstanceId::global_main(),
+        "memory",
+        format!("memory.{event_id}"),
+        "compressed_event_record",
+        retention_class,
+    )
+    .recorded_at(Timestamp::from_unix_millis(recorded_at_millis))
+    .status(EventStatus::Compressed)
+    .build()
+    .expect("compressed retention envelope should build")
+}
+
 fn open_store(path: &std::path::Path) -> SqliteEventStore {
     SqliteEventStore::open(path, &InstanceId::global_main()).expect("store should open")
 }
@@ -82,4 +131,15 @@ fn get_sample_event(store: &SqliteEventStore) -> aicore_event::EventGetResponse 
     store
         .get(&EventGetRequest::new("evt.001"))
         .expect("get should succeed")
+}
+
+fn open_sqlite(path: &std::path::Path) -> Connection {
+    Connection::open(path).expect("sqlite db should open")
+}
+
+fn count_rows(conn: &Connection, table: &str) -> i64 {
+    conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+        row.get(0)
+    })
+    .expect("count should load")
 }
