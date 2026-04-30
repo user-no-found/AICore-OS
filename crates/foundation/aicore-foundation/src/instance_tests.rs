@@ -316,6 +316,41 @@ fn workspace_metadata_accepts_workspace_kind_with_workspace_instance_id() {
     assert_eq!(binding.instance_id.as_str(), "workspace.project.safe");
 }
 
+#[test]
+fn workspace_metadata_rejects_missing_instance_id() {
+    let sandbox = temp_root("workspace-missing-id");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let instance_root = workspace.join(".aicore");
+    fs::create_dir_all(&instance_root).expect("instance root should create");
+    fs::write(
+        instance_root.join("instance.toml"),
+        "instance_kind = \"workspace\"\n",
+    )
+    .expect("instance metadata should write");
+
+    let error =
+        resolve_instance_for_cwd(&workspace, &home).expect_err("missing instance id should fail");
+
+    assert!(error.to_string().contains("instance_id"));
+}
+
+#[test]
+fn new_workspace_without_instance_metadata_still_writes_instance_id_on_ensure() {
+    let sandbox = temp_root("workspace-new-writes-id");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+
+    let binding = resolve_instance_for_cwd(&workspace, &home).expect("workspace should resolve");
+    ensure_instance_layout(&binding).expect("layout should create");
+
+    let metadata = fs::read_to_string(workspace.join(".aicore").join("instance.toml"))
+        .expect("instance metadata should read");
+    assert!(metadata.contains("instance_id = \"workspace."));
+    assert!(metadata.contains("instance_kind = \"workspace\""));
+}
+
 struct TempRoot {
     path: PathBuf,
 }

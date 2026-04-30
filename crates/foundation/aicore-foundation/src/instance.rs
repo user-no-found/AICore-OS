@@ -195,6 +195,9 @@ fn workspace_instance_id(workspace_root: &Path, instance_root: &Path) -> AicoreR
             }
             return Ok(instance_id);
         }
+        return Err(AicoreError::Missing(
+            "workspace instance metadata missing instance_id".to_string(),
+        ));
     }
 
     let name = workspace_root
