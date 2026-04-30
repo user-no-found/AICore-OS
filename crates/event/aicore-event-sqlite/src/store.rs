@@ -14,7 +14,7 @@ use crate::schema;
 
 pub struct SqliteEventStore {
     _path: PathBuf,
-    _instance_id: InstanceId,
+    instance_id: InstanceId,
     connection: Mutex<Connection>,
 }
 
@@ -34,7 +34,7 @@ impl SqliteEventStore {
 
         Ok(Self {
             _path: path,
-            _instance_id: instance_id.clone(),
+            instance_id: instance_id.clone(),
             connection: Mutex::new(connection),
         })
     }
@@ -43,6 +43,14 @@ impl SqliteEventStore {
 impl EventWriter for SqliteEventStore {
     fn write(&self, envelope: &EventEnvelope) -> AicoreResult<()> {
         envelope.validate()?;
+
+        if envelope.source_instance.as_str() != self.instance_id.as_str() {
+            return Err(aicore_foundation::AicoreError::Conflict(format!(
+                "event source_instance mismatch: expected {}, got {}",
+                self.instance_id.as_str(),
+                envelope.source_instance.as_str()
+            )));
+        }
 
         let mut connection = self.connection.lock().map_err(|_| {
             aicore_foundation::AicoreError::Unavailable("sqlite mutex poisoned".to_string())

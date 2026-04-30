@@ -1,6 +1,7 @@
 use rusqlite::Connection;
 
 use aicore_event::{EventTag, EventWriter};
+use aicore_foundation::InstanceId;
 
 use crate::tests::{open_store, sample_envelope, temp_db_path};
 
@@ -83,5 +84,34 @@ fn failed_write_rolls_back_tags_confirmed_tags_and_refs() {
             })
             .expect("count should load");
         assert_eq!(count, 0, "{table} should have rolled back");
+    }
+}
+
+#[test]
+fn write_rejects_cross_instance_event_without_partial_rows() {
+    let path = temp_db_path("tx-cross-instance");
+    let store = open_store(&path);
+    let mut envelope = sample_envelope();
+    envelope.source_instance =
+        InstanceId::new("workspace-other").expect("valid workspace instance");
+
+    let error = store
+        .write(&envelope)
+        .expect_err("cross-instance event should fail");
+
+    let message = error.to_string();
+    assert!(
+        message.contains("instance") || message.contains("source_instance"),
+        "unexpected cross-instance error: {message}"
+    );
+
+    let conn = Connection::open(path).expect("sqlite db should open");
+    for table in ["events", "event_tags", "event_confirmed_tags", "event_refs"] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count should load");
+        assert_eq!(count, 0, "{table} should have no residual rows");
     }
 }
