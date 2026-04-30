@@ -66,6 +66,14 @@ pub(crate) fn real_memory_paths() -> Result<MemoryPaths, String> {
     ))
 }
 
+pub(crate) fn real_event_store_db_path() -> Result<PathBuf, String> {
+    Ok(resolve_event_store_root()?
+        .join("instances")
+        .join("global-main")
+        .join("events")
+        .join("events.sqlite"))
+}
+
 pub(crate) fn global_main_memory_scope() -> MemoryScope {
     MemoryScope::GlobalMain {
         instance_id: "global-main".to_string(),
@@ -171,10 +179,23 @@ fn resolve_real_config_root() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(root));
     }
 
-    let home = env::var_os("HOME")
-        .ok_or_else(|| "无法确定配置根目录，请设置 HOME 或 AICORE_CONFIG_ROOT。".to_string())?;
+    let home = resolve_home_dir()?;
 
     Ok(PathBuf::from(home).join(".aicore").join("config"))
+}
+
+fn resolve_event_store_root() -> Result<PathBuf, String> {
+    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
+        return Ok(PathBuf::from(root));
+    }
+
+    let home = resolve_home_dir()?;
+    Ok(PathBuf::from(home).join(".aicore"))
+}
+
+fn resolve_home_dir() -> Result<std::ffi::OsString, String> {
+    env::var_os("HOME")
+        .ok_or_else(|| "无法确定配置根目录，请设置 HOME 或 AICORE_CONFIG_ROOT。".to_string())
 }
 
 fn demo_config_root(command_name: &str) -> PathBuf {

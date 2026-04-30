@@ -3,6 +3,10 @@ use aicore_memory::{MemoryPermanence, MemoryType, RememberInput};
 use crate::config_store::{global_main_memory_scope, real_memory_kernel};
 use crate::errors::memory_error;
 
+use super::event_adoption::{
+    MemoryBusinessEventKind, record_memory_business_event, skipped_event_recording,
+};
+
 pub(crate) fn build_memory_remember_write_report(
     content: &str,
 ) -> Result<(String, serde_json::Value), String> {
@@ -22,23 +26,24 @@ pub(crate) fn build_memory_remember_write_report(
         })
         .map_err(memory_error)?;
 
-    Ok((
-        "memory.remember write applied".to_string(),
-        serde_json::json!({
-            "operation": "memory.remember",
-            "write_applied": "true",
-            "audit_closed": "true",
-            "write_outcome": "applied",
-            "idempotency": "not_guaranteed",
-            "memory_id": memory_id,
-            "memory_type": "core",
-            "source": "user_explicit",
-            "permanence": "standard",
-            "content_present": "true",
-            "content_length": content.chars().count().to_string(),
-            "kernel_invocation_path": "binary"
-        }),
-    ))
+    let mut fields = serde_json::json!({
+        "operation": "memory.remember",
+        "write_applied": "true",
+        "audit_closed": "true",
+        "write_outcome": "applied",
+        "idempotency": "not_guaranteed",
+        "memory_id": memory_id,
+        "memory_type": "core",
+        "source": "user_explicit",
+        "permanence": "standard",
+        "content_present": "true",
+        "content_length": content.chars().count().to_string(),
+        "kernel_invocation_path": "binary"
+    });
+    record_memory_business_event(MemoryBusinessEventKind::Remembered, &memory_id)
+        .apply_to_fields(&mut fields);
+
+    Ok(("memory.remember write applied".to_string(), fields))
 }
 
 pub(crate) fn build_memory_accept_write_report(
@@ -52,20 +57,21 @@ pub(crate) fn build_memory_accept_write_report(
         .accept_proposal(proposal_id, "user", Some("cli accept"))
         .map_err(memory_error)?;
 
-    Ok((
-        "memory.accept write applied".to_string(),
-        serde_json::json!({
-            "operation": "memory.accept",
-            "write_applied": "true",
-            "audit_closed": "true",
-            "write_outcome": "applied",
-            "idempotency": "not_guaranteed",
-            "proposal_id": proposal_id,
-            "memory_id": memory_id,
-            "status": "accepted",
-            "kernel_invocation_path": "binary"
-        }),
-    ))
+    let mut fields = serde_json::json!({
+        "operation": "memory.accept",
+        "write_applied": "true",
+        "audit_closed": "true",
+        "write_outcome": "applied",
+        "idempotency": "not_guaranteed",
+        "proposal_id": proposal_id,
+        "memory_id": memory_id,
+        "status": "accepted",
+        "kernel_invocation_path": "binary"
+    });
+    record_memory_business_event(MemoryBusinessEventKind::ProposalAccepted, proposal_id)
+        .apply_to_fields(&mut fields);
+
+    Ok(("memory.accept write applied".to_string(), fields))
 }
 
 pub(crate) fn build_memory_reject_write_report(
@@ -79,19 +85,20 @@ pub(crate) fn build_memory_reject_write_report(
         .reject_proposal(proposal_id, "user", Some("cli reject"))
         .map_err(memory_error)?;
 
-    Ok((
-        "memory.reject write applied".to_string(),
-        serde_json::json!({
-            "operation": "memory.reject",
-            "write_applied": "true",
-            "audit_closed": "true",
-            "write_outcome": "applied",
-            "idempotency": "not_guaranteed",
-            "proposal_id": proposal_id,
-            "status": "rejected",
-            "kernel_invocation_path": "binary"
-        }),
-    ))
+    let mut fields = serde_json::json!({
+        "operation": "memory.reject",
+        "write_applied": "true",
+        "audit_closed": "true",
+        "write_outcome": "applied",
+        "idempotency": "not_guaranteed",
+        "proposal_id": proposal_id,
+        "status": "rejected",
+        "kernel_invocation_path": "binary"
+    });
+    record_memory_business_event(MemoryBusinessEventKind::ProposalRejected, proposal_id)
+        .apply_to_fields(&mut fields);
+
+    Ok(("memory.reject write applied".to_string(), fields))
 }
 
 pub(crate) fn memory_write_failure_fields(
@@ -126,5 +133,6 @@ pub(crate) fn memory_write_failure_fields(
             serde_json::Value::String(content_length.to_string()),
         );
     }
+    skipped_event_recording().apply_to_fields(&mut fields);
     fields
 }

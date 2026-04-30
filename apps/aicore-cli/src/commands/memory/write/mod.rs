@@ -1,4 +1,5 @@
 pub(crate) mod core;
+pub(crate) mod event_adoption;
 pub(crate) mod proposal;
 pub(crate) mod remember;
 

@@ -5,6 +5,7 @@ mod config;
 mod config_validate_runtime;
 mod kernel_invoke;
 mod kernel_route;
+mod memory_event_adoption;
 mod memory_read;
 mod memory_read_runtime;
 mod memory_write;

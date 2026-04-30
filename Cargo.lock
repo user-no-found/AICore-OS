@@ -46,6 +46,8 @@ dependencies = [
  "aicore-agent",
  "aicore-auth",
  "aicore-config",
+ "aicore-event",
+ "aicore-event-sqlite",
  "aicore-foundation",
  "aicore-kernel",
  "aicore-memory",

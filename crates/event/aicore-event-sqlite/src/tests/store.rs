@@ -75,7 +75,6 @@ fn business_crates_do_not_depend_on_aicore_event_sqlite() {
 
     for relative in [
         "apps/aicore/Cargo.toml",
-        "apps/aicore-cli/Cargo.toml",
         "crates/kernel/aicore-kernel/Cargo.toml",
         "crates/memory/aicore-memory/Cargo.toml",
         "crates/provider/aicore-provider/Cargo.toml",
@@ -89,4 +88,14 @@ fn business_crates_do_not_depend_on_aicore_event_sqlite() {
             "{relative} should not depend on aicore-event-sqlite",
         );
     }
+}
+
+#[test]
+fn only_aicore_cli_is_allowed_business_dependency_for_m56() {
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_dir.join("../../..");
+    let cargo_toml = std::fs::read_to_string(workspace_root.join("apps/aicore-cli/Cargo.toml"))
+        .expect("aicore-cli Cargo.toml should read");
+
+    assert!(cargo_toml.contains("aicore-event-sqlite"));
 }

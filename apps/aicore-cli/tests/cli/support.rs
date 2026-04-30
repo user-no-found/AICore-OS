@@ -1,6 +1,11 @@
 #[cfg(unix)]
 pub(crate) use std::os::unix::fs::PermissionsExt;
-pub(crate) use std::{fs, path::PathBuf, process::Command};
+pub(crate) use std::{
+    fs,
+    io::Write,
+    path::PathBuf,
+    process::{Command, Stdio},
+};
 
 pub(crate) use aicore_memory::{
     MemoryAgentOutput, MemoryKernel, MemoryPaths, MemoryPermanence, MemoryProposal,
@@ -44,6 +49,59 @@ pub(crate) fn run_cli_with_env(args: &[&str], envs: &[(&str, &str)]) -> std::pro
         command.env(key, value);
     }
     command.output().expect("aicore-cli should run")
+}
+
+pub(crate) fn result_event(events: &[serde_json::Value]) -> &serde_json::Value {
+    events
+        .iter()
+        .find(|event| event["event"] == "kernel.invocation.result")
+        .expect("result event should exist")
+}
+
+pub(crate) fn run_component_with_payload(
+    command: &str,
+    operation: &str,
+    payload: serde_json::Value,
+    root: &std::path::Path,
+) -> std::process::Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .arg(command)
+        .env("AICORE_CONFIG_ROOT", root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("component handler should spawn");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin should be open")
+        .write_all(local_ipc_request(operation, payload).as_bytes())
+        .expect("request should be writable");
+    child
+        .wait_with_output()
+        .expect("component handler should finish")
+}
+
+pub(crate) fn local_ipc_request(operation: &str, payload: serde_json::Value) -> String {
+    serde_json::json!({
+        "schema_version": "aicore.local_ipc.invocation.v1",
+        "protocol": "stdio_jsonl",
+        "protocol_version": "aicore.local_ipc.stdio_jsonl.v1",
+        "invocation_id": format!("invoke.test.{operation}"),
+        "trace_id": "trace.test",
+        "instance_id": "global-main",
+        "operation": operation,
+        "payload": payload,
+        "route": {
+            "component_id": format!("aicore-{}", operation.replace('.', "-").replace('_', "-")),
+            "app_id": "aicore-cli",
+            "capability_id": operation,
+            "contract_version": "kernel.app.v1"
+        }
+    })
+    .to_string()
+        + "\n"
 }
 
 pub(crate) fn assert_json_lines(stdout: &str) -> Vec<serde_json::Value> {
