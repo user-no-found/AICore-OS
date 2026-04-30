@@ -484,6 +484,70 @@ fn query_remains_unsupported_after_retention_operations() {
 }
 
 #[test]
+fn retention_plan_apply_and_compaction_run_do_not_leak_raw_markers() {
+    let path = temp_db_path("retention-no-raw-leak");
+    let store = open_store(&path);
+    let sensitive_summary =
+        "summary carries raw_payload secret token api_key cookie full_prompt memory_content";
+    let sensitive_evidence_ref =
+        "evidence://raw_payload/secret/token/api_key/cookie/full_prompt/memory_content";
+    let sensitive_payload_ref =
+        "payload://raw_payload/secret/token/api_key/cookie/full_prompt/memory_content";
+
+    let envelope = aicore_event::EventEnvelope::builder(
+        aicore_foundation::EventId::new("evt.retention.safe").expect("valid event id"),
+        "memory.remembered",
+        Timestamp::from_unix_millis(BASE_TIME),
+        aicore_foundation::ComponentId::new("aicore-memory").expect("valid component id"),
+        aicore_foundation::InstanceId::global_main(),
+        "memory",
+        "memory.retention.safe",
+        sensitive_summary,
+        RetentionClass::Transient30d,
+    )
+    .recorded_at(Timestamp::from_unix_millis(BASE_TIME - THIRTY_DAYS))
+    .status(EventStatus::Recorded)
+    .evidence_ref(sensitive_evidence_ref)
+    .payload_ref(sensitive_payload_ref)
+    .build()
+    .expect("sensitive envelope should build");
+
+    store.write(&envelope).expect("write should succeed");
+
+    let plan = store
+        .plan_retention(Timestamp::from_unix_millis(BASE_TIME))
+        .expect("plan should succeed");
+    let plan_debug = format!("{plan:?}");
+    assert_not_contains_sensitive_markers(&plan_debug);
+
+    let result = store
+        .apply_retention(Timestamp::from_unix_millis(BASE_TIME))
+        .expect("apply should succeed");
+    let result_debug = format!("{result:?}");
+    assert_not_contains_sensitive_markers(&result_debug);
+
+    let conn = open_sqlite(&path);
+    let error_summary: Option<String> = conn
+        .query_row(
+            "SELECT error_summary FROM compaction_runs LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("compaction run should load");
+    if let Some(error_summary) = error_summary {
+        assert_not_contains_sensitive_markers(&error_summary);
+    }
+
+    let response = store
+        .get(&EventGetRequest::new("evt.retention.safe"))
+        .expect("get should succeed");
+    let event = response.event.expect("compressed event should exist");
+    assert_eq!(event.summary, "compressed_event_record");
+    assert_eq!(event.evidence_ref, None);
+    assert_eq!(event.payload_ref, None);
+}
+
+#[test]
 fn business_paths_do_not_call_retention_api() {
     let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir.join("../../..");
@@ -531,5 +595,22 @@ fn scan_directory_forbidden_calls(path: &std::path::Path, label: &str) {
                 entry_path.display()
             );
         }
+    }
+}
+
+fn assert_not_contains_sensitive_markers(text: &str) {
+    for marker in [
+        "raw_payload",
+        "secret",
+        "token",
+        "api_key",
+        "cookie",
+        "full_prompt",
+        "memory_content",
+    ] {
+        assert!(
+            !text.contains(marker),
+            "sensitive marker `{marker}` leaked into `{text}`"
+        );
     }
 }
