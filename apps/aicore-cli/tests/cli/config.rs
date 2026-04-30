@@ -96,8 +96,10 @@ fn cli_config_path_no_color_has_no_ansi() {
 fn config_path_uses_default_home_root_without_override() {
     let home = temp_root("config-path-home");
     let expected_root = home.join(".aicore").join("config");
+    fs::create_dir_all(&home).expect("home should create");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
         .args(["config", "path"])
+        .current_dir(&home)
         .env("HOME", &home)
         .env_remove("AICORE_CONFIG_ROOT")
         .output()
@@ -107,6 +109,59 @@ fn config_path_uses_default_home_root_without_override() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains(&format!("root：{}", expected_root.display())));
+}
+
+#[test]
+fn config_path_uses_workspace_instance_root_without_override() {
+    let home = temp_root("config-path-workspace-home");
+    let workspace = home.join("project");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "path"])
+        .current_dir(&workspace)
+        .env("HOME", &home)
+        .env_remove("AICORE_CONFIG_ROOT")
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains(&format!(
+        "root：{}",
+        workspace.join(".aicore").join("config").display()
+    )));
+    assert!(workspace.join(".aicore").join("soul.md").exists());
+    assert!(workspace.join(".gitignore").exists());
+    let gitignore =
+        fs::read_to_string(workspace.join(".gitignore")).expect("gitignore should read");
+    assert!(gitignore.contains(".aicore/"));
+}
+
+#[test]
+fn config_path_uses_ancestor_workspace_marker_without_override() {
+    let home = temp_root("config-path-workspace-ancestor-home");
+    let workspace = home.join("project");
+    let nested = workspace.join("src/bin");
+    fs::create_dir_all(workspace.join(".aicore")).expect("workspace marker should create");
+    fs::create_dir_all(&nested).expect("nested cwd should create");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["config", "path"])
+        .current_dir(&nested)
+        .env("HOME", &home)
+        .env_remove("AICORE_CONFIG_ROOT")
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    assert!(stdout.contains(&format!(
+        "root：{}",
+        workspace.join(".aicore").join("config").display()
+    )));
 }
 
 #[test]

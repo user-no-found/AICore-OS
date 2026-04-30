@@ -5,6 +5,9 @@ use aicore_config::{
     ConfigPaths, ConfigStore, GlobalServiceProfiles, InstanceRuntimeConfig, ModelBinding,
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
+use aicore_foundation::{
+    InstanceKind, ensure_instance_layout, instance_paths, resolve_instance_for_cwd,
+};
 use aicore_memory::{MemoryKernel, MemoryPaths, MemoryScope};
 
 use crate::errors::{config_error, memory_error};
@@ -58,19 +61,31 @@ pub(crate) fn real_config_paths() -> Result<ConfigPaths, String> {
 }
 
 pub(crate) fn real_memory_paths() -> Result<MemoryPaths, String> {
+    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
+        return Ok(MemoryPaths::new(
+            PathBuf::from(root)
+                .join("instances")
+                .join("global-main")
+                .join("memory"),
+        ));
+    }
+
     Ok(MemoryPaths::new(
-        resolve_real_config_root()?
-            .join("instances")
-            .join("global-main")
-            .join("memory"),
+        resolve_runtime_instance_paths()?.memory_dir,
     ))
 }
 
 pub(crate) fn real_event_store_db_path() -> Result<PathBuf, String> {
-    Ok(resolve_event_store_root()?
-        .join("instances")
-        .join("global-main")
-        .join("events")
+    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
+        return Ok(PathBuf::from(root)
+            .join("instances")
+            .join("global-main")
+            .join("events")
+            .join("events.sqlite"));
+    }
+
+    Ok(resolve_runtime_instance_paths()?
+        .events_dir
         .join("events.sqlite"))
 }
 
@@ -179,23 +194,26 @@ fn resolve_real_config_root() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(root));
     }
 
-    let home = resolve_home_dir()?;
-
-    Ok(PathBuf::from(home).join(".aicore").join("config"))
-}
-
-fn resolve_event_store_root() -> Result<PathBuf, String> {
-    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
-        return Ok(PathBuf::from(root));
-    }
-
-    let home = resolve_home_dir()?;
-    Ok(PathBuf::from(home).join(".aicore"))
+    Ok(resolve_runtime_instance_paths()?.config_dir)
 }
 
 fn resolve_home_dir() -> Result<std::ffi::OsString, String> {
     env::var_os("HOME")
         .ok_or_else(|| "无法确定配置根目录，请设置 HOME 或 AICORE_CONFIG_ROOT。".to_string())
+}
+
+fn resolve_runtime_instance_paths() -> Result<aicore_foundation::InstancePaths, String> {
+    let home = PathBuf::from(resolve_home_dir()?);
+    let cwd = env::current_dir().map_err(|error| format!("无法获取当前目录：{error}"))?;
+    let binding = resolve_instance_for_cwd(&cwd, &home).map_err(|error| error.to_string())?;
+    let paths = instance_paths(&binding);
+    ensure_instance_layout(&binding).map_err(|error| error.to_string())?;
+
+    if binding.kind == InstanceKind::GlobalMain {
+        return Ok(paths);
+    }
+
+    Ok(paths)
 }
 
 fn demo_config_root(command_name: &str) -> PathBuf {
