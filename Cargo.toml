@@ -12,6 +12,7 @@ members = [
   "crates/kernel/aicore-kernel",
   "crates/evolution/aicore-evolution",
   "crates/event/aicore-event",
+  "crates/event/aicore-event-sqlite",
   "crates/memory/aicore-memory",
   "crates/provider/aicore-provider",
   "crates/surface/aicore-surface",
