@@ -1,6 +1,10 @@
+use std::fs;
+use std::process::Command;
+
 use aicore_event::{EventGetRequest, EventReader};
 use aicore_event_sqlite::SqliteEventStore;
-use aicore_foundation::InstanceId;
+use aicore_foundation::{InstanceId, ensure_instance_layout, resolve_instance_for_cwd};
+use aicore_memory::{MemoryKernel, MemoryPaths};
 
 use super::support::{
     MemoryTrigger, assert_has_json_event, assert_json_lines, result_event, run_cli_with_env,
@@ -475,6 +479,137 @@ fn memory_event_query_remains_unsupported() {
             .is_some(),
         "get should still work"
     );
+}
+
+#[test]
+fn workspace_memory_remember_uses_workspace_scope_without_config_override() {
+    let home = runtime_home("m6p1-workspace-memory-scope-home");
+    let workspace = home.join("project");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "remember", "workspace scoped memory", "--local"])
+        .current_dir(&workspace)
+        .env("HOME", &home)
+        .env("AICORE_TERMINAL", "json")
+        .env_remove("AICORE_CONFIG_ROOT")
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+    let workspace_memory_root = workspace.join(".aicore").join("memory");
+    let kernel =
+        MemoryKernel::open(MemoryPaths::new(&workspace_memory_root)).expect("kernel should open");
+    let record = kernel
+        .records()
+        .into_iter()
+        .find(|record| record.content == "workspace scoped memory")
+        .expect("workspace memory should exist");
+
+    match &record.scope {
+        aicore_memory::MemoryScope::Workspace {
+            instance_id,
+            workspace_root,
+        } => {
+            assert_ne!(instance_id, "global-main");
+            assert_eq!(workspace_root, &workspace.display().to_string());
+        }
+        other => panic!("expected workspace scope, got {other:?}"),
+    }
+}
+
+#[test]
+fn workspace_memory_event_source_instance_uses_workspace_instance_without_config_override() {
+    let home = runtime_home("m6p1-workspace-event-source-home");
+    let workspace = home.join("project");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+    let binding = resolve_instance_for_cwd(&workspace, &home).expect("workspace should resolve");
+    ensure_instance_layout(&binding).expect("layout should create");
+    let expected_instance = binding.instance_id.as_str().to_string();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-cli"))
+        .args(["memory", "remember", "workspace event source", "--local"])
+        .current_dir(&workspace)
+        .env("HOME", &home)
+        .env("AICORE_TERMINAL", "json")
+        .env_remove("AICORE_CONFIG_ROOT")
+        .output()
+        .expect("aicore-cli should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let result: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("local direct output should be json");
+    assert_eq!(result["fields"]["event_recorded"], "true");
+    let event_id = result["fields"]["event_id"]
+        .as_str()
+        .expect("event_id should exist");
+    let store = SqliteEventStore::open(
+        workspace
+            .join(".aicore")
+            .join("events")
+            .join("events.sqlite"),
+        &binding.instance_id,
+    )
+    .expect("workspace event store should open");
+    let event = store
+        .get(&EventGetRequest::new(event_id))
+        .expect("event get should succeed")
+        .event
+        .expect("event should exist");
+
+    assert_eq!(event.source_instance.as_str(), expected_instance);
+    assert_ne!(event.source_instance.as_str(), "global-main");
+}
+
+#[test]
+fn legacy_config_root_event_source_instance_remains_global_main() {
+    let root = temp_root("m6p1-legacy-event-source");
+    let output = run_component_with_payload(
+        "__component-memory-remember-stdio",
+        "memory.remember",
+        serde_json::json!({ "content": "legacy event source" }),
+        &root,
+    );
+
+    assert!(output.status.success());
+    let value: serde_json::Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim())
+            .expect("component output should be json");
+    let event_id = value["fields"]["event_id"]
+        .as_str()
+        .expect("event_id should exist");
+    let store = open_event_store(&event_db_path_for_root(&root));
+    let event = store
+        .get(&EventGetRequest::new(event_id))
+        .expect("event get should succeed")
+        .event
+        .expect("event should exist");
+
+    assert_eq!(event.source_instance.as_str(), "global-main");
+}
+
+#[test]
+fn legacy_config_root_event_write_failure_still_uses_global_main_guard() {
+    let root = temp_root("m6p1-legacy-event-guard");
+    seed_mismatched_event_store(&root);
+
+    let output = run_component_with_payload(
+        "__component-memory-remember-stdio",
+        "memory.remember",
+        serde_json::json!({ "content": "legacy mismatch still fails" }),
+        &root,
+    );
+
+    assert!(output.status.success());
+    let value: serde_json::Value =
+        serde_json::from_str(String::from_utf8(output.stdout).unwrap().trim())
+            .expect("component output should be json");
+
+    assert_eq!(value["fields"]["write_applied"], "true");
+    assert_eq!(value["fields"]["event_recorded"], "false");
+    assert_eq!(value["fields"]["event_write_status"], "failed");
+    assert!(value["fields"].get("event_id").is_none());
 }
 
 fn event_db_path_for_root(root: &std::path::Path) -> std::path::PathBuf {

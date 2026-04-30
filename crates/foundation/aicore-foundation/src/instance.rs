@@ -164,22 +164,33 @@ fn global_main_binding(home: &Path) -> AicoreResult<InstanceBinding> {
 }
 
 fn workspace_binding(workspace_root: PathBuf) -> AicoreResult<InstanceBinding> {
+    let root = workspace_root.join(".aicore");
+    let instance_id = workspace_instance_id(&workspace_root, &root)?;
     Ok(InstanceBinding {
         kind: InstanceKind::Workspace,
-        instance_id: workspace_instance_id(&workspace_root)?,
-        root: workspace_root.join(".aicore"),
+        instance_id,
+        root,
         workspace_root: Some(workspace_root),
     })
 }
 
-fn workspace_instance_id(workspace_root: &Path) -> AicoreResult<InstanceId> {
+fn workspace_instance_id(workspace_root: &Path, instance_root: &Path) -> AicoreResult<InstanceId> {
+    let instance_toml = instance_root.join("instance.toml");
+    if instance_toml.exists() {
+        let contents = fs::read_to_string(&instance_toml).map_err(io_error)?;
+        if let Some(instance_id) = parse_instance_id(&contents)? {
+            return Ok(instance_id);
+        }
+    }
+
     let name = workspace_root
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .unwrap_or("workspace");
     let sanitized = sanitize_token(name);
-    InstanceId::new(format!("workspace.{sanitized}"))
+    let hash = stable_workspace_hash(workspace_root);
+    InstanceId::new(format!("workspace.{sanitized}.{hash}"))
 }
 
 fn sanitize_token(value: &str) -> String {
@@ -247,6 +258,36 @@ fn render_instance_toml(binding: &InstanceBinding) -> String {
         binding.instance_id.as_str(),
         kind
     )
+}
+
+fn parse_instance_id(contents: &str) -> AicoreResult<Option<InstanceId>> {
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "instance_id" {
+            continue;
+        }
+        let value = value.trim().trim_matches('"');
+        return InstanceId::new(value.to_string()).map(Some);
+    }
+    Ok(None)
+}
+
+fn stable_workspace_hash(workspace_root: &Path) -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET;
+    for byte in workspace_root.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 fn io_error(error: std::io::Error) -> AicoreError {

@@ -6,7 +6,8 @@ use aicore_config::{
     ServiceProfile, ServiceProfileMode, ServiceRole,
 };
 use aicore_foundation::{
-    InstanceKind, ensure_instance_layout, instance_paths, resolve_instance_for_cwd,
+    InstanceBinding, InstanceId, InstanceKind, ensure_instance_layout, instance_paths,
+    resolve_instance_for_cwd,
 };
 use aicore_memory::{MemoryKernel, MemoryPaths, MemoryScope};
 
@@ -71,28 +72,39 @@ pub(crate) fn real_memory_paths() -> Result<MemoryPaths, String> {
     }
 
     Ok(MemoryPaths::new(
-        resolve_runtime_instance_paths()?.memory_dir,
+        resolve_runtime_instance_context()?.paths.memory_dir,
     ))
 }
 
-pub(crate) fn real_event_store_db_path() -> Result<PathBuf, String> {
-    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
-        return Ok(PathBuf::from(root)
-            .join("instances")
-            .join("global-main")
-            .join("events")
-            .join("events.sqlite"));
+pub(crate) fn real_memory_scope() -> Result<MemoryScope, String> {
+    if env::var_os("AICORE_CONFIG_ROOT").is_some() {
+        return Ok(MemoryScope::GlobalMain {
+            instance_id: "global-main".to_string(),
+        });
     }
 
-    Ok(resolve_runtime_instance_paths()?
-        .events_dir
-        .join("events.sqlite"))
+    Ok(memory_scope_for_binding(
+        &resolve_runtime_instance_context()?.binding,
+    ))
 }
 
-pub(crate) fn global_main_memory_scope() -> MemoryScope {
-    MemoryScope::GlobalMain {
-        instance_id: "global-main".to_string(),
+pub(crate) fn real_event_store_binding() -> Result<(PathBuf, InstanceId), String> {
+    if let Some(root) = env::var_os("AICORE_CONFIG_ROOT") {
+        return Ok((
+            PathBuf::from(root)
+                .join("instances")
+                .join("global-main")
+                .join("events")
+                .join("events.sqlite"),
+            InstanceId::global_main(),
+        ));
     }
+
+    let context = resolve_runtime_instance_context()?;
+    Ok((
+        context.paths.events_dir.join("events.sqlite"),
+        context.binding.instance_id,
+    ))
 }
 
 pub(crate) struct InitStatus {
@@ -194,7 +206,7 @@ fn resolve_real_config_root() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(root));
     }
 
-    Ok(resolve_runtime_instance_paths()?.config_dir)
+    Ok(resolve_runtime_instance_context()?.paths.config_dir)
 }
 
 fn resolve_home_dir() -> Result<std::ffi::OsString, String> {
@@ -202,18 +214,36 @@ fn resolve_home_dir() -> Result<std::ffi::OsString, String> {
         .ok_or_else(|| "无法确定配置根目录，请设置 HOME 或 AICORE_CONFIG_ROOT。".to_string())
 }
 
-fn resolve_runtime_instance_paths() -> Result<aicore_foundation::InstancePaths, String> {
+struct RuntimeInstanceContext {
+    pub(crate) binding: InstanceBinding,
+    pub(crate) paths: aicore_foundation::InstancePaths,
+}
+
+fn resolve_runtime_instance_context() -> Result<RuntimeInstanceContext, String> {
     let home = PathBuf::from(resolve_home_dir()?);
     let cwd = env::current_dir().map_err(|error| format!("无法获取当前目录：{error}"))?;
     let binding = resolve_instance_for_cwd(&cwd, &home).map_err(|error| error.to_string())?;
     let paths = instance_paths(&binding);
     ensure_instance_layout(&binding).map_err(|error| error.to_string())?;
 
-    if binding.kind == InstanceKind::GlobalMain {
-        return Ok(paths);
-    }
+    Ok(RuntimeInstanceContext { binding, paths })
+}
 
-    Ok(paths)
+fn memory_scope_for_binding(binding: &InstanceBinding) -> MemoryScope {
+    match binding.kind {
+        InstanceKind::GlobalMain => MemoryScope::GlobalMain {
+            instance_id: binding.instance_id.as_str().to_string(),
+        },
+        InstanceKind::Workspace => MemoryScope::Workspace {
+            instance_id: binding.instance_id.as_str().to_string(),
+            workspace_root: binding
+                .workspace_root
+                .as_ref()
+                .expect("workspace binding should include workspace root")
+                .display()
+                .to_string(),
+        },
+    }
 }
 
 fn demo_config_root(command_name: &str) -> PathBuf {

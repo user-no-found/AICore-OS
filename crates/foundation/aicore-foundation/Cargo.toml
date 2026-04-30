@@ -9,6 +9,3 @@ authors.workspace = true
 
 [dependencies]
 serde.workspace = true
-
-[dev-dependencies]
-tempfile = "3"

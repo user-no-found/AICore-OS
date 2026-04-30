@@ -5,7 +5,7 @@ use aicore_event::{
 use aicore_event_sqlite::SqliteEventStore;
 use aicore_foundation::{AicoreClock, ComponentId, EventId, InstanceId, SystemClock};
 
-use crate::config_store::real_event_store_db_path;
+use crate::config_store::real_event_store_binding;
 
 const SOURCE_COMPONENT: &str = "aicore-memory";
 const REDACTION_LEVEL: &str = "summary";
@@ -73,17 +73,17 @@ pub(crate) fn record_memory_business_event(
         Err(_) => return failed_outcome("event_id_invalid"),
     };
 
-    let event_store_path = match real_event_store_db_path() {
-        Ok(path) => path,
+    let (event_store_path, instance_id) = match real_event_store_binding() {
+        Ok(binding) => binding,
         Err(_) => return failed_outcome("event_store_path_failed"),
     };
 
-    let store = match SqliteEventStore::open(&event_store_path, &InstanceId::global_main()) {
+    let store = match SqliteEventStore::open(&event_store_path, &instance_id) {
         Ok(store) => store,
         Err(_) => return failed_outcome("event_store_open_failed"),
     };
 
-    let envelope = match build_envelope(&kind, subject_id, &event_id) {
+    let envelope = match build_envelope(&kind, subject_id, &event_id, instance_id) {
         Ok(envelope) => envelope,
         Err(_) => return failed_outcome("event_build_failed"),
     };
@@ -103,6 +103,7 @@ fn build_envelope(
     kind: &MemoryBusinessEventKind,
     subject_id: &str,
     event_id: &EventId,
+    source_instance: InstanceId,
 ) -> Result<EventEnvelope, aicore_foundation::AicoreError> {
     let tags = EventTagSet::new()
         .with_tag(EventTag::new("source:memory")?)
@@ -115,7 +116,7 @@ fn build_envelope(
         kind.event_type(),
         SystemClock.now(),
         ComponentId::new(SOURCE_COMPONENT)?,
-        InstanceId::global_main(),
+        source_instance,
         kind.subject_type(),
         subject_id.to_string(),
         kind.summary(),

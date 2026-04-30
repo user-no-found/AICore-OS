@@ -1,7 +1,5 @@
 use std::fs;
-use std::path::Path;
-
-use tempfile::TempDir;
+use std::path::{Path, PathBuf};
 
 use crate::{
     DEFAULT_INSTANCE_SOUL, InstanceKind, ensure_instance_layout, ensure_workspace_gitignore,
@@ -183,16 +181,88 @@ fn instance_paths_keep_existing_events_directory_compatibility() {
     assert_eq!(paths.events_dir, home.join(".aicore").join("events"));
 }
 
-fn temp_root(name: &str) -> TempDir {
-    tempfile::Builder::new()
-        .prefix(&format!("aicore-foundation-{name}-"))
-        .tempdir()
-        .expect("temp dir should create")
+#[test]
+fn different_workspaces_with_same_directory_name_get_distinct_instance_ids() {
+    let sandbox = temp_root("workspace-same-name");
+    let home = sandbox.path().join("home");
+    let first = home.join("parent-a").join("project");
+    let second = home.join("parent-b").join("project");
+    fs::create_dir_all(&first).expect("first workspace should create");
+    fs::create_dir_all(&second).expect("second workspace should create");
+
+    let first_binding = resolve_instance_for_cwd(&first, &home).expect("first should resolve");
+    let second_binding = resolve_instance_for_cwd(&second, &home).expect("second should resolve");
+
+    assert_ne!(
+        first_binding.instance_id.as_str(),
+        second_binding.instance_id.as_str()
+    );
 }
 
-#[allow(dead_code)]
-fn assert_not_real_host_path(path: &Path) {
-    let text = path.display().to_string();
-    assert!(!text.starts_with("/vol1/"));
-    assert!(!text.starts_with("/home/sun"));
+#[test]
+fn workspace_instance_id_is_stable_after_ensure_and_resolve() {
+    let sandbox = temp_root("workspace-stable-id");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+
+    let first = resolve_instance_for_cwd(&workspace, &home).expect("first should resolve");
+    ensure_instance_layout(&first).expect("layout should create");
+    let second = resolve_instance_for_cwd(&workspace, &home).expect("second should resolve");
+    ensure_instance_layout(&second).expect("layout should remain stable");
+    let third = resolve_instance_for_cwd(&workspace, &home).expect("third should resolve");
+
+    assert_eq!(first.instance_id, second.instance_id);
+    assert_eq!(second.instance_id, third.instance_id);
+    assert_eq!(
+        fs::read_to_string(workspace.join(".aicore").join("instance.toml"))
+            .expect("instance metadata should read")
+            .matches("instance_id")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn workspace_instance_id_survives_workspace_move_with_aicore_directory() {
+    let sandbox = temp_root("workspace-move-id");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let moved = home.join("renamed");
+    fs::create_dir_all(&workspace).expect("workspace should create");
+
+    let first = resolve_instance_for_cwd(&workspace, &home).expect("first should resolve");
+    ensure_instance_layout(&first).expect("layout should create");
+    let expected = first.instance_id.clone();
+    fs::rename(&workspace, &moved).expect("workspace should move");
+
+    let moved_binding = resolve_instance_for_cwd(&moved, &home).expect("moved should resolve");
+
+    assert_eq!(moved_binding.instance_id, expected);
+}
+
+struct TempRoot {
+    path: PathBuf,
+}
+
+impl TempRoot {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempRoot {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn temp_root(name: &str) -> TempRoot {
+    let root =
+        std::env::temp_dir().join(format!("aicore-foundation-{name}-{}", std::process::id()));
+    if root.exists() {
+        fs::remove_dir_all(&root).expect("temp root should reset");
+    }
+    fs::create_dir_all(&root).expect("temp root should create");
+    TempRoot { path: root }
 }

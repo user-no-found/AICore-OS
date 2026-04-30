@@ -2,7 +2,7 @@ use std::fs;
 
 use aicore_memory::{MemoryAuditReport, MemoryProposalStatus, SearchQuery};
 
-use crate::config_store::{global_main_memory_scope, real_memory_kernel, real_memory_paths};
+use crate::config_store::{real_memory_kernel, real_memory_paths, real_memory_scope};
 use crate::errors::memory_error;
 use crate::names::{memory_permanence_name, memory_source_name, memory_type_name};
 
@@ -17,7 +17,7 @@ pub(crate) fn build_memory_status_report() -> Result<(String, serde_json::Value)
         format!("Memory status 读取完成：{} 条记录", kernel.records().len()),
         serde_json::json!({
             "operation": "memory.status",
-            "scope": "global-main",
+            "scope": scope_name(&real_memory_scope()?),
             "record_count": kernel.records().len().to_string(),
             "proposal_count": kernel.proposals().len().to_string(),
             "event_count": kernel.events().len().to_string(),
@@ -41,7 +41,7 @@ pub(crate) fn build_memory_search_report(
     let results = kernel
         .search(SearchQuery {
             text: query.to_string(),
-            scope: Some(global_main_memory_scope()),
+            scope: Some(real_memory_scope()?),
             memory_type: options.memory_type.clone(),
             source: options.source.clone(),
             permanence: options.permanence.clone(),
@@ -75,6 +75,13 @@ pub(crate) fn build_memory_search_report(
             "kernel_invocation_path": "binary"
         }),
     ))
+}
+
+fn scope_name(scope: &aicore_memory::MemoryScope) -> &'static str {
+    match scope {
+        aicore_memory::MemoryScope::GlobalMain { .. } => "global-main",
+        aicore_memory::MemoryScope::Workspace { .. } => "workspace",
+    }
 }
 
 pub(crate) fn build_memory_proposals_report() -> Result<(String, serde_json::Value), String> {

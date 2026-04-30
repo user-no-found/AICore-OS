@@ -1,6 +1,6 @@
 use aicore_memory::{MemoryPermanence, MemoryType, RememberInput};
 
-use crate::config_store::{global_main_memory_scope, real_memory_kernel};
+use crate::config_store::{real_memory_kernel, real_memory_scope};
 use crate::errors::memory_error;
 
 use super::event_adoption::{
@@ -18,7 +18,7 @@ pub(crate) fn build_memory_remember_write_report(
         .remember_user_explicit(RememberInput {
             memory_type: MemoryType::Core,
             permanence: MemoryPermanence::Standard,
-            scope: global_main_memory_scope(),
+            scope: real_memory_scope()?,
             content: content.to_string(),
             localized_summary: content.to_string(),
             state_key: None,

@@ -2,7 +2,7 @@ use aicore_agent::{AgentSessionRunner, AgentTurnInput, AgentTurnOutcome, AgentTu
 use aicore_kernel::{GatewaySource, InterruptMode, TransportEnvelope, default_runtime};
 
 use crate::config_store::{
-    global_main_memory_scope, load_real_auth_pool, real_config_store, real_memory_kernel,
+    load_real_auth_pool, real_config_store, real_memory_kernel, real_memory_scope,
 };
 use crate::errors::map_runtime_load_error;
 use crate::names::{
@@ -45,7 +45,7 @@ pub(crate) fn build_agent_smoke_report(content: &str) -> Result<AgentSmokeReport
         &memory_kernel,
         &auth_pool,
         &runtime_config,
-        cli_turn_input(&runtime_config.instance_id, content),
+        cli_turn_input(&runtime_config.instance_id, content, real_memory_scope()?),
     )
     .map_err(|error| error.0)?;
     let surface = result.to_conversation_surface();
@@ -108,8 +108,8 @@ pub(crate) fn build_agent_session_smoke_report(
         &auth_pool,
         &runtime_config,
         vec![
-            cli_turn_input(&runtime_config.instance_id, first),
-            cli_turn_input(&runtime_config.instance_id, second),
+            cli_turn_input(&runtime_config.instance_id, first, real_memory_scope()?),
+            cli_turn_input(&runtime_config.instance_id, second, real_memory_scope()?),
         ],
     )
     .map_err(|error| error.0)?;
@@ -164,7 +164,11 @@ pub(crate) fn build_agent_session_smoke_report(
     })
 }
 
-fn cli_turn_input(instance_id: &str, content: &str) -> AgentTurnInput {
+fn cli_turn_input(
+    instance_id: &str,
+    content: &str,
+    scope: aicore_memory::MemoryScope,
+) -> AgentTurnInput {
     AgentTurnInput {
         instance_id: instance_id.to_string(),
         transport_envelope: TransportEnvelope {
@@ -176,7 +180,7 @@ fn cli_turn_input(instance_id: &str, content: &str) -> AgentTurnInput {
             mentioned_bot: false,
         },
         interrupt_mode: InterruptMode::Queue,
-        scope: global_main_memory_scope(),
+        scope,
         user_input: content.to_string(),
         memory_query: None,
         memory_limit: Some(8),

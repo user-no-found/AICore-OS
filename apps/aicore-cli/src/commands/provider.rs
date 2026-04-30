@@ -4,7 +4,7 @@ use aicore_terminal::{TerminalConfig, TerminalMode};
 
 use crate::commands::kernel::{adopt_readonly, emit_local_direct_json};
 use crate::config_store::{
-    global_main_memory_scope, load_real_auth_pool, real_config_store, real_memory_kernel,
+    load_real_auth_pool, real_config_store, real_memory_kernel, real_memory_scope,
 };
 use crate::errors::{map_runtime_load_error, provider_error};
 use crate::names::{provider_availability_name, provider_kind_name};
@@ -74,7 +74,7 @@ pub(crate) fn build_provider_smoke_report() -> Result<ProviderSmokeReport, Strin
     let memory_pack = memory_kernel.build_memory_context_pack(
         SearchQuery {
             text: "provider smoke".to_string(),
-            scope: Some(global_main_memory_scope()),
+            scope: Some(real_memory_scope()?),
             memory_type: None,
             source: None,
             permanence: None,
