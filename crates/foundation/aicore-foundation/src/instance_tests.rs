@@ -241,6 +241,81 @@ fn workspace_instance_id_survives_workspace_move_with_aicore_directory() {
     assert_eq!(moved_binding.instance_id, expected);
 }
 
+#[test]
+fn workspace_metadata_rejects_global_main_instance_id() {
+    let sandbox = temp_root("workspace-global-main-id");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let instance_root = workspace.join(".aicore");
+    fs::create_dir_all(&instance_root).expect("instance root should create");
+    fs::write(
+        instance_root.join("instance.toml"),
+        "instance_id = \"global-main\"\ninstance_kind = \"workspace\"\n",
+    )
+    .expect("instance metadata should write");
+
+    let error =
+        resolve_instance_for_cwd(&workspace, &home).expect_err("global-main id should fail");
+
+    assert!(error.to_string().contains("global-main"));
+}
+
+#[test]
+fn workspace_metadata_rejects_global_main_instance_kind() {
+    let sandbox = temp_root("workspace-global-main-kind");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let instance_root = workspace.join(".aicore");
+    fs::create_dir_all(&instance_root).expect("instance root should create");
+    fs::write(
+        instance_root.join("instance.toml"),
+        "instance_id = \"workspace.project.safe\"\ninstance_kind = \"global-main\"\n",
+    )
+    .expect("instance metadata should write");
+
+    let error =
+        resolve_instance_for_cwd(&workspace, &home).expect_err("global-main kind should fail");
+
+    assert!(error.to_string().contains("instance_kind"));
+}
+
+#[test]
+fn workspace_metadata_rejects_unknown_instance_kind() {
+    let sandbox = temp_root("workspace-unknown-kind");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let instance_root = workspace.join(".aicore");
+    fs::create_dir_all(&instance_root).expect("instance root should create");
+    fs::write(
+        instance_root.join("instance.toml"),
+        "instance_id = \"workspace.project.safe\"\ninstance_kind = \"unknown\"\n",
+    )
+    .expect("instance metadata should write");
+
+    let error = resolve_instance_for_cwd(&workspace, &home).expect_err("unknown kind should fail");
+
+    assert!(error.to_string().contains("instance_kind"));
+}
+
+#[test]
+fn workspace_metadata_accepts_workspace_kind_with_workspace_instance_id() {
+    let sandbox = temp_root("workspace-kind-valid");
+    let home = sandbox.path().join("home");
+    let workspace = home.join("project");
+    let instance_root = workspace.join(".aicore");
+    fs::create_dir_all(&instance_root).expect("instance root should create");
+    fs::write(
+        instance_root.join("instance.toml"),
+        "instance_id = \"workspace.project.safe\"\ninstance_kind = \"workspace\"\n",
+    )
+    .expect("instance metadata should write");
+
+    let binding = resolve_instance_for_cwd(&workspace, &home).expect("workspace should resolve");
+
+    assert_eq!(binding.kind, InstanceKind::Workspace);
+    assert_eq!(binding.instance_id.as_str(), "workspace.project.safe");
+}
+
 struct TempRoot {
     path: PathBuf,
 }

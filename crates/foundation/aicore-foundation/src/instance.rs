@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::instance_metadata::parse_instance_metadata;
 use crate::{AicoreError, AicoreResult, InstanceId};
 
 pub const DEFAULT_INSTANCE_SOUL: &str = "You are AICore OS current active turn's Agent Runtime.\n";
@@ -178,7 +179,20 @@ fn workspace_instance_id(workspace_root: &Path, instance_root: &Path) -> AicoreR
     let instance_toml = instance_root.join("instance.toml");
     if instance_toml.exists() {
         let contents = fs::read_to_string(&instance_toml).map_err(io_error)?;
-        if let Some(instance_id) = parse_instance_id(&contents)? {
+        let metadata = parse_instance_metadata(&contents)?;
+        if let Some(instance_kind) = metadata.instance_kind {
+            if instance_kind != "workspace" {
+                return Err(AicoreError::InvalidState(format!(
+                    "workspace instance metadata has invalid instance_kind: {instance_kind}"
+                )));
+            }
+        }
+        if let Some(instance_id) = metadata.instance_id {
+            if instance_id == InstanceId::global_main() {
+                return Err(AicoreError::InvalidInstanceId(
+                    "workspace instance metadata cannot use global-main".to_string(),
+                ));
+            }
             return Ok(instance_id);
         }
     }
@@ -258,24 +272,6 @@ fn render_instance_toml(binding: &InstanceBinding) -> String {
         binding.instance_id.as_str(),
         kind
     )
-}
-
-fn parse_instance_id(contents: &str) -> AicoreResult<Option<InstanceId>> {
-    for line in contents.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if key.trim() != "instance_id" {
-            continue;
-        }
-        let value = value.trim().trim_matches('"');
-        return InstanceId::new(value.to_string()).map(Some);
-    }
-    Ok(None)
 }
 
 fn stable_workspace_hash(workspace_root: &Path) -> String {

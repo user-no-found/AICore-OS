@@ -2,6 +2,7 @@ pub mod cancellation;
 pub mod error;
 pub mod ids;
 pub mod instance;
+mod instance_metadata;
 pub mod lease;
 pub mod paths;
 pub mod queue;
