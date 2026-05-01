@@ -7,8 +7,12 @@ use rusqlite::Connection;
 
 use crate::schema;
 
+pub mod audit_writer;
 pub mod helpers;
+pub mod message_writer;
 pub mod reader;
+pub mod runtime_state_writer;
+pub mod session_turn_writer;
 pub mod writer;
 
 pub struct SqliteSessionStore {
@@ -16,6 +20,8 @@ pub struct SqliteSessionStore {
     instance_id: InstanceId,
     connection: Mutex<Connection>,
 }
+
+pub type SqliteSessionLedger = SqliteSessionStore;
 
 impl SqliteSessionStore {
     pub fn open(path: impl AsRef<Path>, instance_id: &InstanceId) -> AicoreResult<Self> {
@@ -38,8 +44,8 @@ impl SqliteSessionStore {
         })
     }
 
-    pub(crate) fn instance_id(&self) -> &str {
-        self.instance_id.as_str()
+    pub fn open_or_init(path: impl AsRef<Path>, instance_id: &InstanceId) -> AicoreResult<Self> {
+        Self::open(path, instance_id)
     }
 
     pub(crate) fn lock_connection(&self) -> AicoreResult<MutexGuard<'_, Connection>> {

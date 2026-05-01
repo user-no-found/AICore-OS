@@ -1,8 +1,9 @@
 use aicore_foundation::{AicoreResult, InstanceId, SessionId};
 
 use crate::types::{
-    AppendMessageRequest, BeginTurnRequest, CreateSessionRequest, FinishTurnRequest,
-    InstanceRuntimeSnapshot, MessageRecord, SessionRecord, SessionSummary,
+    AppendControlEventRequest, AppendLedgerWriteRequest, AppendMessageRequest, BeginTurnRequest,
+    CreateSessionRequest, FinishTurnRequest, InstanceRuntimeSnapshot, MessageRecord, SessionRecord,
+    SessionSummary, SetRuntimeStateRequest, TurnRecord,
 };
 
 pub trait SessionLedgerWriter {
@@ -10,6 +11,9 @@ pub trait SessionLedgerWriter {
     fn begin_turn(&self, request: &BeginTurnRequest) -> AicoreResult<()>;
     fn finish_turn(&self, request: &FinishTurnRequest) -> AicoreResult<()>;
     fn append_message(&self, request: &AppendMessageRequest) -> AicoreResult<()>;
+    fn append_control_event(&self, request: &AppendControlEventRequest) -> AicoreResult<()>;
+    fn append_ledger_write(&self, request: &AppendLedgerWriteRequest) -> AicoreResult<()>;
+    fn set_runtime_state(&self, request: &SetRuntimeStateRequest) -> AicoreResult<()>;
 
     fn create_pending_input(&self) -> AicoreResult<()> {
         Err(aicore_foundation::AicoreError::Unavailable(
@@ -32,8 +36,11 @@ pub trait SessionLedgerWriter {
 
 pub trait SessionLedgerReader {
     fn get_session(&self, session_id: &SessionId) -> AicoreResult<Option<SessionRecord>>;
+    fn get_turn(&self, turn_id: &str) -> AicoreResult<Option<TurnRecord>>;
     fn list_sessions(&self) -> AicoreResult<Vec<SessionSummary>>;
     fn read_messages(&self, session_id: &SessionId) -> AicoreResult<Vec<MessageRecord>>;
+    fn get_messages_for_turn(&self, turn_id: &str) -> AicoreResult<Vec<MessageRecord>>;
+    fn get_runtime_state(&self) -> AicoreResult<InstanceRuntimeSnapshot>;
     fn get_current_snapshot(&self) -> AicoreResult<InstanceRuntimeSnapshot>;
 
     fn read_pending_inputs(&self) -> AicoreResult<()> {

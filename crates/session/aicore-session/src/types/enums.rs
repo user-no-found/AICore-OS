@@ -62,16 +62,37 @@ impl MessageKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ControlEventType {
+pub enum MessageRole {
+    User,
+    Assistant,
+    System,
+    Tool,
+}
+
+impl MessageRole {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Assistant => "assistant",
+            Self::System => "system",
+            Self::Tool => "tool",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlEventKind {
     SessionCreated,
     TurnBegan,
     TurnFinished,
     MessageAppended,
     TurnInterrupted,
     RuntimeStateUpdated,
+    Custom,
 }
 
-impl ControlEventType {
+impl ControlEventKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::SessionCreated => "session_created",
@@ -80,24 +101,76 @@ impl ControlEventType {
             Self::MessageAppended => "message_appended",
             Self::TurnInterrupted => "turn_interrupted",
             Self::RuntimeStateUpdated => "runtime_state_updated",
+            Self::Custom => "custom",
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum LedgerWriteType {
+pub enum LedgerWriteKind {
     Insert,
     Update,
     Delete,
 }
 
-impl LedgerWriteType {
+impl LedgerWriteKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Insert => "insert",
             Self::Update => "update",
             Self::Delete => "delete",
+        }
+    }
+}
+
+pub type ControlEventType = ControlEventKind;
+pub type LedgerWriteType = LedgerWriteKind;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    Pending,
+    Approved,
+    Rejected,
+    Cancelled,
+    Expired,
+    Stale,
+}
+
+impl ApprovalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+            Self::Cancelled => "cancelled",
+            Self::Expired => "expired",
+            Self::Stale => "stale",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PendingInputStatus {
+    Pending,
+    Confirmed,
+    Cancelled,
+    Replaced,
+    Expired,
+    Stale,
+}
+
+impl PendingInputStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Confirmed => "confirmed",
+            Self::Cancelled => "cancelled",
+            Self::Replaced => "replaced",
+            Self::Expired => "expired",
+            Self::Stale => "stale",
         }
     }
 }

@@ -1,7 +1,7 @@
 use aicore_foundation::{AicoreResult, SessionId};
 use aicore_session::traits::SessionLedgerReader;
 use aicore_session::types::{
-    InstanceRuntimeSnapshot, MessageRecord, SessionRecord, SessionSummary,
+    InstanceRuntimeSnapshot, MessageRecord, SessionRecord, SessionSummary, TurnRecord, TurnStatus,
 };
 use rusqlite::{OptionalExtension, params};
 
@@ -65,12 +65,34 @@ impl SessionLedgerReader for SqliteSessionStore {
             .map_err(sqlite_read_error)
     }
 
+    fn get_turn(&self, turn_id: &str) -> AicoreResult<Option<TurnRecord>> {
+        let conn = self.lock_connection()?;
+        conn.query_row(
+            "SELECT turn_id, session_id, turn_seq, status, started_at, finished_at
+             FROM turns WHERE turn_id = ?1",
+            params![turn_id],
+            |row| {
+                let status: String = row.get(3)?;
+                Ok(TurnRecord {
+                    turn_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    turn_seq: row.get::<_, i64>(2)? as u64,
+                    status: parse_turn_status(&status),
+                    started_at: row.get::<_, i64>(4)? as u128,
+                    finished_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u128),
+                })
+            },
+        )
+        .optional()
+        .map_err(sqlite_read_error)
+    }
+
     fn read_messages(&self, session_id: &SessionId) -> AicoreResult<Vec<MessageRecord>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn
             .prepare(
                 "SELECT message_id, session_id, turn_id, message_seq, kind, content, created_at, metadata
-                 FROM messages WHERE session_id = ?1 ORDER BY created_at, message_seq",
+                 FROM messages WHERE session_id = ?1 ORDER BY created_at, COALESCE(message_seq, 0)",
             )
             .map_err(sqlite_read_error)?;
         let rows = stmt
@@ -93,6 +115,37 @@ impl SessionLedgerReader for SqliteSessionStore {
             .map_err(sqlite_read_error)?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(sqlite_read_error)
+    }
+
+    fn get_messages_for_turn(&self, turn_id: &str) -> AicoreResult<Vec<MessageRecord>> {
+        let conn = self.lock_connection()?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT message_id, session_id, turn_id, message_seq, kind, content, created_at, metadata
+                 FROM messages WHERE turn_id = ?1 ORDER BY message_seq, created_at",
+            )
+            .map_err(sqlite_read_error)?;
+        let rows = stmt
+            .query_map(params![turn_id], |row| {
+                let meta: Option<String> = row.get(7)?;
+                Ok(MessageRecord {
+                    message_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    turn_id: row.get(2)?,
+                    message_seq: row.get::<_, i64>(3)? as u64,
+                    kind: parse_message_kind(&row.get::<_, String>(4)?),
+                    content: row.get(5)?,
+                    created_at: row.get::<_, i64>(6)? as u128,
+                    metadata: meta.and_then(|value| serde_json::from_str(&value).ok()),
+                })
+            })
+            .map_err(sqlite_read_error)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(sqlite_read_error)
+    }
+
+    fn get_runtime_state(&self) -> AicoreResult<InstanceRuntimeSnapshot> {
+        self.get_current_snapshot()
     }
 
     fn get_current_snapshot(&self) -> AicoreResult<InstanceRuntimeSnapshot> {
@@ -131,5 +184,14 @@ impl SessionLedgerReader for SqliteSessionStore {
 
     fn read_approval_responses(&self) -> AicoreResult<()> {
         Err(crate::error::unsupported_api("read_approval_responses"))
+    }
+}
+
+fn parse_turn_status(s: &str) -> TurnStatus {
+    match s {
+        "completed" => TurnStatus::Completed,
+        "interrupted" => TurnStatus::Interrupted,
+        "cancelled" => TurnStatus::Cancelled,
+        _ => TurnStatus::Active,
     }
 }

@@ -2,13 +2,20 @@ pub mod enums;
 pub mod record;
 pub mod request;
 
+#[cfg(test)]
+mod tests;
+
 pub use enums::{
-    ControlEventType, LedgerWriteType, MessageKind, RuntimeStatus, SessionStatus, TurnStatus,
+    ApprovalStatus, ControlEventKind, LedgerWriteKind, MessageKind, MessageRole,
+    PendingInputStatus, RuntimeStatus, SessionStatus, TurnStatus,
 };
+pub use enums::{ControlEventType, LedgerWriteType};
 pub use record::{
-    ControlEvent, InstanceRuntimeSnapshot, InstanceRuntimeState, LedgerWrite, MessageRecord,
-    SessionRecord, TurnRecord,
+    ApprovalId, ControlEventId, ControlEventRecord, InstanceRuntimeSnapshot, InstanceRuntimeState,
+    LedgerWriteId, LedgerWriteRecord, MessageId, MessageRecord, PendingInputId, SessionRecord,
+    TurnId, TurnRecord,
 };
 pub use request::{
-    AppendMessageRequest, BeginTurnRequest, CreateSessionRequest, FinishTurnRequest, SessionSummary,
+    AppendControlEventRequest, AppendLedgerWriteRequest, AppendMessageRequest, BeginTurnRequest,
+    CreateSessionRequest, FinishTurnRequest, SessionSummary, SetRuntimeStateRequest,
 };

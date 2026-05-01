@@ -1,16 +1,17 @@
 use aicore_foundation::{AicoreClock, InstanceId, SessionId, SystemClock};
-use aicore_session::traits::{SessionLedger, SessionLedgerReader, SessionLedgerWriter};
+use aicore_session::traits::SessionLedger;
 use aicore_session::types::{
-    AppendMessageRequest, BeginTurnRequest, CreateSessionRequest, FinishTurnRequest, MessageKind,
-    RuntimeStatus, SessionStatus, TurnStatus,
+    AppendControlEventRequest, AppendLedgerWriteRequest, AppendMessageRequest, BeginTurnRequest,
+    ControlEventKind, CreateSessionRequest, FinishTurnRequest, LedgerWriteKind, MessageKind,
+    RuntimeStatus, SessionStatus, SetRuntimeStateRequest, TurnStatus,
 };
 
-use crate::tests::{open_store, temp_db_path};
+use crate::tests::{open_store, temp_store_path};
 
 #[test]
 fn create_session_atomic_writes_all_tables() {
-    let path = temp_db_path("tx-create-session");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-create-session");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.001").expect("valid session id");
     let now = SystemClock.now();
@@ -18,6 +19,7 @@ fn create_session_atomic_writes_all_tables() {
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Test Session".to_string(),
             created_at: now,
@@ -36,7 +38,7 @@ fn create_session_atomic_writes_all_tables() {
     assert_eq!(session.status, SessionStatus::Active);
 
     // Verify control_event was written
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let event_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM control_events WHERE instance_id = ?1",
@@ -65,13 +67,14 @@ fn create_session_atomic_writes_all_tables() {
 
 #[test]
 fn begin_turn_atomic_writes_all_tables() {
-    let path = temp_db_path("tx-begin-turn");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-begin-turn");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.002").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Session 2".to_string(),
             created_at: SystemClock.now(),
@@ -82,6 +85,7 @@ fn begin_turn_atomic_writes_all_tables() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -90,7 +94,7 @@ fn begin_turn_atomic_writes_all_tables() {
         .expect("begin_turn should succeed");
 
     // Verify control_events and ledger_writes have grown
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let event_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM control_events", [], |row| row.get(0))
         .unwrap();
@@ -112,13 +116,14 @@ fn begin_turn_atomic_writes_all_tables() {
 
 #[test]
 fn append_message_atomic_writes_all_tables() {
-    let path = temp_db_path("tx-append-msg");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-append-msg");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.003").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Session 3".to_string(),
             created_at: SystemClock.now(),
@@ -129,6 +134,7 @@ fn append_message_atomic_writes_all_tables() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -139,6 +145,7 @@ fn append_message_atomic_writes_all_tables() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.001".to_string()),
             message_id: "msg.001".to_string(),
@@ -161,7 +168,7 @@ fn append_message_atomic_writes_all_tables() {
     assert_eq!(messages[0].kind, MessageKind::User);
 
     // Verify ledger_writes has grown (but not control_events for append_message)
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let event_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM control_events", [], |row| row.get(0))
         .unwrap();
@@ -182,13 +189,14 @@ fn append_message_atomic_writes_all_tables() {
 
 #[test]
 fn finish_turn_clears_active_turn() {
-    let path = temp_db_path("tx-finish-turn");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-finish-turn");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.004").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Session 4".to_string(),
             created_at: SystemClock.now(),
@@ -199,6 +207,7 @@ fn finish_turn_clears_active_turn() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -209,6 +218,7 @@ fn finish_turn_clears_active_turn() {
     store
         .writer()
         .finish_turn(&FinishTurnRequest {
+            instance_id: InstanceId::global_main(),
             turn_id: "turn.001".to_string(),
             finished_at: SystemClock.now(),
             terminal_status: TurnStatus::Completed,
@@ -225,11 +235,12 @@ fn finish_turn_clears_active_turn() {
 
 #[test]
 fn append_message_to_nonexistent_session_fails() {
-    let path = temp_db_path("tx-orphan-msg");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-orphan-msg");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.orphan").expect("valid session id");
     let result = store.writer().append_message(&AppendMessageRequest {
+        instance_id: InstanceId::global_main(),
         session_id,
         turn_id: None,
         message_id: "msg.001".to_string(),
@@ -252,7 +263,7 @@ fn append_message_to_nonexistent_session_fails() {
     );
 
     // Verify no messages written
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let msg_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
         .unwrap();
@@ -261,13 +272,14 @@ fn append_message_to_nonexistent_session_fails() {
 
 #[test]
 fn append_message_to_nonexistent_turn_fails() {
-    let path = temp_db_path("tx-orphan-turn");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-orphan-turn");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.005").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Session 5".to_string(),
             created_at: SystemClock.now(),
@@ -276,6 +288,7 @@ fn append_message_to_nonexistent_turn_fails() {
         .unwrap();
 
     let result = store.writer().append_message(&AppendMessageRequest {
+        instance_id: InstanceId::global_main(),
         session_id: session_id.clone(),
         turn_id: Some("turn.does.not.exist".to_string()),
         message_id: "msg.001".to_string(),
@@ -295,10 +308,11 @@ fn append_message_to_nonexistent_turn_fails() {
 
 #[test]
 fn finish_turn_to_nonexistent_turn_fails() {
-    let path = temp_db_path("tx-finish-orphan");
-    let store = open_store(&path);
+    let path = temp_store_path("tx-finish-orphan");
+    let store = open_store(path.db_path());
 
     let result = store.writer().finish_turn(&FinishTurnRequest {
+        instance_id: InstanceId::global_main(),
         turn_id: "turn.does.not.exist".to_string(),
         finished_at: SystemClock.now(),
         terminal_status: TurnStatus::Completed,
@@ -309,4 +323,116 @@ fn finish_turn_to_nonexistent_turn_fails() {
         "finish_turn for nonexistent turn should fail"
     );
     assert!(result.unwrap_err().to_string().contains("turn not found"));
+}
+
+#[test]
+fn append_control_event_and_ledger_write_do_not_write_messages() {
+    let path = temp_store_path("tx-control-write-separate");
+    let store = open_store(path.db_path());
+
+    store
+        .writer()
+        .append_control_event(&AppendControlEventRequest {
+            instance_id: InstanceId::global_main(),
+            turn_id: Some("turn.audit".to_string()),
+            event_id: "event.audit.001".to_string(),
+            event_kind: ControlEventKind::RuntimeStateUpdated,
+            detail: "runtime_state_updated".to_string(),
+            created_at: SystemClock.now(),
+        })
+        .unwrap();
+
+    store
+        .writer()
+        .append_ledger_write(&AppendLedgerWriteRequest {
+            instance_id: InstanceId::global_main(),
+            turn_id: Some("turn.audit".to_string()),
+            write_id: "write.audit.001".to_string(),
+            write_kind: LedgerWriteKind::Insert,
+            target_table: "control_events".to_string(),
+            target_id: "event.audit.001".to_string(),
+            created_at: SystemClock.now(),
+        })
+        .unwrap();
+
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
+    let message_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM messages", [], |row| row.get(0))
+        .unwrap();
+    let event_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM control_events", [], |row| row.get(0))
+        .unwrap();
+    let write_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ledger_writes", [], |row| row.get(0))
+        .unwrap();
+
+    assert_eq!(message_count, 0);
+    assert_eq!(event_count, 1);
+    assert_eq!(write_count, 1);
+}
+
+#[test]
+fn set_runtime_state_updates_recovery_pointers_only() {
+    let path = temp_store_path("tx-runtime-state");
+    let store = open_store(path.db_path());
+
+    store
+        .writer()
+        .set_runtime_state(&SetRuntimeStateRequest {
+            instance_id: InstanceId::global_main(),
+            active_session_id: Some("sess.runtime".to_string()),
+            active_turn_id: Some("turn.runtime".to_string()),
+            pending_input_id: Some("pending.runtime".to_string()),
+            pending_approval_id: Some("approval.runtime".to_string()),
+            runtime_status: RuntimeStatus::Stopping,
+            dirty_shutdown: true,
+            recovery_required: true,
+            updated_at: SystemClock.now(),
+        })
+        .unwrap();
+
+    let snapshot = store.reader().get_runtime_state().unwrap();
+    assert_eq!(snapshot.active_session_id, Some("sess.runtime".to_string()));
+    assert_eq!(snapshot.active_turn_id, Some("turn.runtime".to_string()));
+    assert_eq!(snapshot.runtime_status, RuntimeStatus::Stopping);
+    assert!(snapshot.dirty_shutdown);
+    assert!(snapshot.recovery_required);
+}
+
+#[test]
+fn mismatched_instance_id_rejects_write_without_partial_rows() {
+    let path = temp_store_path("tx-instance-mismatch");
+    let store = open_store(path.db_path());
+    let other = InstanceId::new("workspace.other").unwrap();
+    let session_id = SessionId::new("sess.mismatch").unwrap();
+
+    let result = store.writer().create_session(&CreateSessionRequest {
+        instance_id: other,
+        session_id,
+        title: "Mismatch".to_string(),
+        created_at: SystemClock.now(),
+        metadata: None,
+    });
+
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("instance id mismatch")
+    );
+
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
+    let session_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sessions", [], |row| row.get(0))
+        .unwrap();
+    let event_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM control_events", [], |row| row.get(0))
+        .unwrap();
+    let write_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ledger_writes", [], |row| row.get(0))
+        .unwrap();
+
+    assert_eq!(session_count, 0);
+    assert_eq!(event_count, 0);
+    assert_eq!(write_count, 0);
 }

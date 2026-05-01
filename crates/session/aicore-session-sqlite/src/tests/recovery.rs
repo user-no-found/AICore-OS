@@ -1,16 +1,16 @@
-use aicore_foundation::{AicoreClock, SessionId, SystemClock};
-use aicore_session::traits::{SessionLedger, SessionLedgerReader, SessionLedgerWriter};
+use aicore_foundation::{AicoreClock, InstanceId, SessionId, SystemClock};
+use aicore_session::traits::SessionLedger;
 use aicore_session::types::{
     AppendMessageRequest, BeginTurnRequest, CreateSessionRequest, FinishTurnRequest, MessageKind,
     RuntimeStatus, TurnStatus,
 };
 
-use crate::tests::{open_store, temp_db_path};
+use crate::tests::{open_store, temp_store_path};
 
 #[test]
 fn snapshot_returns_idle_after_creation() {
-    let path = temp_db_path("snapshot-idle");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-idle");
+    let store = open_store(path.db_path());
 
     let snapshot = store.reader().get_current_snapshot().unwrap();
     assert_eq!(snapshot.instance_id, "global-main");
@@ -24,13 +24,14 @@ fn snapshot_returns_idle_after_creation() {
 
 #[test]
 fn snapshot_tracks_active_session_and_turn() {
-    let path = temp_db_path("snapshot-active");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-active");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.snap.001").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Active Session".to_string(),
             created_at: SystemClock.now(),
@@ -41,6 +42,7 @@ fn snapshot_tracks_active_session_and_turn() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -59,13 +61,14 @@ fn snapshot_tracks_active_session_and_turn() {
 
 #[test]
 fn snapshot_clears_active_turn_after_finish() {
-    let path = temp_db_path("snapshot-finish");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-finish");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.snap.002").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Finish Session".to_string(),
             created_at: SystemClock.now(),
@@ -76,6 +79,7 @@ fn snapshot_clears_active_turn_after_finish() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -86,6 +90,7 @@ fn snapshot_clears_active_turn_after_finish() {
     store
         .writer()
         .finish_turn(&FinishTurnRequest {
+            instance_id: InstanceId::global_main(),
             turn_id: "turn.001".to_string(),
             finished_at: SystemClock.now(),
             terminal_status: TurnStatus::Completed,
@@ -106,13 +111,14 @@ fn snapshot_clears_active_turn_after_finish() {
 
 #[test]
 fn snapshot_tracks_last_message_seq() {
-    let path = temp_db_path("snapshot-msg-seq");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-msg-seq");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.snap.003").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Msg Seq Session".to_string(),
             created_at: SystemClock.now(),
@@ -123,6 +129,7 @@ fn snapshot_tracks_last_message_seq() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -133,6 +140,7 @@ fn snapshot_tracks_last_message_seq() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.001".to_string()),
             message_id: "msg.001".to_string(),
@@ -150,6 +158,7 @@ fn snapshot_tracks_last_message_seq() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.001".to_string()),
             message_id: "msg.002".to_string(),
@@ -167,13 +176,14 @@ fn snapshot_tracks_last_message_seq() {
 
 #[test]
 fn snapshot_preserves_unfinished_turn_pointer() {
-    let path = temp_db_path("snapshot-unfinished");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-unfinished");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.snap.004").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Unfinished Session".to_string(),
             created_at: SystemClock.now(),
@@ -184,6 +194,7 @@ fn snapshot_preserves_unfinished_turn_pointer() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -195,7 +206,7 @@ fn snapshot_preserves_unfinished_turn_pointer() {
     drop(store);
 
     // Reopen - pointer should still show active turn
-    let store = open_store(&path);
+    let store = open_store(path.db_path());
     let snapshot = store.reader().get_current_snapshot().unwrap();
     assert_eq!(
         snapshot.active_session_id,
@@ -207,13 +218,14 @@ fn snapshot_preserves_unfinished_turn_pointer() {
 
 #[test]
 fn list_sessions_returns_created_sessions() {
-    let path = temp_db_path("snapshot-list");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-list");
+    let store = open_store(path.db_path());
 
     let session_id1 = SessionId::new("sess.list.001").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id1.clone(),
             title: "First Session".to_string(),
             created_at: SystemClock.now(),
@@ -225,6 +237,7 @@ fn list_sessions_returns_created_sessions() {
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id2.clone(),
             title: "Second Session".to_string(),
             created_at: SystemClock.now(),
@@ -242,6 +255,7 @@ fn list_sessions_returns_created_sessions() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id1.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -251,6 +265,7 @@ fn list_sessions_returns_created_sessions() {
     store
         .writer()
         .finish_turn(&FinishTurnRequest {
+            instance_id: InstanceId::global_main(),
             turn_id: "turn.001".to_string(),
             finished_at: SystemClock.now(),
             terminal_status: TurnStatus::Completed,
@@ -272,8 +287,8 @@ fn list_sessions_returns_created_sessions() {
 
 #[test]
 fn get_session_returns_none_for_missing() {
-    let path = temp_db_path("snapshot-missing");
-    let store = open_store(&path);
+    let path = temp_store_path("snapshot-missing");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.missing").expect("valid session id");
     let result = store.reader().get_session(&session_id).unwrap();

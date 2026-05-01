@@ -1,21 +1,22 @@
-use aicore_foundation::{AicoreClock, SessionId, SystemClock};
-use aicore_session::traits::{SessionLedger, SessionLedgerReader, SessionLedgerWriter};
+use aicore_foundation::{AicoreClock, InstanceId, SessionId, SystemClock};
+use aicore_session::traits::SessionLedger;
 use aicore_session::types::{
     AppendMessageRequest, BeginTurnRequest, CreateSessionRequest, FinishTurnRequest, MessageKind,
     TurnStatus,
 };
 
-use crate::tests::{open_store, temp_db_path};
+use crate::tests::{open_store, temp_store_path};
 
 #[test]
 fn turn_seq_increments_within_session() {
-    let path = temp_db_path("ordering-turn-seq");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-turn-seq");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.001").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Seq Session".to_string(),
             created_at: SystemClock.now(),
@@ -27,6 +28,7 @@ fn turn_seq_increments_within_session() {
         store
             .writer()
             .begin_turn(&BeginTurnRequest {
+                instance_id: InstanceId::global_main(),
                 session_id: session_id.clone(),
                 turn_id: format!("turn.{turn_seq}"),
                 turn_seq,
@@ -36,6 +38,7 @@ fn turn_seq_increments_within_session() {
         store
             .writer()
             .finish_turn(&FinishTurnRequest {
+                instance_id: InstanceId::global_main(),
                 turn_id: format!("turn.{turn_seq}"),
                 finished_at: SystemClock.now(),
                 terminal_status: TurnStatus::Completed,
@@ -43,7 +46,7 @@ fn turn_seq_increments_within_session() {
             .unwrap();
     }
 
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let seqs: Vec<i64> = conn
         .prepare("SELECT turn_seq FROM turns WHERE session_id = ?1 ORDER BY turn_seq")
         .unwrap()
@@ -57,13 +60,14 @@ fn turn_seq_increments_within_session() {
 
 #[test]
 fn turn_seq_allows_gaps() {
-    let path = temp_db_path("ordering-turn-gaps");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-turn-gaps");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.002").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Gap Session".to_string(),
             created_at: SystemClock.now(),
@@ -74,6 +78,7 @@ fn turn_seq_allows_gaps() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.1".to_string(),
             turn_seq: 1,
@@ -84,6 +89,7 @@ fn turn_seq_allows_gaps() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.3".to_string(),
             turn_seq: 3,
@@ -91,7 +97,7 @@ fn turn_seq_allows_gaps() {
         })
         .unwrap();
 
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let seqs: Vec<i64> = conn
         .prepare("SELECT turn_seq FROM turns WHERE session_id = ?1 ORDER BY turn_seq")
         .unwrap()
@@ -105,13 +111,14 @@ fn turn_seq_allows_gaps() {
 
 #[test]
 fn turn_seq_duplicate_fails() {
-    let path = temp_db_path("ordering-turn-duplicate");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-turn-duplicate");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.003").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Dup Session".to_string(),
             created_at: SystemClock.now(),
@@ -122,6 +129,7 @@ fn turn_seq_duplicate_fails() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.1".to_string(),
             turn_seq: 1,
@@ -130,6 +138,7 @@ fn turn_seq_duplicate_fails() {
         .unwrap();
 
     let result = store.writer().begin_turn(&BeginTurnRequest {
+        instance_id: InstanceId::global_main(),
         session_id: session_id.clone(),
         turn_id: "turn.2".to_string(),
         turn_seq: 1,
@@ -147,13 +156,14 @@ fn turn_seq_duplicate_fails() {
 
 #[test]
 fn message_seq_increments_within_turn() {
-    let path = temp_db_path("ordering-msg-seq");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-msg-seq");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.004").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Msg Seq Session".to_string(),
             created_at: SystemClock.now(),
@@ -164,6 +174,7 @@ fn message_seq_increments_within_turn() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.1".to_string(),
             turn_seq: 1,
@@ -175,6 +186,7 @@ fn message_seq_increments_within_turn() {
         store
             .writer()
             .append_message(&AppendMessageRequest {
+                instance_id: InstanceId::global_main(),
                 session_id: session_id.clone(),
                 turn_id: Some("turn.1".to_string()),
                 message_id: format!("msg.{msg_seq}"),
@@ -187,7 +199,7 @@ fn message_seq_increments_within_turn() {
             .unwrap();
     }
 
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let seqs: Vec<i64> = conn
         .prepare("SELECT message_seq FROM messages WHERE turn_id = ?1 ORDER BY message_seq")
         .unwrap()
@@ -201,13 +213,14 @@ fn message_seq_increments_within_turn() {
 
 #[test]
 fn message_seq_allows_gaps() {
-    let path = temp_db_path("ordering-msg-gaps");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-msg-gaps");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.005").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "Msg Gap Session".to_string(),
             created_at: SystemClock.now(),
@@ -218,6 +231,7 @@ fn message_seq_allows_gaps() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.1".to_string(),
             turn_seq: 1,
@@ -228,6 +242,7 @@ fn message_seq_allows_gaps() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.1".to_string()),
             message_id: "msg.1".to_string(),
@@ -242,6 +257,7 @@ fn message_seq_allows_gaps() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.1".to_string()),
             message_id: "msg.3".to_string(),
@@ -253,7 +269,7 @@ fn message_seq_allows_gaps() {
         })
         .unwrap();
 
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let seqs: Vec<i64> = conn
         .prepare("SELECT message_seq FROM messages WHERE turn_id = ?1 ORDER BY message_seq")
         .unwrap()
@@ -267,13 +283,14 @@ fn message_seq_allows_gaps() {
 
 #[test]
 fn business_ids_look_like_uuidv7() {
-    let path = temp_db_path("ordering-uuidv7");
-    let store = open_store(&path);
+    let path = temp_store_path("ordering-uuidv7");
+    let store = open_store(path.db_path());
 
     let session_id = SessionId::new("sess.ord.006").expect("valid session id");
     store
         .writer()
         .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             title: "UUID Session".to_string(),
             created_at: SystemClock.now(),
@@ -284,6 +301,7 @@ fn business_ids_look_like_uuidv7() {
     store
         .writer()
         .begin_turn(&BeginTurnRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: "turn.001".to_string(),
             turn_seq: 1,
@@ -294,6 +312,7 @@ fn business_ids_look_like_uuidv7() {
     store
         .writer()
         .append_message(&AppendMessageRequest {
+            instance_id: InstanceId::global_main(),
             session_id: session_id.clone(),
             turn_id: Some("turn.001".to_string()),
             message_id: "msg.001".to_string(),
@@ -311,7 +330,7 @@ fn business_ids_look_like_uuidv7() {
     assert_eq!(messages[0].message_id, "msg.001");
 
     // Verify control_events event_id looks like uuid
-    let conn = rusqlite::Connection::open(&path).unwrap();
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
     let event_id: String = conn
         .query_row(
             "SELECT event_id FROM control_events WHERE event_type = 'session_created'",
@@ -328,4 +347,70 @@ fn business_ids_look_like_uuidv7() {
         parts[2].starts_with('7'),
         "third segment should indicate UUIDv7: got {event_id}"
     );
+}
+
+#[test]
+fn event_and_write_seq_are_scoped_to_turn() {
+    let path = temp_store_path("ordering-event-write-turn-scope");
+    let store = open_store(path.db_path());
+
+    let session_id = SessionId::new("sess.ord.007").expect("valid session id");
+    store
+        .writer()
+        .create_session(&CreateSessionRequest {
+            instance_id: InstanceId::global_main(),
+            session_id: session_id.clone(),
+            title: "Turn scoped seq".to_string(),
+            created_at: SystemClock.now(),
+            metadata: None,
+        })
+        .unwrap();
+
+    for seq in 1..=2 {
+        store
+            .writer()
+            .begin_turn(&BeginTurnRequest {
+                instance_id: InstanceId::global_main(),
+                session_id: session_id.clone(),
+                turn_id: format!("turn.scope.{seq}"),
+                turn_seq: seq,
+                started_at: SystemClock.now(),
+            })
+            .unwrap();
+    }
+
+    let conn = rusqlite::Connection::open(path.db_path()).unwrap();
+    let turn_1_event_seq: i64 = conn
+        .query_row(
+            "SELECT event_seq FROM control_events WHERE turn_id = 'turn.scope.1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let turn_2_event_seq: i64 = conn
+        .query_row(
+            "SELECT event_seq FROM control_events WHERE turn_id = 'turn.scope.2'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let turn_1_write_seq: i64 = conn
+        .query_row(
+            "SELECT write_seq FROM ledger_writes WHERE turn_id = 'turn.scope.1' AND target_table = 'turns'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let turn_2_write_seq: i64 = conn
+        .query_row(
+            "SELECT write_seq FROM ledger_writes WHERE turn_id = 'turn.scope.2' AND target_table = 'turns'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    assert_eq!(turn_1_event_seq, 1);
+    assert_eq!(turn_2_event_seq, 1);
+    assert_eq!(turn_1_write_seq, 1);
+    assert_eq!(turn_2_write_seq, 1);
 }

@@ -120,12 +120,17 @@ CREATE TABLE IF NOT EXISTS control_events (
     event_seq INTEGER NOT NULL,
     event_type TEXT NOT NULL CHECK(event_type IN ('session_created', 'turn_began', 'turn_finished', 'message_appended', 'turn_interrupted', 'runtime_state_updated')),
     detail TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    UNIQUE(instance_id, event_seq)
+    created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_control_events_instance_id ON control_events(instance_id);
 CREATE INDEX IF NOT EXISTS idx_control_events_turn_id ON control_events(turn_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_control_events_turn_seq
+    ON control_events(turn_id, event_seq)
+    WHERE turn_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_control_events_instance_seq
+    ON control_events(instance_id, event_seq)
+    WHERE turn_id IS NULL;
 
 -- ledger_writes
 CREATE TABLE IF NOT EXISTS ledger_writes (
@@ -136,11 +141,16 @@ CREATE TABLE IF NOT EXISTS ledger_writes (
     write_type TEXT NOT NULL CHECK(write_type IN ('insert', 'update', 'delete')),
     target_table TEXT NOT NULL,
     target_id TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    UNIQUE(instance_id, write_seq)
+    created_at INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_ledger_writes_instance_id ON ledger_writes(instance_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_writes_turn_seq
+    ON ledger_writes(turn_id, write_seq)
+    WHERE turn_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_writes_instance_seq
+    ON ledger_writes(instance_id, write_seq)
+    WHERE turn_id IS NULL;
 "#;
 
 pub fn open_connection(path: &std::path::Path) -> AicoreResult<Connection> {

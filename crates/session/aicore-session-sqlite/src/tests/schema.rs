@@ -3,8 +3,7 @@ use rusqlite::Connection;
 use aicore_foundation::InstanceId;
 
 use crate::SqliteSessionStore;
-use crate::schema;
-use crate::tests::{open_store, temp_db_path};
+use crate::tests::{open_store, temp_store_path};
 
 const EXPECTED_TABLES: &[&str] = &[
     "approval_responses",
@@ -21,9 +20,9 @@ const EXPECTED_TABLES: &[&str] = &[
 
 #[test]
 fn open_initializes_all_ten_tables() {
-    let path = temp_db_path("schema-all-tables");
-    let _store = open_store(&path);
-    let conn = Connection::open(path).expect("sqlite db should open");
+    let path = temp_store_path("schema-all-tables");
+    let _store = open_store(path.db_path());
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
 
     let tables: Vec<String> = conn
         .prepare(
@@ -40,9 +39,9 @@ fn open_initializes_all_ten_tables() {
 
 #[test]
 fn ledger_meta_is_initialized_with_expected_values() {
-    let path = temp_db_path("schema-meta");
-    let _store = open_store(&path);
-    let conn = Connection::open(path).expect("sqlite db should open");
+    let path = temp_store_path("schema-meta");
+    let _store = open_store(path.db_path());
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
 
     let (schema_version, store_kind, instance_id): (i64, String, String) = conn
         .query_row(
@@ -59,18 +58,18 @@ fn ledger_meta_is_initialized_with_expected_values() {
 
 #[test]
 fn future_schema_version_fails_structurally() {
-    let path = temp_db_path("schema-future-version");
+    let path = temp_store_path("schema-future-version");
     {
-        let store = open_store(&path);
+        let store = open_store(path.db_path());
         drop(store);
     }
 
-    let conn = Connection::open(&path).expect("sqlite db should open");
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
     conn.execute("UPDATE ledger_meta SET schema_version = 2", [])
         .expect("schema version update should succeed");
     drop(conn);
 
-    let error = match SqliteSessionStore::open(&path, &InstanceId::global_main()) {
+    let error = match SqliteSessionStore::open(path.db_path(), &InstanceId::global_main()) {
         Ok(_) => panic!("future schema version should fail"),
         Err(error) => error,
     };
@@ -80,18 +79,18 @@ fn future_schema_version_fails_structurally() {
 
 #[test]
 fn wrong_instance_id_fails_structurally() {
-    let path = temp_db_path("schema-wrong-instance");
+    let path = temp_store_path("schema-wrong-instance");
     {
-        let store = open_store(&path);
+        let store = open_store(path.db_path());
         drop(store);
     }
 
-    let conn = Connection::open(&path).expect("sqlite db should open");
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
     conn.execute("UPDATE ledger_meta SET instance_id = 'workspace-other'", [])
         .expect("instance id update should succeed");
     drop(conn);
 
-    let error = match SqliteSessionStore::open(&path, &InstanceId::global_main()) {
+    let error = match SqliteSessionStore::open(path.db_path(), &InstanceId::global_main()) {
         Ok(_) => panic!("wrong instance id should fail"),
         Err(error) => error,
     };
@@ -100,10 +99,45 @@ fn wrong_instance_id_fails_structurally() {
 }
 
 #[test]
+fn wrong_store_kind_fails_structurally() {
+    let path = temp_store_path("schema-wrong-kind");
+    {
+        let store = open_store(path.db_path());
+        drop(store);
+    }
+
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
+    conn.execute(
+        "UPDATE ledger_meta SET store_kind = 'event_ledger_sqlite'",
+        [],
+    )
+    .expect("store kind update should succeed");
+    drop(conn);
+
+    let error = match SqliteSessionStore::open(path.db_path(), &InstanceId::global_main()) {
+        Ok(_) => panic!("wrong store kind should fail"),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("ledger kind"));
+}
+
+#[test]
+fn schema_does_not_contain_forbidden_raw_or_secret_columns() {
+    let schema = include_str!("../schema.rs").to_lowercase();
+    for forbidden in super::FORBIDDEN_FIELDS {
+        assert!(
+            !schema.contains(forbidden),
+            "forbidden schema token leaked: {forbidden}"
+        );
+    }
+}
+
+#[test]
 fn unique_session_turn_seq_is_enforced() {
-    let path = temp_db_path("schema-uniq-seq");
-    let _store = open_store(&path);
-    let conn = Connection::open(path).expect("sqlite db should open");
+    let path = temp_store_path("schema-uniq-seq");
+    let _store = open_store(path.db_path());
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
 
     // Insert session first
     conn.execute(
@@ -135,9 +169,9 @@ fn unique_session_turn_seq_is_enforced() {
 
 #[test]
 fn foreign_key_session_cascade_delete_is_enforced() {
-    let path = temp_db_path("schema-fk-cascade");
-    let _store = open_store(&path);
-    let conn = Connection::open(path).expect("sqlite db should open");
+    let path = temp_store_path("schema-fk-cascade");
+    let _store = open_store(path.db_path());
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
 
     conn.execute(
         "INSERT INTO sessions (session_id, title, status, created_at, updated_at)
@@ -185,9 +219,9 @@ fn foreign_key_session_cascade_delete_is_enforced() {
 
 #[test]
 fn status_enum_check_is_enforced() {
-    let path = temp_db_path("schema-check-enum");
-    let _store = open_store(&path);
-    let conn = Connection::open(path).expect("sqlite db should open");
+    let path = temp_store_path("schema-check-enum");
+    let _store = open_store(path.db_path());
+    let conn = Connection::open(path.db_path()).expect("sqlite db should open");
 
     // Invalid status for sessions
     let result = conn.execute(

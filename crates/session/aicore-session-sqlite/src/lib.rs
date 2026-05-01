@@ -5,4 +5,4 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 
-pub use store::SqliteSessionStore;
+pub use store::{SqliteSessionLedger, SqliteSessionStore};
