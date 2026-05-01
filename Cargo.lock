@@ -120,6 +120,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-session"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "aicore-session-sqlite"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-session",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-skills"
 version = "0.1.0"
 

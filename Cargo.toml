@@ -17,6 +17,8 @@ members = [
   "crates/provider/aicore-provider",
   "crates/surface/aicore-surface",
   "crates/skills/aicore-skills",
+  "crates/session/aicore-session",
+  "crates/session/aicore-session-sqlite",
   "crates/tools/aicore-tools",
   "crates/workflows/aicore-workflow",
 ]
@@ -41,6 +43,8 @@ aicore-memory = { path = "crates/memory/aicore-memory" }
 aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-surface = { path = "crates/surface/aicore-surface" }
 aicore-skills = { path = "crates/skills/aicore-skills" }
+aicore-session = { path = "crates/session/aicore-session" }
+aicore-session-sqlite = { path = "crates/session/aicore-session-sqlite" }
 aicore-tools = { path = "crates/tools/aicore-tools" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
