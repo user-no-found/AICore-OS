@@ -24,6 +24,8 @@ members = [
   "crates/session/aicore-session",
   "crates/session/aicore-session-sqlite",
   "crates/tool/aicore-tool-protocol",
+  "crates/team/aicore-team-protocol",
+  "crates/team/aicore-team-runtime",
   "crates/tool/aicore-tool-runtime",
   "crates/tools/aicore-tools",
   "crates/workflows/aicore-workflow",
@@ -52,6 +54,8 @@ aicore-model-protocol = { path = "crates/model/aicore-model-protocol" }
 aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-skill-protocol = { path = "crates/skill/aicore-skill-protocol" }
 aicore-surface = { path = "crates/surface/aicore-surface" }
+aicore-team-protocol = { path = "crates/team/aicore-team-protocol" }
+aicore-team-runtime = { path = "crates/team/aicore-team-runtime" }
 aicore-skills = { path = "crates/skills/aicore-skills" }
 aicore-session = { path = "crates/session/aicore-session" }
 aicore-session-sqlite = { path = "crates/session/aicore-session-sqlite" }

@@ -193,6 +193,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-team-protocol"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-model-protocol",
+ "aicore-tool-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "aicore-team-runtime"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-model-protocol",
+ "aicore-team-protocol",
+ "aicore-tool-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-terminal"
 version = "0.1.0"
 dependencies = [
