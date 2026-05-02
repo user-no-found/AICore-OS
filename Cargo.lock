@@ -181,6 +181,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-tool-protocol"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "aicore-tool-runtime"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-tool-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-tools"
 version = "0.1.0"
 
