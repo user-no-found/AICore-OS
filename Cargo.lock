@@ -93,6 +93,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-io"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-kernel"
 version = "0.1.0"
 dependencies = [

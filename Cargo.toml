@@ -9,6 +9,7 @@ members = [
   "crates/config/aicore-config",
   "crates/foundation/aicore-foundation",
   "crates/foundation/aicore-terminal",
+  "crates/io/aicore-io",
   "crates/kernel/aicore-kernel",
   "crates/evolution/aicore-evolution",
   "crates/event/aicore-event",
@@ -37,6 +38,7 @@ aicore-config = { path = "crates/config/aicore-config" }
 aicore-evolution = { path = "crates/evolution/aicore-evolution" }
 aicore-event = { path = "crates/event/aicore-event" }
 aicore-foundation = { path = "crates/foundation/aicore-foundation" }
+aicore-io = { path = "crates/io/aicore-io" }
 aicore-terminal = { path = "crates/foundation/aicore-terminal" }
 aicore-kernel = { path = "crates/kernel/aicore-kernel" }
 aicore-memory = { path = "crates/memory/aicore-memory" }
