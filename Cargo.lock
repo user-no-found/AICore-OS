@@ -111,6 +111,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-mcp-adapter"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-tool-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "aicore-memory"
 version = "0.1.0"
 dependencies = [
@@ -154,6 +164,16 @@ dependencies = [
  "aicore-foundation",
  "aicore-session",
  "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "aicore-skill-protocol"
+version = "0.1.0"
+dependencies = [
+ "aicore-foundation",
+ "aicore-tool-protocol",
  "serde",
  "serde_json",
 ]
