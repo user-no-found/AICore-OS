@@ -341,6 +341,30 @@ fn approval_first_response_wins_and_stop_invalidates_open_approval() {
         )
         .unwrap();
     assert_eq!(winner.as_deref(), Some("response.one"));
+    let approval_status: String = conn
+        .query_row(
+            "SELECT status FROM approvals WHERE approval_id = 'approval.one'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(approval_status, "approved");
+    let second_response_status: String = conn
+        .query_row(
+            "SELECT status FROM approval_responses WHERE response_id = 'response.two'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(second_response_status, "rejected_already_resolved");
+    let turn_status_after_second: String = conn
+        .query_row(
+            "SELECT status FROM turns WHERE turn_id = 'turn.approval'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(turn_status_after_second, "running");
 
     store
         .writer()
@@ -375,6 +399,141 @@ fn approval_first_response_wins_and_stop_invalidates_open_approval() {
         .unwrap();
     assert_eq!(stale.status, ApprovalResponseStatus::RejectedStale);
     assert_eq!(stale.approval_status, ApprovalStatus::InvalidatedByStop);
+    let stale_status: String = conn
+        .query_row(
+            "SELECT status FROM approval_responses WHERE response_id = 'response.stale'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stale_status, "rejected_stale");
+    let stopped_turn_status: String = conn
+        .query_row(
+            "SELECT status FROM turns WHERE turn_id = 'turn.approval'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stopped_turn_status, "stopped");
+    let runtime_status: String = conn
+        .query_row(
+            "SELECT runtime_status FROM instance_runtime_state WHERE instance_id = 'global-main'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(runtime_status, "idle");
+    let invalidated_status: String = conn
+        .query_row(
+            "SELECT status FROM approvals WHERE approval_id = 'approval.two'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(invalidated_status, "invalidated_by_stop");
+}
+
+#[test]
+fn approval_response_cas_loser_is_not_accepted_and_does_not_reopen_turn() {
+    let path = temp_store_path("control-approval-cas-loser");
+    let store = open_store(path.db_path());
+    let session_id = SessionId::new("sess.approval.cas").unwrap();
+    create_session(&store, &session_id);
+    acquire_turn(&store, &session_id, "turn.approval.cas");
+
+    store
+        .writer()
+        .create_approval(&CreateApprovalRequest {
+            instance_id: InstanceId::global_main(),
+            approval_id: "approval.cas".to_string(),
+            turn_id: "turn.approval.cas".to_string(),
+            scope: ApprovalScope::SingleToolCall,
+            summary: "safe cas action summary".to_string(),
+            created_at: SystemClock.now(),
+        })
+        .unwrap();
+
+    let conn = Connection::open(path.db_path()).unwrap();
+    conn.execute_batch(
+        "CREATE TRIGGER simulate_approval_cas_loss
+         BEFORE UPDATE OF status ON approvals
+         WHEN OLD.approval_id = 'approval.cas' AND OLD.status = 'pending'
+         BEGIN
+           UPDATE approvals
+              SET status = 'approved',
+                  resolved_at = 12345,
+                  resolved_response_id = 'response.external'
+            WHERE approval_id = OLD.approval_id;
+           SELECT raise(ignore);
+         END;",
+    )
+    .unwrap();
+    drop(conn);
+
+    let outcome = store
+        .writer()
+        .respond_approval_first_writer_wins(&ApprovalResponseRequest {
+            instance_id: InstanceId::global_main(),
+            approval_id: "approval.cas".to_string(),
+            response_id: "response.loser".to_string(),
+            decision: ApprovalDecision::Reject,
+            responder_client_id: Some("client.loser".to_string()),
+            responder_client_kind: Some("web".to_string()),
+            responded_at: SystemClock.now(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        outcome.status,
+        ApprovalResponseStatus::RejectedAlreadyResolved
+    );
+    assert_eq!(outcome.approval_status, ApprovalStatus::Approved);
+    assert_eq!(
+        outcome.resolved_response_id.as_deref(),
+        Some("response.external")
+    );
+
+    let conn = Connection::open(path.db_path()).unwrap();
+    let winner: Option<String> = conn
+        .query_row(
+            "SELECT resolved_response_id FROM approvals WHERE approval_id = 'approval.cas'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(winner.as_deref(), Some("response.external"));
+    let loser_status: String = conn
+        .query_row(
+            "SELECT status FROM approval_responses WHERE response_id = 'response.loser'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(loser_status, "rejected_already_resolved");
+    let attempts: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM approval_responses WHERE approval_id = 'approval.cas'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(attempts, 1);
+    let turn_status: String = conn
+        .query_row(
+            "SELECT status FROM turns WHERE turn_id = 'turn.approval.cas'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(turn_status, "waiting_approval");
+    let runtime_status: String = conn
+        .query_row(
+            "SELECT runtime_status FROM instance_runtime_state WHERE instance_id = 'global-main'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(runtime_status, "waiting_approval");
 }
 
 #[test]

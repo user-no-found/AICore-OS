@@ -130,33 +130,55 @@ impl SqliteSessionStore {
                 ApprovalDecision::Approve => ApprovalStatus::Approved,
                 ApprovalDecision::Reject => ApprovalStatus::Rejected,
             };
-            tx.execute(
-                "UPDATE approvals
-                 SET status = ?1, resolved_at = ?2, resolved_response_id = ?3
-                 WHERE approval_id = ?4 AND status = 'pending'",
-                params![
-                    accepted_status.as_str(),
-                    now,
-                    request.response_id,
-                    request.approval_id
-                ],
-            )
-            .map_err(sqlite_write_error)?;
-            tx.execute(
-                "UPDATE instance_runtime_state SET pending_approval_id = NULL, runtime_status = 'running', updated_at = ?1 WHERE instance_id = ?2",
-                params![now, self.instance_id.as_str()],
-            )
-            .map_err(sqlite_write_error)?;
-            tx.execute(
-                "UPDATE turns SET status = ?1 WHERE turn_id = ?2",
-                params![TurnStatus::Running.as_str(), turn_id],
-            )
-            .map_err(sqlite_write_error)?;
-            (
-                ApprovalResponseStatus::Accepted,
-                accepted_status.as_str().to_string(),
-                Some(request.response_id.clone()),
-            )
+            let updated = tx
+                .execute(
+                    "UPDATE approvals
+                     SET status = ?1, resolved_at = ?2, resolved_response_id = ?3
+                     WHERE approval_id = ?4 AND status = 'pending'",
+                    params![
+                        accepted_status.as_str(),
+                        now,
+                        request.response_id,
+                        request.approval_id
+                    ],
+                )
+                .map_err(sqlite_write_error)?;
+            if updated == 1 {
+                tx.execute(
+                    "UPDATE instance_runtime_state SET pending_approval_id = NULL, runtime_status = 'running', updated_at = ?1 WHERE instance_id = ?2",
+                    params![now, self.instance_id.as_str()],
+                )
+                .map_err(sqlite_write_error)?;
+                tx.execute(
+                    "UPDATE turns SET status = ?1 WHERE turn_id = ?2",
+                    params![TurnStatus::Running.as_str(), turn_id],
+                )
+                .map_err(sqlite_write_error)?;
+                (
+                    ApprovalResponseStatus::Accepted,
+                    accepted_status.as_str().to_string(),
+                    Some(request.response_id.clone()),
+                )
+            } else {
+                let (current_status, current_winner): (String, Option<String>) = tx
+                    .query_row(
+                        "SELECT status, resolved_response_id
+                         FROM approvals WHERE approval_id = ?1 AND instance_id = ?2",
+                        params![request.approval_id, self.instance_id.as_str()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .map_err(sqlite_read_error)?;
+                let stale = current_status.starts_with("invalidated") || current_status == "stale";
+                (
+                    if stale {
+                        ApprovalResponseStatus::RejectedStale
+                    } else {
+                        ApprovalResponseStatus::RejectedAlreadyResolved
+                    },
+                    current_status,
+                    current_winner,
+                )
+            }
         };
         tx.execute(
             "INSERT INTO approval_responses (response_id, approval_id, instance_id, decision, status, responder_client_id, responder_client_kind, responded_at)
