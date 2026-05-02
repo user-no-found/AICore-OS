@@ -19,15 +19,17 @@ impl SqliteSessionStore {
         tx.execute(
             "UPDATE instance_runtime_state
              SET active_session_id = ?1, active_turn_id = ?2, pending_input_id = ?3,
-                 pending_approval_id = ?4, runtime_status = ?5, dirty_shutdown = ?6,
-                 recovery_required = ?7, updated_at = ?8
-             WHERE instance_id = ?9",
+                 pending_approval_id = ?4, runtime_status = ?5,
+                 lock_version = COALESCE(?6, lock_version), dirty_shutdown = ?7,
+                 recovery_required = ?8, updated_at = ?9
+             WHERE instance_id = ?10",
             params![
                 request.active_session_id.as_deref(),
                 request.active_turn_id.as_deref(),
                 request.pending_input_id.as_deref(),
                 request.pending_approval_id.as_deref(),
                 request.runtime_status.as_str(),
+                request.lock_version.map(|value| value as i64),
                 i64::from(request.dirty_shutdown),
                 i64::from(request.recovery_required),
                 updated_at,

@@ -1,6 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use aicore_session::types::{MessageKind, RuntimeStatus, SessionStatus};
+use aicore_session::types::{
+    ApprovalDecision, ApprovalResponseStatus, ApprovalScope, ApprovalStatus, MessageKind,
+    PendingInputStatus, RuntimeStatus, SessionStatus, TurnStatus,
+};
 
 pub fn parse_session_status(s: &str) -> SessionStatus {
     match s {
@@ -116,4 +119,66 @@ pub fn uuidv7_str() -> String {
         ((suffix >> 32) as u16) & 0x3FFF | 0x8000,
         suffix & 0xFFFFFFFFFFFF,
     )
+}
+
+pub fn parse_turn_status(s: &str) -> TurnStatus {
+    match s {
+        "running" => TurnStatus::Running,
+        "waiting_approval" => TurnStatus::WaitingApproval,
+        "stopping" => TurnStatus::Stopping,
+        "stopped" => TurnStatus::Stopped,
+        "completed" => TurnStatus::Completed,
+        "interrupted" => TurnStatus::Interrupted,
+        "cancelled" => TurnStatus::Cancelled,
+        "failed" => TurnStatus::Failed,
+        "interrupted_by_recovery" => TurnStatus::InterruptedByRecovery,
+        _ => TurnStatus::Active,
+    }
+}
+
+pub fn parse_pending_input_status(s: &str) -> PendingInputStatus {
+    match s {
+        "confirmed" => PendingInputStatus::Confirmed,
+        "cancelled" => PendingInputStatus::Cancelled,
+        "replaced" => PendingInputStatus::Replaced,
+        "stale" => PendingInputStatus::Stale,
+        _ => PendingInputStatus::Pending,
+    }
+}
+
+pub fn parse_approval_status(s: &str) -> ApprovalStatus {
+    match s {
+        "approved" => ApprovalStatus::Approved,
+        "rejected" => ApprovalStatus::Rejected,
+        "cancelled" => ApprovalStatus::Cancelled,
+        "expired" => ApprovalStatus::Expired,
+        "stale" => ApprovalStatus::Stale,
+        "invalidated_by_stop" => ApprovalStatus::InvalidatedByStop,
+        "invalidated_by_turn_close" => ApprovalStatus::InvalidatedByTurnClose,
+        "invalidated_by_recovery" => ApprovalStatus::InvalidatedByRecovery,
+        _ => ApprovalStatus::Pending,
+    }
+}
+
+pub fn parse_approval_scope(s: &str) -> ApprovalScope {
+    match s {
+        "single_tool_call" => ApprovalScope::SingleToolCall,
+        _ => ApprovalScope::SingleToolCall,
+    }
+}
+
+pub fn parse_approval_decision(s: &str) -> ApprovalDecision {
+    match s {
+        "reject" => ApprovalDecision::Reject,
+        _ => ApprovalDecision::Approve,
+    }
+}
+
+pub fn parse_approval_response_status(s: &str) -> ApprovalResponseStatus {
+    match s {
+        "rejected_stale" => ApprovalResponseStatus::RejectedStale,
+        "rejected_already_resolved" => ApprovalResponseStatus::RejectedAlreadyResolved,
+        "rejected_turn_not_active" => ApprovalResponseStatus::RejectedTurnNotActive,
+        _ => ApprovalResponseStatus::Accepted,
+    }
 }

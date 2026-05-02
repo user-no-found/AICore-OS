@@ -5,7 +5,7 @@ use aicore_session::types::{
 };
 use rusqlite::params;
 
-use crate::error::{sqlite_schema_error, sqlite_write_error};
+use crate::error::{sqlite_read_error, sqlite_schema_error, sqlite_write_error};
 use crate::store::SqliteSessionStore;
 use crate::store::helpers::{ensure_request_instance, next_event_seq, next_write_seq, uuidv7_str};
 
@@ -103,6 +103,19 @@ impl SqliteSessionStore {
             )));
         }
 
+        let (active_turn_id, lock_version): (Option<String>, i64) = tx
+            .query_row(
+                "SELECT active_turn_id, lock_version FROM instance_runtime_state WHERE instance_id = ?1",
+                params![self.instance_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(sqlite_read_error)?;
+        if let Some(active_turn_id) = active_turn_id {
+            return Err(aicore_foundation::AicoreError::Conflict(format!(
+                "active turn already exists: {active_turn_id}"
+            )));
+        }
+
         tx.execute(
             "INSERT INTO turns (turn_id, session_id, turn_seq, status, started_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -110,17 +123,25 @@ impl SqliteSessionStore {
                 request.turn_id,
                 request.session_id.as_str(),
                 request.turn_seq as i64,
-                TurnStatus::Active.as_str(),
+                TurnStatus::Running.as_str(),
                 now,
             ],
         )
         .map_err(sqlite_write_error)?;
 
+        let next_lock = lock_version + 1;
         tx.execute(
             "UPDATE instance_runtime_state
-             SET active_session_id = ?1, active_turn_id = ?2, runtime_status = 'running', updated_at = ?3
-             WHERE instance_id = ?4",
-            params![request.session_id.as_str(), request.turn_id, now, self.instance_id.as_str()],
+             SET active_session_id = ?1, active_turn_id = ?2, runtime_status = 'running',
+                 lock_version = ?3, updated_at = ?4
+             WHERE instance_id = ?5",
+            params![
+                request.session_id.as_str(),
+                request.turn_id,
+                next_lock,
+                now,
+                self.instance_id.as_str()
+            ],
         )
         .map_err(sqlite_write_error)?;
 
@@ -182,17 +203,37 @@ impl SqliteSessionStore {
             )));
         }
 
+        if !request.terminal_status.is_terminal() {
+            return Err(aicore_foundation::AicoreError::InvalidState(
+                "finish_turn requires terminal status".to_string(),
+            ));
+        }
+        let (active_turn_id, lock_version): (Option<String>, i64) = tx
+            .query_row(
+                "SELECT active_turn_id, lock_version FROM instance_runtime_state WHERE instance_id = ?1",
+                params![self.instance_id.as_str()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(sqlite_read_error)?;
+        if active_turn_id.as_deref() != Some(request.turn_id.as_str()) {
+            return Err(aicore_foundation::AicoreError::Conflict(format!(
+                "cannot finish non-active turn: {}",
+                request.turn_id
+            )));
+        }
+
         tx.execute(
             "UPDATE turns SET status = ?1, finished_at = ?2 WHERE turn_id = ?3",
             params![request.terminal_status.as_str(), now, request.turn_id],
         )
         .map_err(sqlite_write_error)?;
 
+        let next_lock = lock_version + 1;
         tx.execute(
             "UPDATE instance_runtime_state
-             SET active_turn_id = NULL, runtime_status = 'idle', updated_at = ?1
-             WHERE instance_id = ?2",
-            params![now, self.instance_id.as_str()],
+             SET active_turn_id = NULL, runtime_status = 'idle', lock_version = ?1, updated_at = ?2
+             WHERE instance_id = ?3",
+            params![next_lock, now, self.instance_id.as_str()],
         )
         .map_err(sqlite_write_error)?;
 

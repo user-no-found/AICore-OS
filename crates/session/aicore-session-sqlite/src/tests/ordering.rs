@@ -85,6 +85,15 @@ fn turn_seq_allows_gaps() {
             started_at: SystemClock.now(),
         })
         .unwrap();
+    store
+        .writer()
+        .finish_turn(&FinishTurnRequest {
+            instance_id: InstanceId::global_main(),
+            turn_id: "turn.1".to_string(),
+            finished_at: SystemClock.now(),
+            terminal_status: TurnStatus::Completed,
+        })
+        .unwrap();
 
     store
         .writer()
@@ -134,6 +143,15 @@ fn turn_seq_duplicate_fails() {
             turn_id: "turn.1".to_string(),
             turn_seq: 1,
             started_at: SystemClock.now(),
+        })
+        .unwrap();
+    store
+        .writer()
+        .finish_turn(&FinishTurnRequest {
+            instance_id: InstanceId::global_main(),
+            turn_id: "turn.1".to_string(),
+            finished_at: SystemClock.now(),
+            terminal_status: TurnStatus::Completed,
         })
         .unwrap();
 
@@ -375,6 +393,15 @@ fn event_and_write_seq_are_scoped_to_turn() {
                 turn_id: format!("turn.scope.{seq}"),
                 turn_seq: seq,
                 started_at: SystemClock.now(),
+            })
+            .unwrap();
+        store
+            .writer()
+            .finish_turn(&FinishTurnRequest {
+                instance_id: InstanceId::global_main(),
+                turn_id: format!("turn.scope.{seq}"),
+                finished_at: SystemClock.now(),
+                terminal_status: TurnStatus::Completed,
             })
             .unwrap();
     }

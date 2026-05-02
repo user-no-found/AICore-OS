@@ -1,9 +1,14 @@
 use aicore_foundation::{AicoreResult, InstanceId, SessionId};
 
 use crate::types::{
-    AppendControlEventRequest, AppendLedgerWriteRequest, AppendMessageRequest, BeginTurnRequest,
-    CreateSessionRequest, FinishTurnRequest, InstanceRuntimeSnapshot, MessageRecord, SessionRecord,
-    SessionSummary, SetRuntimeStateRequest, TurnRecord,
+    ActiveTurnAcquireOutcome, ActiveTurnAcquireRequest, ActiveTurnReleaseOutcome,
+    ActiveTurnReleaseRequest, AppendControlEventRequest, AppendLedgerWriteRequest,
+    AppendMessageRequest, ApprovalRecord, ApprovalResponseOutcome, ApprovalResponseRecord,
+    ApprovalResponseRequest, ApprovalStatus, BeginTurnRequest, CreateApprovalRequest,
+    CreateSessionRequest, FinishTurnRequest, InstanceRuntimeSnapshot, MessageRecord,
+    PendingInputCancelOutcome, PendingInputCancelRequest, PendingInputRecord,
+    PendingInputSubmitOutcome, PendingInputSubmitRequest, SessionRecord, SessionSummary,
+    SetRuntimeStateRequest, StopTurnOutcome, StopTurnRequest, TurnRecord,
 };
 
 pub trait SessionLedgerWriter {
@@ -15,21 +20,92 @@ pub trait SessionLedgerWriter {
     fn append_ledger_write(&self, request: &AppendLedgerWriteRequest) -> AicoreResult<()>;
     fn set_runtime_state(&self, request: &SetRuntimeStateRequest) -> AicoreResult<()>;
 
-    fn create_pending_input(&self) -> AicoreResult<()> {
+    fn acquire_active_turn(
+        &self,
+        _request: &ActiveTurnAcquireRequest,
+    ) -> AicoreResult<ActiveTurnAcquireOutcome> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "active turn lock not implemented yet".to_string(),
+        ))
+    }
+
+    fn release_active_turn(
+        &self,
+        _request: &ActiveTurnReleaseRequest,
+    ) -> AicoreResult<ActiveTurnReleaseOutcome> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "active turn release not implemented yet".to_string(),
+        ))
+    }
+
+    fn submit_or_replace_pending_input(
+        &self,
+        _request: &PendingInputSubmitRequest,
+    ) -> AicoreResult<PendingInputSubmitOutcome> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "pending_inputs not implemented yet".to_string(),
         ))
     }
 
-    fn submit_approval(&self) -> AicoreResult<()> {
+    fn cancel_pending_input(
+        &self,
+        _request: &PendingInputCancelRequest,
+    ) -> AicoreResult<PendingInputCancelOutcome> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "pending_inputs not implemented yet".to_string(),
+        ))
+    }
+
+    fn request_stop_active_turn(
+        &self,
+        _request: &StopTurnRequest,
+    ) -> AicoreResult<StopTurnOutcome> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "stop turn not implemented yet".to_string(),
+        ))
+    }
+
+    fn create_approval(&self, _request: &CreateApprovalRequest) -> AicoreResult<ApprovalRecord> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "approvals not implemented yet".to_string(),
         ))
     }
 
-    fn respond_approval(&self) -> AicoreResult<()> {
+    fn respond_approval_first_writer_wins(
+        &self,
+        _request: &ApprovalResponseRequest,
+    ) -> AicoreResult<ApprovalResponseOutcome> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "approval_responses not implemented yet".to_string(),
+        ))
+    }
+
+    fn invalidate_open_approvals_for_turn(
+        &self,
+        _instance_id: &InstanceId,
+        _turn_id: &str,
+        _status: ApprovalStatus,
+    ) -> AicoreResult<u64> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "approval invalidation not implemented yet".to_string(),
+        ))
+    }
+
+    fn create_pending_input(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "pending_inputs legacy placeholder".to_string(),
+        ))
+    }
+
+    fn submit_approval(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "approvals legacy placeholder".to_string(),
+        ))
+    }
+
+    fn respond_approval(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "approval_responses legacy placeholder".to_string(),
         ))
     }
 }
@@ -43,21 +119,42 @@ pub trait SessionLedgerReader {
     fn get_runtime_state(&self) -> AicoreResult<InstanceRuntimeSnapshot>;
     fn get_current_snapshot(&self) -> AicoreResult<InstanceRuntimeSnapshot>;
 
-    fn read_pending_inputs(&self) -> AicoreResult<()> {
+    fn get_pending_input(&self) -> AicoreResult<Option<PendingInputRecord>> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "pending_inputs not implemented yet".to_string(),
         ))
     }
 
-    fn read_approvals(&self) -> AicoreResult<()> {
+    fn list_approvals_for_turn(&self, _turn_id: &str) -> AicoreResult<Vec<ApprovalRecord>> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "approvals not implemented yet".to_string(),
         ))
     }
 
-    fn read_approval_responses(&self) -> AicoreResult<()> {
+    fn list_approval_responses(
+        &self,
+        _approval_id: &str,
+    ) -> AicoreResult<Vec<ApprovalResponseRecord>> {
         Err(aicore_foundation::AicoreError::Unavailable(
             "approval_responses not implemented yet".to_string(),
+        ))
+    }
+
+    fn read_pending_inputs(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "pending_inputs legacy placeholder".to_string(),
+        ))
+    }
+
+    fn read_approvals(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "approvals legacy placeholder".to_string(),
+        ))
+    }
+
+    fn read_approval_responses(&self) -> AicoreResult<()> {
+        Err(aicore_foundation::AicoreError::Unavailable(
+            "approval_responses legacy placeholder".to_string(),
         ))
     }
 }

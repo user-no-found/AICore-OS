@@ -3,7 +3,7 @@ use rusqlite::{Connection, params};
 
 use crate::error::{sqlite_open_error, sqlite_schema_error, sqlite_write_error};
 
-pub const STORE_SCHEMA_VERSION: i64 = 1;
+pub const STORE_SCHEMA_VERSION: i64 = 2;
 pub const STORE_KIND: &str = "sqlite_session_ledger";
 
 const SCHEMA_SQL: &str = r#"
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS turns (
     turn_id TEXT PRIMARY KEY NOT NULL,
     session_id TEXT NOT NULL,
     turn_seq INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'interrupted', 'cancelled')),
+    status TEXT NOT NULL CHECK(status IN ('active', 'running', 'waiting_approval', 'stopping', 'stopped', 'completed', 'interrupted', 'cancelled', 'failed', 'interrupted_by_recovery')),
     started_at INTEGER NOT NULL,
     finished_at INTEGER,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
@@ -59,37 +59,47 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_messages_turn_id ON messages(turn_id);
 
--- pending_inputs (schema only for P2.1)
+-- pending_inputs
 CREATE TABLE IF NOT EXISTS pending_inputs (
     pending_input_id TEXT PRIMARY KEY NOT NULL,
-    session_id TEXT NOT NULL,
+    instance_id TEXT NOT NULL,
+    session_id TEXT,
     turn_id TEXT,
     content TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled', 'replaced', 'expired', 'stale')),
+    status TEXT NOT NULL CHECK(status IN ('pending', 'confirmed', 'cancelled', 'replaced', 'stale')),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
     FOREIGN KEY (turn_id) REFERENCES turns(turn_id) ON DELETE CASCADE
 );
 
--- approvals (schema only for P2.1)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_inputs_one_open
+    ON pending_inputs(instance_id)
+    WHERE status = 'pending';
+
+-- approvals
 CREATE TABLE IF NOT EXISTS approvals (
     approval_id TEXT PRIMARY KEY NOT NULL,
     instance_id TEXT NOT NULL,
-    turn_id TEXT,
-    status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired', 'stale')),
-    scope TEXT NOT NULL DEFAULT 'single_tool_call',
+    turn_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected', 'cancelled', 'expired', 'stale', 'invalidated_by_stop', 'invalidated_by_turn_close', 'invalidated_by_recovery')),
+    scope TEXT NOT NULL DEFAULT 'single_tool_call' CHECK(scope IN ('single_tool_call')),
     summary TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     resolved_at INTEGER,
-    resolved_response_id TEXT
+    resolved_response_id TEXT,
+    FOREIGN KEY (turn_id) REFERENCES turns(turn_id) ON DELETE CASCADE
 );
 
--- approval_responses (schema only for P2.1)
+CREATE INDEX IF NOT EXISTS idx_approvals_turn_id ON approvals(turn_id);
+
+-- approval_responses
 CREATE TABLE IF NOT EXISTS approval_responses (
     response_id TEXT PRIMARY KEY NOT NULL,
     approval_id TEXT NOT NULL,
-    decision TEXT NOT NULL CHECK(decision IN ('approve', 'reject', 'deny', 'edit', 'cancel', 'stop_turn')),
+    instance_id TEXT NOT NULL,
+    decision TEXT NOT NULL CHECK(decision IN ('approve', 'reject')),
+    status TEXT NOT NULL CHECK(status IN ('accepted', 'rejected_stale', 'rejected_already_resolved', 'rejected_turn_not_active')),
     responder_client_id TEXT,
     responder_client_kind TEXT,
     responded_at INTEGER NOT NULL,
@@ -107,6 +117,7 @@ CREATE TABLE IF NOT EXISTS instance_runtime_state (
     last_control_event_seq INTEGER,
     last_write_seq INTEGER,
     runtime_status TEXT NOT NULL CHECK(runtime_status IN ('idle', 'running', 'waiting_approval', 'stopping')),
+    lock_version INTEGER NOT NULL DEFAULT 0,
     dirty_shutdown INTEGER NOT NULL DEFAULT 0,
     recovery_required INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL
@@ -118,7 +129,7 @@ CREATE TABLE IF NOT EXISTS control_events (
     instance_id TEXT NOT NULL,
     turn_id TEXT,
     event_seq INTEGER NOT NULL,
-    event_type TEXT NOT NULL CHECK(event_type IN ('session_created', 'turn_began', 'turn_finished', 'message_appended', 'turn_interrupted', 'runtime_state_updated')),
+    event_type TEXT NOT NULL CHECK(event_type IN ('session_created', 'turn_began', 'turn_finished', 'message_appended', 'turn_interrupted', 'runtime_state_updated', 'active_turn_acquired', 'active_turn_released', 'stop_requested', 'pending_input_submitted', 'pending_input_cancelled', 'approval_created', 'approval_resolved', 'approval_invalidated', 'custom')),
     detail TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
@@ -193,8 +204,8 @@ pub fn initialize_or_validate(
             "INSERT OR IGNORE INTO instance_runtime_state (
                 instance_id, active_session_id, active_turn_id, pending_input_id, pending_approval_id,
                 last_message_seq, last_control_event_seq, last_write_seq,
-                runtime_status, dirty_shutdown, recovery_required, updated_at
-            ) VALUES (?1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'idle', 0, 0, ?2)",
+                runtime_status, lock_version, dirty_shutdown, recovery_required, updated_at
+            ) VALUES (?1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'idle', 0, 0, 0, ?2)",
             params![instance_id.as_str(), now_millis],
         )
         .map_err(sqlite_write_error)?;

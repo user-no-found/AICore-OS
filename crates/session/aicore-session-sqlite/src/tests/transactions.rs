@@ -385,6 +385,7 @@ fn set_runtime_state_updates_recovery_pointers_only() {
             pending_input_id: Some("pending.runtime".to_string()),
             pending_approval_id: Some("approval.runtime".to_string()),
             runtime_status: RuntimeStatus::Stopping,
+            lock_version: Some(3),
             dirty_shutdown: true,
             recovery_required: true,
             updated_at: SystemClock.now(),

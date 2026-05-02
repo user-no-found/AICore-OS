@@ -1,5 +1,6 @@
 use super::enums::{
-    ControlEventKind, LedgerWriteKind, MessageKind, RuntimeStatus, SessionStatus, TurnStatus,
+    ApprovalDecision, ApprovalResponseStatus, ApprovalScope, ApprovalStatus, ControlEventKind,
+    LedgerWriteKind, MessageKind, PendingInputStatus, RuntimeStatus, SessionStatus, TurnStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +38,7 @@ session_id_type!(TurnId, "turn id");
 session_id_type!(MessageId, "message id");
 session_id_type!(ApprovalId, "approval id");
 session_id_type!(PendingInputId, "pending input id");
+session_id_type!(ApprovalResponseId, "approval response id");
 session_id_type!(ControlEventId, "control event id");
 session_id_type!(LedgerWriteId, "ledger write id");
 
@@ -99,6 +101,43 @@ pub type ControlEvent = ControlEventRecord;
 pub type LedgerWrite = LedgerWriteRecord;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingInputRecord {
+    pub pending_input_id: String,
+    pub instance_id: String,
+    pub session_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub content: String,
+    pub status: PendingInputStatus,
+    pub created_at: u128,
+    pub updated_at: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalRecord {
+    pub approval_id: String,
+    pub instance_id: String,
+    pub turn_id: String,
+    pub status: ApprovalStatus,
+    pub scope: ApprovalScope,
+    pub summary: String,
+    pub created_at: u128,
+    pub resolved_at: Option<u128>,
+    pub resolved_response_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalResponseRecord {
+    pub response_id: String,
+    pub approval_id: String,
+    pub instance_id: String,
+    pub decision: ApprovalDecision,
+    pub status: ApprovalResponseStatus,
+    pub responder_client_id: Option<String>,
+    pub responder_client_kind: Option<String>,
+    pub responded_at: u128,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceRuntimeState {
     pub instance_id: String,
     pub active_session_id: Option<String>,
@@ -109,6 +148,7 @@ pub struct InstanceRuntimeState {
     pub last_control_event_seq: Option<u64>,
     pub last_write_seq: Option<u64>,
     pub runtime_status: RuntimeStatus,
+    pub lock_version: u64,
     pub dirty_shutdown: bool,
     pub recovery_required: bool,
     pub updated_at: u128,
@@ -120,7 +160,10 @@ pub struct InstanceRuntimeSnapshot {
     pub active_session_id: Option<String>,
     pub active_turn_id: Option<String>,
     pub last_message_seq: Option<u64>,
+    pub pending_input_id: Option<String>,
+    pub pending_approval_id: Option<String>,
     pub runtime_status: RuntimeStatus,
+    pub lock_version: u64,
     pub dirty_shutdown: bool,
     pub recovery_required: bool,
 }

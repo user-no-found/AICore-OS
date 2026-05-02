@@ -74,6 +74,28 @@ fn enums_serialize_as_snake_case_contract_values() {
         serde_json::to_string(&PendingInputStatus::Replaced).unwrap(),
         "\"replaced\""
     );
+    assert_eq!(
+        serde_json::to_string(&ActiveTurnAcquireStatus::AlreadyActive).unwrap(),
+        "\"already_active\""
+    );
+    assert_eq!(
+        serde_json::to_string(&StopTurnStatus::NoActiveTurn).unwrap(),
+        "\"no_active_turn\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ApprovalResponseStatus::RejectedAlreadyResolved).unwrap(),
+        "\"rejected_already_resolved\""
+    );
+    assert_eq!(
+        serde_json::to_string(&ApprovalScope::SingleToolCall).unwrap(),
+        "\"single_tool_call\""
+    );
+    assert_eq!(TurnStatus::Stopped.as_str(), "stopped");
+    assert_eq!(TurnStatus::Failed.as_str(), "failed");
+    assert_eq!(
+        ApprovalStatus::InvalidatedByStop.as_str(),
+        "invalidated_by_stop"
+    );
 }
 
 #[test]
@@ -115,6 +137,83 @@ fn requests_use_foundation_id_and_timestamp_types() {
 }
 
 #[test]
+fn active_turn_and_stop_contracts_round_trip() {
+    let acquire = ActiveTurnAcquireRequest {
+        instance_id: InstanceId::global_main(),
+        session_id: SessionId::new("sess.ctl").unwrap(),
+        turn_id: "turn.ctl".to_string(),
+        requested_at: Timestamp::from_unix_millis(10),
+    };
+    let encoded = serde_json::to_string(&acquire).unwrap();
+    let decoded: ActiveTurnAcquireRequest = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded.turn_id, "turn.ctl");
+
+    let outcome = ActiveTurnAcquireOutcome {
+        status: ActiveTurnAcquireStatus::Acquired,
+        active_turn_id: Some("turn.ctl".to_string()),
+        lock_version: 1,
+    };
+    let encoded = serde_json::to_string(&outcome).unwrap();
+    let decoded: ActiveTurnAcquireOutcome = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded.status, ActiveTurnAcquireStatus::Acquired);
+    assert_eq!(decoded.lock_version, 1);
+
+    let stop = StopTurnRequest {
+        instance_id: InstanceId::global_main(),
+        requested_at: Timestamp::from_unix_millis(11),
+    };
+    let encoded = serde_json::to_string(&stop).unwrap();
+    let decoded: StopTurnRequest = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded.instance_id.as_str(), "global-main");
+}
+
+#[test]
+fn pending_and_approval_contracts_round_trip() {
+    let pending = PendingInputRecord {
+        pending_input_id: "pending.001".to_string(),
+        instance_id: "global-main".to_string(),
+        session_id: Some("sess.001".to_string()),
+        turn_id: Some("turn.001".to_string()),
+        content: "safe user text".to_string(),
+        status: PendingInputStatus::Pending,
+        created_at: 10,
+        updated_at: 10,
+    };
+    let encoded = serde_json::to_string(&pending).unwrap();
+    let decoded: PendingInputRecord = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, pending);
+
+    let approval = ApprovalRecord {
+        approval_id: "approval.001".to_string(),
+        instance_id: "global-main".to_string(),
+        turn_id: "turn.001".to_string(),
+        status: ApprovalStatus::Pending,
+        scope: ApprovalScope::SingleToolCall,
+        summary: "safe approval summary".to_string(),
+        created_at: 20,
+        resolved_at: None,
+        resolved_response_id: None,
+    };
+    let encoded = serde_json::to_string(&approval).unwrap();
+    let decoded: ApprovalRecord = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, approval);
+
+    let response = ApprovalResponseRecord {
+        response_id: "approval.response.001".to_string(),
+        approval_id: "approval.001".to_string(),
+        instance_id: "global-main".to_string(),
+        decision: ApprovalDecision::Approve,
+        status: ApprovalResponseStatus::Accepted,
+        responder_client_id: Some("client.001".to_string()),
+        responder_client_kind: Some("tui".to_string()),
+        responded_at: 30,
+    };
+    let encoded = serde_json::to_string(&response).unwrap();
+    let decoded: ApprovalResponseRecord = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded, response);
+}
+
+#[test]
 fn public_structures_do_not_expose_forbidden_raw_fields() {
     let public_names = [
         "SessionRecord session_id title status created_at updated_at metadata",
@@ -123,6 +222,9 @@ fn public_structures_do_not_expose_forbidden_raw_fields() {
         "ControlEventRecord event_id instance_id turn_id event_seq event_type detail created_at",
         "LedgerWriteRecord write_id instance_id turn_id write_seq write_type target_table target_id created_at",
         "InstanceRuntimeState instance_id active_session_id active_turn_id pending_input_id pending_approval_id last_message_seq last_control_event_seq last_write_seq runtime_status dirty_shutdown recovery_required updated_at",
+        "PendingInputRecord pending_input_id instance_id session_id turn_id content status created_at updated_at",
+        "ApprovalRecord approval_id instance_id turn_id status scope summary created_at resolved_at resolved_response_id",
+        "ApprovalResponseRecord response_id approval_id instance_id decision status responder_client_id responder_client_kind responded_at",
     ]
     .join("\n");
 

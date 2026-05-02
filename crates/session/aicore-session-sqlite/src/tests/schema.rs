@@ -51,7 +51,7 @@ fn ledger_meta_is_initialized_with_expected_values() {
         )
         .expect("meta row should exist");
 
-    assert_eq!(schema_version, 1);
+    assert_eq!(schema_version, 2);
     assert_eq!(store_kind, "sqlite_session_ledger");
     assert_eq!(instance_id, InstanceId::global_main().as_str());
 }
@@ -65,7 +65,7 @@ fn future_schema_version_fails_structurally() {
     }
 
     let conn = Connection::open(path.db_path()).expect("sqlite db should open");
-    conn.execute("UPDATE ledger_meta SET schema_version = 2", [])
+    conn.execute("UPDATE ledger_meta SET schema_version = 3", [])
         .expect("schema version update should succeed");
     drop(conn);
 

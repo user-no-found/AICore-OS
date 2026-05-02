@@ -1,3 +1,4 @@
+mod control;
 mod non_goals;
 mod ordering;
 mod recovery;

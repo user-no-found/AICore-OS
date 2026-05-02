@@ -1,8 +1,13 @@
-use aicore_foundation::AicoreResult;
+use aicore_foundation::{AicoreResult, InstanceId};
 use aicore_session::traits::SessionLedgerWriter;
 use aicore_session::types::{
-    AppendControlEventRequest, AppendLedgerWriteRequest, AppendMessageRequest, BeginTurnRequest,
-    CreateSessionRequest, FinishTurnRequest, SetRuntimeStateRequest,
+    ActiveTurnAcquireOutcome, ActiveTurnAcquireRequest, ActiveTurnReleaseOutcome,
+    ActiveTurnReleaseRequest, AppendControlEventRequest, AppendLedgerWriteRequest,
+    AppendMessageRequest, ApprovalRecord, ApprovalResponseOutcome, ApprovalResponseRequest,
+    ApprovalStatus, BeginTurnRequest, CreateApprovalRequest, CreateSessionRequest,
+    FinishTurnRequest, PendingInputCancelOutcome, PendingInputCancelRequest,
+    PendingInputSubmitOutcome, PendingInputSubmitRequest, SetRuntimeStateRequest, StopTurnOutcome,
+    StopTurnRequest,
 };
 
 use crate::store::SqliteSessionStore;
@@ -34,6 +39,58 @@ impl SessionLedgerWriter for SqliteSessionStore {
 
     fn set_runtime_state(&self, request: &SetRuntimeStateRequest) -> AicoreResult<()> {
         self.set_runtime_state_impl(request)
+    }
+
+    fn acquire_active_turn(
+        &self,
+        request: &ActiveTurnAcquireRequest,
+    ) -> AicoreResult<ActiveTurnAcquireOutcome> {
+        self.acquire_active_turn_impl(request)
+    }
+
+    fn release_active_turn(
+        &self,
+        request: &ActiveTurnReleaseRequest,
+    ) -> AicoreResult<ActiveTurnReleaseOutcome> {
+        self.release_active_turn_impl(request)
+    }
+
+    fn submit_or_replace_pending_input(
+        &self,
+        request: &PendingInputSubmitRequest,
+    ) -> AicoreResult<PendingInputSubmitOutcome> {
+        self.submit_or_replace_pending_input_impl(request)
+    }
+
+    fn cancel_pending_input(
+        &self,
+        request: &PendingInputCancelRequest,
+    ) -> AicoreResult<PendingInputCancelOutcome> {
+        self.cancel_pending_input_impl(request)
+    }
+
+    fn request_stop_active_turn(&self, request: &StopTurnRequest) -> AicoreResult<StopTurnOutcome> {
+        self.request_stop_active_turn_impl(request)
+    }
+
+    fn create_approval(&self, request: &CreateApprovalRequest) -> AicoreResult<ApprovalRecord> {
+        self.create_approval_impl(request)
+    }
+
+    fn respond_approval_first_writer_wins(
+        &self,
+        request: &ApprovalResponseRequest,
+    ) -> AicoreResult<ApprovalResponseOutcome> {
+        self.respond_approval_first_writer_wins_impl(request)
+    }
+
+    fn invalidate_open_approvals_for_turn(
+        &self,
+        instance_id: &InstanceId,
+        turn_id: &str,
+        status: ApprovalStatus,
+    ) -> AicoreResult<u64> {
+        self.invalidate_open_approvals_for_turn_impl(instance_id, turn_id, status)
     }
 
     fn create_pending_input(&self) -> AicoreResult<()> {
