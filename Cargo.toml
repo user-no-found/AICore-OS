@@ -16,6 +16,7 @@ members = [
   "crates/event/aicore-event",
   "crates/event/aicore-event-sqlite",
   "crates/memory/aicore-memory",
+  "crates/memory/aicore-memory-proposal",
   "crates/model/aicore-model-protocol",
   "crates/provider/aicore-provider",
   "crates/skill/aicore-skill-protocol",
@@ -50,6 +51,7 @@ aicore-terminal = { path = "crates/foundation/aicore-terminal" }
 aicore-kernel = { path = "crates/kernel/aicore-kernel" }
 aicore-mcp-adapter = { path = "crates/mcp/aicore-mcp-adapter" }
 aicore-memory = { path = "crates/memory/aicore-memory" }
+aicore-memory-proposal = { path = "crates/memory/aicore-memory-proposal" }
 aicore-model-protocol = { path = "crates/model/aicore-model-protocol" }
 aicore-provider = { path = "crates/provider/aicore-provider" }
 aicore-skill-protocol = { path = "crates/skill/aicore-skill-protocol" }
