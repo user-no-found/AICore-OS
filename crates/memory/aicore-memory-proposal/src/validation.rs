@@ -1,6 +1,4 @@
-use aicore_foundation::InstanceId;
-
-use crate::{MemoryProposalRequest, MemoryProposalSourceKind};
+use crate::MemoryProposalRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoryProposalRuntimeError {
@@ -18,14 +16,6 @@ pub fn validate_proposal_request(
     request: &MemoryProposalRequest,
 ) -> Result<(), MemoryProposalRuntimeError> {
     if request.target_instance_id != request.source_instance_id {
-        return Err(MemoryProposalRuntimeError::CrossInstanceProposalRejected);
-    }
-    if request.target_instance_id == InstanceId::global_main()
-        && !matches!(
-            request.source_actor_kind,
-            MemoryProposalSourceKind::MemoryAgent
-        )
-    {
         return Err(MemoryProposalRuntimeError::CrossInstanceProposalRejected);
     }
     if request

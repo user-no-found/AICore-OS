@@ -70,6 +70,21 @@ fn review() -> MemoryProposalReview {
     }
 }
 
+fn global_main_request(actor_kind: MemoryProposalSourceKind) -> MemoryProposalRequest {
+    let mut request = proposal_request(actor_kind);
+    request.target_instance_id = InstanceId::global_main();
+    request.source_instance_id = InstanceId::global_main();
+    request.source_refs = vec![source_ref(InstanceId::global_main())];
+    request
+}
+
+fn global_main_review() -> MemoryProposalReview {
+    let mut review = review();
+    review.target_instance_id = InstanceId::global_main();
+    review.source_refs = vec![source_ref(InstanceId::global_main())];
+    review
+}
+
 #[test]
 fn core_types_round_trip_through_json() {
     let request = proposal_request(MemoryProposalSourceKind::Agent);
@@ -94,6 +109,32 @@ fn create_proposal_only_creates_pending_proposal_without_write() {
     assert!(!outcome.record.write_applied);
     assert!(outcome.write_request.is_none());
     assert!(!runtime.proposal_can_enter_memory_context(&proposal_id()));
+}
+
+#[test]
+fn global_main_agent_can_create_proposal_for_global_main() {
+    let mut runtime = InMemoryMemoryProposalRuntime::new();
+    let outcome = runtime
+        .create_proposal(global_main_request(MemoryProposalSourceKind::Agent))
+        .unwrap();
+    assert_eq!(outcome.record.target_instance_id, InstanceId::global_main());
+    assert_eq!(outcome.record.source_instance_id, InstanceId::global_main());
+    assert_eq!(outcome.record.status, MemoryProposalStatus::PendingReview);
+    assert!(outcome.write_request.is_none());
+}
+
+#[test]
+fn global_main_team_agent_can_create_proposal_for_global_main() {
+    let mut runtime = InMemoryMemoryProposalRuntime::new();
+    let outcome = runtime
+        .create_proposal(global_main_request(MemoryProposalSourceKind::TeamAgent))
+        .unwrap();
+    assert_eq!(
+        outcome.record.source_actor_kind,
+        MemoryProposalSourceKind::TeamAgent
+    );
+    assert_eq!(outcome.record.target_instance_id, InstanceId::global_main());
+    assert!(outcome.write_request.is_none());
 }
 
 #[test]
@@ -249,6 +290,44 @@ fn reject_and_defer_do_not_create_write_request_or_prompt_memory() {
 }
 
 #[test]
+fn global_main_ordinary_agent_still_cannot_create_write_request() {
+    let mut runtime = global_main_reviewed_runtime();
+    let decision = MemoryUserDecision {
+        decision_id: decision_id(),
+        proposal_id: proposal_id(),
+        actor_kind: MemoryProposalSourceKind::Agent,
+        decision_kind: MemoryUserDecisionKind::ApproveWrite,
+        edited_canonical_text_en: None,
+        edited_user_annotation_zh: None,
+        decided_at: now(7),
+    };
+    assert_eq!(
+        runtime.record_user_decision(decision).unwrap_err(),
+        MemoryProposalRuntimeError::WriteRequestRequiresMemoryAgent
+    );
+    assert_eq!(runtime.snapshot().write_requests.len(), 0);
+}
+
+#[test]
+fn global_main_memory_agent_can_create_write_request_after_review() {
+    let mut runtime = global_main_reviewed_runtime();
+    let decision = MemoryUserDecision {
+        decision_id: decision_id(),
+        proposal_id: proposal_id(),
+        actor_kind: MemoryProposalSourceKind::MemoryAgent,
+        decision_kind: MemoryUserDecisionKind::ApproveWrite,
+        edited_canonical_text_en: None,
+        edited_user_annotation_zh: None,
+        decided_at: now(8),
+    };
+    let outcome = runtime.record_user_decision(decision).unwrap();
+    let write_request = outcome.write_request.unwrap();
+    assert_eq!(write_request.target_instance_id, InstanceId::global_main());
+    assert_eq!(write_request.status, MemoryWriteBoundaryStatus::Requested);
+    assert!(!write_request.applied);
+}
+
+#[test]
 fn ordinary_actor_cannot_create_memory_agent_write_request() {
     let mut runtime = reviewed_runtime();
     let decision = MemoryUserDecision {
@@ -320,5 +399,14 @@ fn reviewed_runtime() -> InMemoryMemoryProposalRuntime {
         .create_proposal(proposal_request(MemoryProposalSourceKind::Agent))
         .unwrap();
     runtime.review_proposal(review()).unwrap();
+    runtime
+}
+
+fn global_main_reviewed_runtime() -> InMemoryMemoryProposalRuntime {
+    let mut runtime = InMemoryMemoryProposalRuntime::new();
+    runtime
+        .create_proposal(global_main_request(MemoryProposalSourceKind::Agent))
+        .unwrap();
+    runtime.review_proposal(global_main_review()).unwrap();
     runtime
 }
