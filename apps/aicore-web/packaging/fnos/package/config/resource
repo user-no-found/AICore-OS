@@ -1,0 +1,22 @@
+{
+  "data-share": {
+    "shares": [
+      {
+        "name": "aicore-web",
+        "permission": {
+          "rw": [
+            "aicore-web"
+          ]
+        }
+      },
+      {
+        "name": "aicore-web/data",
+        "permission": {
+          "rw": [
+            "aicore-web"
+          ]
+        }
+      }
+    ]
+  }
+}

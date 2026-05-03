@@ -1,0 +1,13 @@
+{
+  ".url": {
+    "aicore-web.Application": {
+      "title": "AICore Web 控制台",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "protocol": "http",
+      "port": "8731",
+      "url": "/",
+      "allUsers": false
+    }
+  }
+}

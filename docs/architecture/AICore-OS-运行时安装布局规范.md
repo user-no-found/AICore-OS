@@ -20,6 +20,7 @@ $HOME/.aicore/
     aicore
     aicore-cli
     aicore-tui
+    aicore-web
   runtime/
     foundation/
     kernel/
@@ -101,6 +102,7 @@ $HOME/.aicore/share/manifests
 $HOME/.aicore/share/manifests/aicore.toml
 $HOME/.aicore/share/manifests/aicore-cli.toml
 $HOME/.aicore/share/manifests/aicore-tui.toml
+$HOME/.aicore/share/manifests/aicore-web.toml
 ```
 
 manifest 描述 component id、app id、kind、entrypoint、contract version 和 capabilities。第一轮 manifest schema 至少包含：

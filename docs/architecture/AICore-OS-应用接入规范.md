@@ -46,6 +46,26 @@ Memory write 类 handler 只表达现有 memory write CLI surface：`memory.reme
 
 应用可在 turn boundary 或安全边界进行启停、升级和移除。内核通过合同版本、能力描述和路由决策判断兼容性。
 
+## Web 应用原生打包
+
+Web 应用属于应用层独立组件。Web 页面可以使用 Vue3 等前端技术实现；与 AICore 运行时、内核协议、Unified I/O 或其他组件的交互由 Rust 后端承载。Web 应用不得在浏览器页面内直接绕过 Rust 后端访问内核、记忆、工具、provider 或 secret。
+
+fnOS 原生 Web 包使用 host-native 后端进程，不使用 Docker 容器。包内应包含：
+
+- `manifest`
+- `config/privilege`
+- `config/resource`
+- `cmd/main`
+- `cmd/*_init` 与 `cmd/*_callback` 生命周期脚本
+- `app/server/` 后端二进制
+- `app/www/` Web 静态资源
+- `app/ui/config` 桌面入口配置
+- `ICON.PNG` 与 `ICON_256.PNG`
+
+`cmd/main` 必须支持 `start`、`stop` 与 `status`。`start` 启动 Rust 后端并监听明确的 host / port；`stop` 应通过 pid 文件终止进程；`status` 在运行时返回 0，未运行时返回 3。运行日志与 pid 文件应写入 fnOS 注入的 package var 目录；缺少该变量时可以回退到包内运行目录，便于本地生命周期脚本测试。
+
+Web 应用对外暴露的浏览器入口应通过 `app/ui/config` 声明 URL、端口和图标。fnOS 原生包由 `fnpack build` 生成 `.fpk`。打包脚本负责构建前端静态资源、构建 Rust 后端二进制、组装 fnOS 包源目录并调用 `fnpack build`。
+
 ## 正式文档维护规则
 
 正式说明文档只记录稳定规格。过程记录、阶段状态、验证细节和协作日志属于外部规划工作区。

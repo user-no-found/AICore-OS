@@ -3,26 +3,43 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-const MANIFEST: &str = include_str!("../packaging/fnos/manifest.json");
-const START_SH: &str = include_str!("../packaging/fnos/scripts/start.sh");
+const MANIFEST: &str = include_str!("../packaging/fnos/package/manifest");
+const PRIVILEGE: &str = include_str!("../packaging/fnos/package/config/privilege");
+const RESOURCE: &str = include_str!("../packaging/fnos/package/config/resource");
+const MAIN: &str = include_str!("../packaging/fnos/package/cmd/main");
+const UI_CONFIG: &str = include_str!("../packaging/fnos/package/app/ui/config");
 const PACKAGE_SH: &str = include_str!("../packaging/fnos/scripts/package.sh");
-const CONFIG: &str = include_str!("../packaging/fnos/config/fnos.sample.toml");
+const LIFECYCLE_HOOKS: &[&str] = &[
+    "install_init",
+    "install_callback",
+    "uninstall_init",
+    "uninstall_callback",
+    "config_init",
+    "config_callback",
+    "upgrade_init",
+    "upgrade_callback",
+];
 
-pub fn write_package_skeleton(root: &Path) -> Result<(), String> {
-    write(root.join("manifest.json"), MANIFEST)?;
-    write_executable(root.join("scripts/start.sh"), START_SH)?;
+pub fn write_package_source(root: &Path) -> Result<(), String> {
+    write(root.join("manifest"), MANIFEST)?;
+    write(root.join("config/privilege"), PRIVILEGE)?;
+    write(root.join("config/resource"), RESOURCE)?;
+    write(root.join("app/ui/config"), UI_CONFIG)?;
+    write_executable(root.join("cmd/main"), MAIN)?;
+    for hook in LIFECYCLE_HOOKS {
+        write_executable(root.join("cmd").join(hook), "#!/bin/bash\nexit 0\n")?;
+    }
     write_executable(root.join("scripts/package.sh"), PACKAGE_SH)?;
-    write(root.join("config/fnos.sample.toml"), CONFIG)?;
     write(
-        root.join("web/index.html"),
+        root.join("app/www/index.html"),
         include_str!("../web/dist/index.html"),
     )?;
     write(
-        root.join("web/assets/app.js"),
+        root.join("app/www/assets/app.js"),
         include_str!("../web/dist/assets/app.js"),
     )?;
     write(
-        root.join("web/assets/app.css"),
+        root.join("app/www/assets/app.css"),
         include_str!("../web/dist/assets/app.css"),
     )
 }
@@ -54,9 +71,20 @@ fn write(path: impl AsRef<Path>, content: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn manifest_is_explicitly_placeholder() {
+    fn manifest_uses_fnos_native_fields() {
+        assert!(super::MANIFEST.contains("appname"));
         assert!(super::MANIFEST.contains("aicore-web"));
-        assert!(super::MANIFEST.contains("fnos_spec_status"));
-        assert!(super::MANIFEST.contains("placeholder"));
+        assert!(super::MANIFEST.contains("desktop_uidir"));
+        assert!(!super::MANIFEST.contains("placeholder"));
+    }
+
+    #[test]
+    fn lifecycle_script_runs_host_native_server() {
+        assert!(super::MAIN.contains("TRIM_PKGHOME"));
+        assert!(super::MAIN.contains("TRIM_PKGVAR"));
+        assert!(super::MAIN.contains("SCRIPT_DIR"));
+        assert!(super::MAIN.contains("app/server/aicore-web"));
+        assert!(super::MAIN.contains("--host"));
+        assert!(super::MAIN.contains("--port"));
     }
 }

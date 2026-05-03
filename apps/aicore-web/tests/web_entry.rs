@@ -30,36 +30,48 @@ fn prints_version() {
 }
 
 #[test]
-fn writes_fpk_skeleton() {
+fn writes_fnos_native_package_source() {
     let root = TestDir::new("fpk-root");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-web"))
         .arg("--fpk-root")
         .arg(root.path())
         .output()
-        .expect("aicore-web fpk skeleton should run");
+        .expect("aicore-web fpk source writer should run");
 
     assert!(output.status.success());
-    assert!(root.path().join("manifest.json").is_file());
-    assert!(root.path().join("scripts/start.sh").is_file());
+    assert!(root.path().join("manifest").is_file());
+    assert!(root.path().join("cmd/main").is_file());
+    assert!(root.path().join("cmd/install_init").is_file());
     assert!(root.path().join("scripts/package.sh").is_file());
-    assert!(root.path().join("config/fnos.sample.toml").is_file());
-    assert!(root.path().join("web/index.html").is_file());
-    assert!(root.path().join("web/assets/app.js").is_file());
-    assert!(root.path().join("web/assets/app.css").is_file());
+    assert!(root.path().join("config/privilege").is_file());
+    assert!(root.path().join("config/resource").is_file());
+    assert!(root.path().join("app/ui/config").is_file());
+    assert!(root.path().join("app/www/index.html").is_file());
+    assert!(root.path().join("app/www/assets/app.js").is_file());
+    assert!(root.path().join("app/www/assets/app.css").is_file());
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(root.path().join("scripts/start.sh"))
+        let mode = std::fs::metadata(root.path().join("cmd/main"))
             .unwrap()
             .permissions()
             .mode();
         assert_ne!(mode & 0o111, 0);
     }
 
-    let manifest = std::fs::read_to_string(root.path().join("manifest.json")).unwrap();
-    assert!(manifest.contains("\"ui\": \"vue3\""));
-    assert!(manifest.contains("\"backend\": \"rust\""));
-    assert!(manifest.contains("\"bind\": \"0.0.0.0\""));
+    let manifest = std::fs::read_to_string(root.path().join("manifest")).unwrap();
+    assert!(manifest.contains("appname"));
+    assert!(manifest.contains("aicore-web"));
+    assert!(manifest.contains("desktop_uidir"));
+    assert!(!manifest.contains("placeholder"));
+
+    let main = std::fs::read_to_string(root.path().join("cmd/main")).unwrap();
+    assert!(main.contains("TRIM_PKGHOME"));
+    assert!(main.contains("TRIM_PKGVAR"));
+    assert!(main.contains("SCRIPT_DIR"));
+    assert!(main.contains("app/server/aicore-web"));
+    assert!(main.contains("AICORE_WEB_HOST"));
+    assert!(main.contains("0.0.0.0"));
 }
 
 struct TestDir {
