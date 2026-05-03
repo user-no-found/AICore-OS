@@ -45,6 +45,7 @@ fn writes_fnos_native_package_source() {
     assert!(root.path().join("scripts/package.sh").is_file());
     assert!(root.path().join("config/privilege").is_file());
     assert!(root.path().join("config/resource").is_file());
+    assert!(root.path().join("wizard/.keep").is_file());
     assert!(root.path().join("app/ui/config").is_file());
     assert!(root.path().join("app/www/index.html").is_file());
     assert!(root.path().join("app/www/assets/app.js").is_file());

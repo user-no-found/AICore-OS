@@ -5,6 +5,9 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PKG_HOME="${TRIM_PKGHOME:-$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)}"
 PKG_VAR="${TRIM_PKGVAR:-${PKG_HOME}/var}"
 APP_BIN="${PKG_HOME}/app/server/aicore-web"
+if [ ! -x "${APP_BIN}" ] && [ -x "${PKG_HOME}/server/aicore-web" ]; then
+    APP_BIN="${PKG_HOME}/server/aicore-web"
+fi
 LOG_FILE="${PKG_VAR}/aicore-web.log"
 PID_FILE="${PKG_VAR}/aicore-web.pid"
 HOST="${AICORE_WEB_HOST:-0.0.0.0}"

@@ -25,6 +25,7 @@ pub fn write_package_source(root: &Path) -> Result<(), String> {
     write(root.join("config/privilege"), PRIVILEGE)?;
     write(root.join("config/resource"), RESOURCE)?;
     write(root.join("app/ui/config"), UI_CONFIG)?;
+    write(root.join("wizard/.keep"), "")?;
     write_executable(root.join("cmd/main"), MAIN)?;
     for hook in LIFECYCLE_HOOKS {
         write_executable(root.join("cmd").join(hook), "#!/bin/bash\nexit 0\n")?;
@@ -84,6 +85,7 @@ mod tests {
         assert!(super::MAIN.contains("TRIM_PKGVAR"));
         assert!(super::MAIN.contains("SCRIPT_DIR"));
         assert!(super::MAIN.contains("app/server/aicore-web"));
+        assert!(super::MAIN.contains("server/aicore-web"));
         assert!(super::MAIN.contains("--host"));
         assert!(super::MAIN.contains("--port"));
     }
