@@ -102,10 +102,6 @@ fn run_single(
 }
 
 fn build_warp_tui(output: &mut WorkflowOutput, repo_root: &Path) -> Result<(), String> {
-    if !has_protoc() {
-        return Err("未找到 protoc，无法编译 Warp fork TUI。\n请先安装 protobuf compiler，例如 Debian/Ubuntu: sudo apt-get install protobuf-compiler。".to_string());
-    }
-
     let warp_root = repo_root.join("apps/aicore-tui-warp");
     let warp_target = target_dir_for(repo_root, Workflow::AppTui).join("warp-fork");
     cleanup_target_if_needed(&warp_target, output)?;
@@ -115,8 +111,8 @@ fn build_warp_tui(output: &mut WorkflowOutput, repo_root: &Path) -> Result<(), S
         Some(&warp_target),
         "app-tui",
         "warp-build",
-        "cargo build -p warp --bin aicore-tui-warp",
-        &["build", "-p", "warp", "--bin", "aicore-tui-warp"],
+        "cargo build -p aicore-tui-warp --bin aicore-tui-warp",
+        &["build", "-p", "aicore-tui-warp", "--bin", "aicore-tui-warp"],
         &[("RUSTUP_TOOLCHAIN", "1.95.0")],
     )
 }
@@ -134,14 +130,6 @@ fn install_warp_tui(output: &mut WorkflowOutput, repo_root: &Path) -> Result<(),
         started_at.elapsed(),
     );
     Ok(())
-}
-
-fn has_protoc() -> bool {
-    std::process::Command::new("protoc")
-        .arg("--version")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
 }
 
 fn run_cargo_for_workflow(

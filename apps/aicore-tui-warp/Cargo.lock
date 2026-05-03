@@ -362,6 +362,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aicore-tui-warp"
+version = "0.0.0"
+dependencies = [
+ "aicore_bridge",
+ "anyhow",
+ "pathfinder_color",
+ "rust-embed 8.7.2",
+ "warpui",
+]
+
+[[package]]
 name = "aicore_bridge"
 version = "0.0.0"
 dependencies = [
@@ -14152,7 +14163,6 @@ dependencies = [
  "addr",
  "aho-corasick",
  "ai",
- "aicore_bridge",
  "anyhow",
  "app-installation-detection",
  "arrayvec",
