@@ -2,12 +2,9 @@
 set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PKG_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
 PKG_HOME="${TRIM_PKGHOME:-$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)}"
 PKG_VAR="${TRIM_PKGVAR:-${PKG_HOME}/var}"
-APP_BIN="${PKG_HOME}/app/server/aicore-web"
-if [ ! -x "${APP_BIN}" ] && [ -x "${PKG_HOME}/server/aicore-web" ]; then
-    APP_BIN="${PKG_HOME}/server/aicore-web"
-fi
 LOG_FILE="${PKG_VAR}/aicore-web.log"
 PID_FILE="${PKG_VAR}/aicore-web.pid"
 HOST="${AICORE_WEB_HOST:-0.0.0.0}"
@@ -21,6 +18,23 @@ log_msg() {
 check_process() {
     local pid="$1"
     kill -0 "${pid}" 2>/dev/null
+}
+
+resolve_app_bin() {
+    for path in \
+        "${PKG_ROOT}/target/server/aicore-web" \
+        "${PKG_ROOT}/server/aicore-web" \
+        "${PKG_HOME}/target/server/aicore-web" \
+        "${PKG_HOME}/server/aicore-web" \
+        "${PKG_HOME}/app/server/aicore-web"
+    do
+        if [ -x "${path}" ]; then
+            printf "%s" "${path}"
+            return 0
+        fi
+    done
+
+    return 1
 }
 
 status_process() {
@@ -41,13 +55,14 @@ start_process() {
         return 0
     fi
 
-    if [ ! -x "${APP_BIN}" ]; then
-        log_msg "未找到可执行文件：${APP_BIN}"
+    local app_bin
+    if ! app_bin=$(resolve_app_bin); then
+        log_msg "未找到可执行文件，已检查 ${PKG_ROOT}/target/server、${PKG_ROOT}/server、${PKG_HOME}/target/server、${PKG_HOME}/server、${PKG_HOME}/app/server"
         return 1
     fi
 
     log_msg "启动 AICore Web：${HOST}:${PORT}"
-    "${APP_BIN}" --host "${HOST}" --port "${PORT}" >> "${LOG_FILE}" 2>&1 &
+    "${app_bin}" --host "${HOST}" --port "${PORT}" >> "${LOG_FILE}" 2>&1 &
     printf "%s" "$!" > "${PID_FILE}"
     return 0
 }

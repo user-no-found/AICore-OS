@@ -84,6 +84,9 @@ mod tests {
         assert!(super::MAIN.contains("TRIM_PKGHOME"));
         assert!(super::MAIN.contains("TRIM_PKGVAR"));
         assert!(super::MAIN.contains("SCRIPT_DIR"));
+        assert!(super::MAIN.contains("PKG_ROOT"));
+        assert!(super::MAIN.contains("resolve_app_bin"));
+        assert!(super::MAIN.contains("target/server/aicore-web"));
         assert!(super::MAIN.contains("app/server/aicore-web"));
         assert!(super::MAIN.contains("server/aicore-web"));
         assert!(super::MAIN.contains("--host"));

@@ -70,6 +70,9 @@ fn writes_fnos_native_package_source() {
     assert!(main.contains("TRIM_PKGHOME"));
     assert!(main.contains("TRIM_PKGVAR"));
     assert!(main.contains("SCRIPT_DIR"));
+    assert!(main.contains("PKG_ROOT"));
+    assert!(main.contains("resolve_app_bin"));
+    assert!(main.contains("target/server/aicore-web"));
     assert!(main.contains("app/server/aicore-web"));
     assert!(main.contains("AICORE_WEB_HOST"));
     assert!(main.contains("0.0.0.0"));
