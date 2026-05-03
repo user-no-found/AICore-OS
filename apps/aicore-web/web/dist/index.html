@@ -9,78 +9,86 @@
   </head>
   <body>
     <div id="app">
-      <main class="shell no-js-shell">
-        <aside class="rail">
-          <div class="brand">
-            <span class="mark">A</span>
+      <main class="aicore-shell no-js-shell">
+        <aside class="side-rail">
+          <div class="brand-block">
+            <span class="brand-mark">AC</span>
             <div>
               <strong>AICore OS</strong>
               <small>Web Console</small>
             </div>
           </div>
-          <nav>
-            <button class="active">控制台</button>
-            <button>实例</button>
-            <button>审批</button>
-            <button>媒体</button>
-            <button>设置</button>
+          <nav class="nav-stack">
+            <button class="active" data-icon="grid">总览</button>
+            <button data-icon="instance">实例</button>
+            <button data-icon="stream">会话</button>
+            <button data-icon="memory">记忆</button>
+            <button data-icon="tool">工具</button>
           </nav>
-          <section class="lan">
-            <span>局域网访问</span>
-            <strong>已启动</strong>
-            <small>Rust 后端正在提供页面</small>
+          <section class="instance-card">
+            <span>静态首屏</span>
+            <strong>等待 Vue3 接管</strong>
+            <p>Rust 后端已提供页面。</p>
+            <div><i></i>预览可用</div>
           </section>
         </aside>
 
-        <section class="workspace">
+        <section class="main-grid">
           <header class="topbar">
-            <div>
-              <p>当前实例</p>
-              <h1>global-main / Web 预览</h1>
+            <div class="crumbs">
+              <span>工作区 / acme / research / default</span>
+              <strong>实例 ID：inst_7f3a9c2e</strong>
             </div>
-            <div class="status-pill">静态首屏 · 等待 Vue3 接管</div>
+            <div class="runtime-strip">
+              <div class="chip ok"><span>Foundation</span><strong>运行中</strong></div>
+              <div class="chip ok"><span>Kernel</span><strong>运行中</strong></div>
+              <div class="chip warn"><span>I/O Gateway</span><strong>预留中</strong></div>
+            </div>
+            <div class="network-card">
+              <span>fnOS 原生包</span>
+              <strong>LAN 访问</strong>
+              <small>http://0.0.0.0:8731</small>
+            </div>
           </header>
 
-          <section class="hero">
-            <div>
-              <span class="eyebrow">AICore Web Surface</span>
-              <h2>FNOS 与浏览器中的现代 AI 控制台</h2>
-              <p>如果你看到这段内容，说明 Rust 后端和静态页面已经成功加载；Vue3 会在脚本加载后接管界面。</p>
+          <section class="panel stream-panel">
+            <header class="panel-head">
+              <h2>Unified I/O Stream</h2>
+              <span class="panel-action">静态首屏 · 等待 Vue3 接管</span>
+            </header>
+            <div class="stream-list">
+              <article class="stream-row user">
+                <time>10:42:11</time>
+                <span class="source">Web</span>
+                <div>
+                  <strong>Web 控制台已加载</strong>
+                  <p>如果看到这段内容，说明 fnOS 包内静态页面和 Rust 后端可用。</p>
+                </div>
+                <em>预览</em>
+              </article>
             </div>
-            <div class="orb"></div>
           </section>
 
-          <section class="cards">
-            <article>
-              <span>运行时</span>
-              <strong>未接入</strong>
-              <p>等待 Unified I/O snapshot。</p>
-            </article>
-            <article>
-              <span>局域网</span>
-              <strong>已预留</strong>
-              <p>Rust server 默认监听 0.0.0.0:8731。</p>
-            </article>
-            <article>
-              <span>工具</span>
-              <strong>禁用</strong>
-              <p>不会从 Web 直接执行工具。</p>
-            </article>
-            <article>
-              <span>记忆</span>
-              <strong>只读占位</strong>
-              <p>不会从 Web 直接写入记忆。</p>
-            </article>
+          <section class="panel topology-panel">
+            <header class="panel-head">
+              <h2>Runtime Topology</h2>
+              <span class="panel-action">拓扑视图</span>
+            </header>
+            <div class="runtime-nodes">
+              <div class="node cyan"><b></b><span>Foundation Runtime</span></div>
+              <div class="node blue"><b></b><span>Kernel Runtime</span></div>
+              <div class="node green"><b></b><span>Instance Runtime</span><small>inst_7f3a9c2e</small></div>
+            </div>
+          </section>
+
+          <section class="panel audit-panel">
+            <header class="panel-head">
+              <h2>Approval & Audit</h2>
+              <span class="panel-action">预留</span>
+            </header>
+            <p>审批、事件账本、保留策略和审计日志将在 Unified I/O 接入后同步显示。</p>
           </section>
         </section>
-
-        <aside class="inspector">
-          <section>
-            <h2>运行检查器</h2>
-            <p>Foundation / Kernel runtime 尚未连接。</p>
-          </section>
-          <section class="toast">当前是 Web 预留界面，不启动智能体运行时。</section>
-        </aside>
       </main>
     </div>
   </body>

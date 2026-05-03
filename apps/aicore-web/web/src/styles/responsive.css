@@ -1,0 +1,90 @@
+@media (max-width: 1320px) {
+  .aicore-shell {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
+  .brand-block div,
+  .nav-stack button,
+  .instance-card span,
+  .instance-card strong,
+  .instance-card p {
+    font-size: 0;
+  }
+
+  .nav-stack button {
+    padding: 0;
+  }
+
+  .nav-stack button::before {
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .main-grid,
+  .topbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .runtime-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .aicore-shell {
+    grid-template-columns: 1fr;
+    padding: 8px 8px 58px;
+  }
+
+  .side-rail {
+    position: static;
+    height: auto;
+    grid-template-rows: auto;
+  }
+
+  .nav-stack {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .brand-block div,
+  .nav-stack button,
+  .instance-card span,
+  .instance-card strong,
+  .instance-card p {
+    font-size: inherit;
+  }
+
+  .nav-stack button {
+    padding: 0 8px;
+    text-align: center;
+  }
+
+  .nav-stack button::before {
+    display: none;
+  }
+
+  .runtime-strip,
+  .tool-grid,
+  .component-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topology {
+    grid-template-columns: 1fr;
+  }
+
+  .edge-clients,
+  .edge-services {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .composer {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .system-footer {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+}
