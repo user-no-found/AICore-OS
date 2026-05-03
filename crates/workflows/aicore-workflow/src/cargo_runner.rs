@@ -49,10 +49,22 @@ pub fn run_cargo_capture(
     target_dir: Option<&Path>,
     args: &[&str],
 ) -> Result<CommandReport, String> {
+    run_cargo_capture_with_env(repo_root, target_dir, args, &[])
+}
+
+pub fn run_cargo_capture_with_env(
+    repo_root: &Path,
+    target_dir: Option<&Path>,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<CommandReport, String> {
     let mut command = Command::new("cargo");
     command.args(args).current_dir(repo_root);
     if let Some(target_dir) = target_dir {
         command.env("CARGO_TARGET_DIR", target_dir);
+    }
+    for (key, value) in envs {
+        command.env(key, value);
     }
 
     let command_label = format!("cargo {}", args.join(" "));
