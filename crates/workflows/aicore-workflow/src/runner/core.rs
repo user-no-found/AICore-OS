@@ -4,9 +4,9 @@ use std::time::Instant;
 
 use aicore_terminal::Status;
 
-use crate::cargo_runner::{CommandReport, run_cargo_capture};
+use crate::cargo_runner::{CommandReport, run_cargo_capture, run_cargo_capture_with_env};
 use crate::layers::Workflow;
-use crate::runner::install::{InstallOutcome, install_layer};
+use crate::runner::install::{InstallOutcome, install_layer, install_warp_tui_binary};
 use crate::workflow_output::WorkflowOutput;
 
 const TARGET_LIMIT_BYTES: u64 = 30 * 1024 * 1024 * 1024;
@@ -61,6 +61,9 @@ fn run_single(
     )?;
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "test")?;
     run_cargo_for_workflow(output, repo_root, workflow, &target_dir, "build")?;
+    if workflow == Workflow::AppTui {
+        build_warp_tui(output, repo_root)?;
+    }
     output.step_started(&format!("{} / install", workflow.id()));
     let install_started_at = Instant::now();
     let InstallOutcome {
@@ -92,7 +95,53 @@ fn run_single(
             install_started_at.elapsed(),
         );
     }
+    if workflow == Workflow::AppTui {
+        install_warp_tui(output, repo_root)?;
+    }
     Ok(())
+}
+
+fn build_warp_tui(output: &mut WorkflowOutput, repo_root: &Path) -> Result<(), String> {
+    if !has_protoc() {
+        return Err("未找到 protoc，无法编译 Warp fork TUI。\n请先安装 protobuf compiler，例如 Debian/Ubuntu: sudo apt-get install protobuf-compiler。".to_string());
+    }
+
+    let warp_root = repo_root.join("apps/aicore-tui-warp");
+    let warp_target = target_dir_for(repo_root, Workflow::AppTui).join("warp-fork");
+    cleanup_target_if_needed(&warp_target, output)?;
+    run_cargo_step_with_env(
+        output,
+        &warp_root,
+        Some(&warp_target),
+        "app-tui",
+        "warp-build",
+        "cargo build -p warp --bin aicore-tui-warp",
+        &["build", "-p", "warp", "--bin", "aicore-tui-warp"],
+        &[("RUSTUP_TOOLCHAIN", "1.95.0")],
+    )
+}
+
+fn install_warp_tui(output: &mut WorkflowOutput, repo_root: &Path) -> Result<(), String> {
+    output.step_started("app-tui / warp-install");
+    let started_at = Instant::now();
+    let warp_target = target_dir_for(repo_root, Workflow::AppTui).join("warp-fork");
+    install_warp_tui_binary(&warp_target)?;
+    output.record_local_step(
+        "app-tui",
+        "warp-install",
+        "install aicore-tui-warp",
+        Status::Ok,
+        started_at.elapsed(),
+    );
+    Ok(())
+}
+
+fn has_protoc() -> bool {
+    std::process::Command::new("protoc")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
 }
 
 fn run_cargo_for_workflow(
@@ -135,8 +184,34 @@ fn run_cargo_step(
     command: &str,
     args: &[&str],
 ) -> Result<(), String> {
+    run_cargo_step_with_env(
+        output,
+        repo_root,
+        target_dir,
+        layer,
+        step,
+        command,
+        args,
+        &[],
+    )
+}
+
+fn run_cargo_step_with_env(
+    output: &mut WorkflowOutput,
+    repo_root: &Path,
+    target_dir: Option<&Path>,
+    layer: &str,
+    step: &str,
+    command: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+) -> Result<(), String> {
     output.step_started(&format!("{layer} / {step}"));
-    let report = run_cargo_capture(repo_root, target_dir, args)?;
+    let report = if envs.is_empty() {
+        run_cargo_capture(repo_root, target_dir, args)?
+    } else {
+        run_cargo_capture_with_env(repo_root, target_dir, args, envs)?
+    };
     let succeeded = report.succeeded();
     output.record_command_report(layer, step, command, &report, !succeeded);
     if succeeded {

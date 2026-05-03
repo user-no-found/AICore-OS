@@ -9,18 +9,17 @@ fn renders_terminal_tui_snapshot() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-tui"))
         .current_dir(workspace.path())
         .env("HOME", home.path())
+        .env("AICORE_TUI_SKIP_WARP_LAUNCH", "1")
         .output()
         .expect("aicore-tui should run");
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("AICore OS"));
+    assert!(stdout.contains("AICore TUI Warp fork"));
     assert!(stdout.contains("实例"));
-    assert!(stdout.contains("会话流"));
-    assert!(stdout.contains("运行时"));
-    assert!(stdout.contains("aicore >"));
-    assert!(stdout.contains("不启动智能体运行时"));
+    assert!(stdout.contains("工作区"));
+    assert!(stdout.contains("已完成实例绑定"));
     assert!(workspace.path().join(".aicore").is_dir());
     assert!(workspace.path().join(".gitignore").is_file());
 }

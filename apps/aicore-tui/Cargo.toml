@@ -9,5 +9,3 @@ authors.workspace = true
 
 [dependencies]
 aicore-foundation.workspace = true
-aicore-kernel.workspace = true
-aicore-surface.workspace = true
