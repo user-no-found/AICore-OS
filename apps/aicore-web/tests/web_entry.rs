@@ -50,6 +50,14 @@ fn writes_fnos_native_package_source() {
     assert!(root.path().join("app/www/index.html").is_file());
     assert!(root.path().join("app/www/assets/app.js").is_file());
     assert!(root.path().join("app/www/assets/app.css").is_file());
+    let index = std::fs::read_to_string(root.path().join("app/www/index.html")).unwrap();
+    assert!(index.contains("静态首屏"));
+    assert!(index.contains("./assets/app.js"));
+    assert!(index.contains("./assets/app.css"));
+
+    let js = std::fs::read_to_string(root.path().join("app/www/assets/app.js")).unwrap();
+    assert!(js.contains("createApp"));
+    assert!(!js.contains("template:"));
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

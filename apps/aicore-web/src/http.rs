@@ -39,7 +39,7 @@ fn handle_stream(mut stream: TcpStream) -> Result<(), String> {
             .map_err(|error| format!("读取请求失败：{error}"))?;
     }
     let path = request_path(&request_line);
-    let response = match path {
+    let response = match normalize_path(path) {
         "/" | "/index.html" => response("200 OK", "text/html; charset=utf-8", INDEX_HTML),
         "/assets/app.js" => response("200 OK", "text/javascript; charset=utf-8", APP_JS),
         "/assets/app.css" => response("200 OK", "text/css; charset=utf-8", APP_CSS),
@@ -66,6 +66,20 @@ fn request_path(line: &str) -> &str {
     parts.next().unwrap_or("/")
 }
 
+fn normalize_path(path: &str) -> &str {
+    let without_query = path.split_once('?').map_or(path, |(path, _query)| path);
+    let without_fragment = without_query
+        .split_once('#')
+        .map_or(without_query, |(path, _fragment)| path);
+    if without_fragment.ends_with("/assets/app.js") {
+        "/assets/app.js"
+    } else if without_fragment.ends_with("/assets/app.css") {
+        "/assets/app.css"
+    } else {
+        without_fragment
+    }
+}
+
 fn response(status: &str, content_type: &str, body: &str) -> String {
     format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}",
@@ -85,9 +99,23 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_query_and_prefixed_assets() {
+        assert_eq!(
+            super::normalize_path("/assets/app.js?v=1"),
+            "/assets/app.js"
+        );
+        assert_eq!(
+            super::normalize_path("/aicore-web/assets/app.css"),
+            "/assets/app.css"
+        );
+        assert_eq!(super::normalize_path("/api/status?x=1"), "/api/status");
+    }
+
+    #[test]
     fn serves_vue_entry_asset_names() {
-        assert!(super::INDEX_HTML.contains("/assets/app.js"));
-        assert!(super::INDEX_HTML.contains("/assets/app.css"));
+        assert!(super::INDEX_HTML.contains("./assets/app.js"));
+        assert!(super::INDEX_HTML.contains("./assets/app.css"));
+        assert!(super::INDEX_HTML.contains("静态首屏"));
         assert!(super::APP_JS.contains("createApp"));
     }
 }

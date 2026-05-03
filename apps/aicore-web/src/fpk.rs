@@ -97,4 +97,15 @@ mod tests {
         assert!(super::MAIN.contains("--host"));
         assert!(super::MAIN.contains("--port"));
     }
+
+    #[test]
+    fn packaged_web_shell_has_static_first_paint_and_runtime_render() {
+        let index = include_str!("../web/dist/index.html");
+        let js = include_str!("../web/dist/assets/app.js");
+        assert!(index.contains("静态首屏"));
+        assert!(index.contains("./assets/app.js"));
+        assert!(index.contains("./assets/app.css"));
+        assert!(js.contains("createApp"));
+        assert!(!js.contains("template:"));
+    }
 }
