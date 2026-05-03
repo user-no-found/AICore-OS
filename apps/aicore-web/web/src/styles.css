@@ -1,0 +1,294 @@
+:root {
+  color: #18201c;
+  background: #e8e0d2;
+  font-family: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(255, 185, 84, 0.36), transparent 28rem),
+    radial-gradient(circle at 88% 8%, rgba(67, 132, 116, 0.24), transparent 24rem),
+    linear-gradient(135deg, #f4eadb 0%, #ded7c7 42%, #d2dcce 100%);
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 17rem minmax(0, 1fr) 21rem;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 1rem;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.rail,
+.workspace,
+.inspector,
+.composer {
+  border: 1px solid rgba(23, 36, 31, 0.12);
+  border-radius: 28px;
+  background: rgba(255, 252, 244, 0.72);
+  box-shadow: 0 24px 80px rgba(35, 43, 36, 0.12);
+  backdrop-filter: blur(22px);
+}
+
+.rail {
+  padding: 1.2rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.mark {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 1rem;
+  color: #fff8e8;
+  background: #18201c;
+  font-size: 1.35rem;
+  font-weight: 900;
+}
+
+.brand strong,
+.brand small {
+  display: block;
+}
+
+.brand small,
+.rail button,
+.lan small,
+.topbar p,
+.hero p,
+.cards p,
+.inspector p,
+.message p {
+  color: #687268;
+}
+
+nav {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 2rem;
+}
+
+nav button {
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  text-align: left;
+  background: transparent;
+}
+
+nav .active {
+  color: #fff8e8;
+  background: #315f4f;
+}
+
+.lan {
+  margin-top: 2rem;
+  padding: 1rem;
+  border-radius: 1.2rem;
+  background: #f6d58f;
+}
+
+.lan span,
+.lan strong,
+.lan small {
+  display: block;
+}
+
+.workspace {
+  overflow: hidden;
+  padding: 1rem;
+}
+
+.topbar,
+.hero,
+.message header,
+.composer div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.topbar h1,
+.topbar p,
+.hero h2,
+.hero p {
+  margin: 0;
+}
+
+.topbar h1 {
+  font-size: 1.35rem;
+}
+
+.status-pill,
+.eyebrow,
+.message header button {
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  background: #17241f;
+  color: #fff8e8;
+  font-size: 0.8rem;
+}
+
+.hero {
+  position: relative;
+  margin-top: 1rem;
+  min-height: 15rem;
+  padding: 2rem;
+  border-radius: 2rem;
+  overflow: hidden;
+  color: #fff8e8;
+  background:
+    linear-gradient(135deg, rgba(24, 32, 28, 0.95), rgba(50, 91, 77, 0.92)),
+    radial-gradient(circle at 82% 22%, rgba(248, 179, 74, 0.9), transparent 16rem);
+}
+
+.hero h2 {
+  max-width: 44rem;
+  margin-top: 1rem;
+  font-size: clamp(2rem, 4vw, 4.6rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.hero p {
+  max-width: 36rem;
+  margin-top: 1rem;
+  color: #ded7c7;
+}
+
+.orb {
+  width: 9rem;
+  height: 9rem;
+  border-radius: 999px;
+  background: conic-gradient(from 45deg, #f6d58f, #5f9581, #fff8e8, #f6d58f);
+  filter: blur(0.3px);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.cards article,
+.message,
+.inspector section {
+  padding: 1rem;
+  border-radius: 1.3rem;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.cards strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.25rem;
+}
+
+.timeline {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.message.code {
+  background: #15221d;
+  color: #f7ecd8;
+}
+
+.message.code p {
+  color: #f6d58f;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+}
+
+.inspector {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.inspector h2,
+.inspector p,
+.message h3,
+.message p {
+  margin: 0.35rem 0 0;
+}
+
+.toast {
+  color: #fff8e8;
+  background: #315f4f !important;
+}
+
+.composer {
+  grid-column: 2 / 4;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  padding: 0.8rem;
+}
+
+.composer textarea {
+  min-height: 5.5rem;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  border-radius: 1.2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.composer div {
+  flex-direction: column;
+}
+
+.composer button {
+  min-width: 6rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  color: #17241f;
+  background: #f6d58f;
+}
+
+.composer button[type="submit"] {
+  color: #fff8e8;
+  background: #17241f;
+}
+
+@media (max-width: 1100px) {
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .composer {
+    grid-column: auto;
+  }
+
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

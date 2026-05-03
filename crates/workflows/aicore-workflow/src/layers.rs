@@ -6,6 +6,7 @@ pub enum Workflow {
     AppAicore,
     AppCli,
     AppTui,
+    AppWeb,
 }
 
 impl Workflow {
@@ -17,6 +18,7 @@ impl Workflow {
             "app-aicore" => Some(Self::AppAicore),
             "app-cli" => Some(Self::AppCli),
             "app-tui" => Some(Self::AppTui),
+            "app-web" => Some(Self::AppWeb),
             _ => None,
         }
     }
@@ -29,6 +31,7 @@ impl Workflow {
             Self::AppAicore => "app-aicore",
             Self::AppCli => "app-cli",
             Self::AppTui => "app-tui",
+            Self::AppWeb => "app-web",
         }
     }
 
@@ -40,6 +43,7 @@ impl Workflow {
             Self::AppAicore => "aicore",
             Self::AppCli => "aicore-cli",
             Self::AppTui => "aicore-tui",
+            Self::AppWeb => "aicore-web",
         }
     }
 
@@ -57,6 +61,7 @@ impl Workflow {
                 "aicore-surface",
             ],
             Self::AppTui => &["aicore-tui"],
+            Self::AppWeb => &["aicore-web"],
         }
     }
 }
@@ -93,6 +98,16 @@ mod tests {
     #[test]
     fn app_tui_workflow_maps_to_aicore_tui_package() {
         assert_eq!(Workflow::AppTui.crates(), &["aicore-tui"]);
+    }
+
+    #[test]
+    fn parses_app_web_workflow() {
+        assert_eq!(Workflow::parse("app-web"), Some(Workflow::AppWeb));
+    }
+
+    #[test]
+    fn app_web_workflow_maps_to_aicore_web_package() {
+        assert_eq!(Workflow::AppWeb.crates(), &["aicore-web"]);
     }
 
     #[test]

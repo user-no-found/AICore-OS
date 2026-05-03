@@ -14,7 +14,7 @@ use layers::Workflow;
 fn main() -> ExitCode {
     let Some(arg) = env::args().nth(1) else {
         eprintln!(
-            "缺少 workflow 参数。可用值：foundation、kernel、core、app-aicore、app-cli、app-tui"
+            "缺少 workflow 参数。可用值：foundation、kernel、core、app-aicore、app-cli、app-tui、app-web"
         );
         return ExitCode::from(1);
     };

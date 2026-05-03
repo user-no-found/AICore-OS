@@ -4,6 +4,7 @@ members = [
   "apps/aicore",
   "apps/aicore-cli",
   "apps/aicore-tui",
+  "apps/aicore-web",
   "crates/agent/aicore-agent",
   "crates/auth/aicore-auth",
   "crates/config/aicore-config",

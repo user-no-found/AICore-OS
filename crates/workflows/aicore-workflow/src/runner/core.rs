@@ -27,7 +27,8 @@ pub fn run(workflow: Workflow) -> Result<(), String> {
         | Workflow::Kernel
         | Workflow::AppAicore
         | Workflow::AppCli
-        | Workflow::AppTui => run_single(&repo_root, workflow, &mut output),
+        | Workflow::AppTui
+        | Workflow::AppWeb => run_single(&repo_root, workflow, &mut output),
     };
 
     let final_status = match result {
@@ -176,6 +177,7 @@ pub(crate) fn target_dir_for(repo_root: &Path, workflow: Workflow) -> PathBuf {
         Workflow::AppAicore => repo_root.join("target/apps/aicore"),
         Workflow::AppCli => repo_root.join("target/apps/aicore-cli"),
         Workflow::AppTui => repo_root.join("target/apps/aicore-tui"),
+        Workflow::AppWeb => repo_root.join("target/apps/aicore-web"),
     }
 }
 

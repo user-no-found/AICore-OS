@@ -26,6 +26,13 @@ pub(super) fn app_manifest_for(
                 capability("tui.route_smoke", "tui.route_smoke"),
             ],
         ),
+        Workflow::AppWeb => (
+            "aicore-web",
+            vec![
+                capability("web.health", "web.health"),
+                capability("web.route_smoke", "web.route_smoke"),
+            ],
+        ),
         Workflow::Foundation | Workflow::Kernel | Workflow::Core => return None,
     };
 

@@ -1,0 +1,32 @@
+{
+  "id": "aicore-web",
+  "name": "AICore OS Web",
+  "version": "0.1.0",
+  "fnos_spec_status": "placeholder",
+  "description": "AICore OS Web 控制台预留应用",
+  "entry": {
+    "type": "web",
+    "path": "/",
+    "health_path": "/health"
+  },
+  "server": {
+    "command": "./bin/aicore-web",
+    "args": ["--host", "0.0.0.0", "--port", "8731"]
+  },
+  "network": {
+    "bind": "0.0.0.0",
+    "port": 8731,
+    "lan_bind": true,
+    "auth": "reserved"
+  },
+  "aicore": {
+    "component_id": "aicore-web",
+    "surface": "web",
+    "ui": "vue3",
+    "backend": "rust",
+    "requires_foundation_runtime": true,
+    "requires_kernel_runtime": true,
+    "private_kernel_fallback": false
+  },
+  "status": "placeholder"
+}

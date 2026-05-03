@@ -62,6 +62,15 @@ fn app_tui_workflow_uses_app_target_dir() {
 }
 
 #[test]
+fn app_web_workflow_uses_app_target_dir() {
+    let root = Path::new("repo");
+    assert_eq!(
+        target_dir_for(root, Workflow::AppWeb),
+        root.join("target/apps/aicore-web")
+    );
+}
+
+#[test]
 fn foundation_install_manifest_path_is_under_install_dir() {
     let target_dir = PathBuf::from("/repo/target/layers/foundation");
     assert_eq!(
@@ -81,6 +90,10 @@ fn app_workflow_installs_binary_into_aicore_bin() {
         installed_binary_path(home_root, Workflow::AppCli),
         PathBuf::from("/home/demo/.aicore/bin/aicore-cli")
     );
+    assert_eq!(
+        installed_binary_path(home_root, Workflow::AppWeb),
+        home_root.join(".aicore/bin/aicore-web")
+    );
 }
 
 #[test]
@@ -92,6 +105,7 @@ fn workflow_install_warns_when_aicore_bin_not_in_path() {
             Some("/home/demo/.aicore/bin/aicore-cli")
                 | Some("/home/demo/.aicore/bin/aicore")
                 | Some("/home/demo/.aicore/bin/aicore-tui")
+                | Some("/home/demo/.aicore/bin/aicore-web")
         )
     });
 
@@ -102,6 +116,7 @@ fn workflow_install_warns_when_aicore_bin_not_in_path() {
         .join("\n");
     assert!(message.contains("~/.aicore/bin 当前不在 PATH"));
     assert!(message.contains("/home/demo/.aicore/bin/aicore-cli"));
+    assert!(message.contains("/home/demo/.aicore/bin/aicore-web"));
     assert!(message.contains("请先运行 cargo foundation"));
 }
 
@@ -542,6 +557,20 @@ fn app_tui_install_writes_global_manifest() {
 }
 
 #[test]
+fn app_web_install_writes_global_manifest() {
+    let home_root = temp_home("app-web-manifest");
+    let target_dir = fake_app_target("app-web-target", "aicore-web");
+    install_layer_with_shell_env(Workflow::AppWeb, &target_dir, &bash_env(&home_root))
+        .expect("app-web install should succeed");
+    let manifest = fs::read_to_string(home_root.join(".aicore/share/manifests/aicore-web.toml"))
+        .expect("aicore-web manifest should exist");
+
+    assert!(manifest.contains("component_id = \"aicore-web\""));
+    assert!(manifest.contains("operation = \"web.health\""));
+    assert!(manifest.contains("operation = \"web.route_smoke\""));
+}
+
+#[test]
 fn workflow_install_warns_when_command_is_shadowed_by_local_bin() {
     let home_root = Path::new("/home/demo");
     let warnings = install_visibility_warnings(
@@ -554,6 +583,7 @@ fn workflow_install_warns_when_command_is_shadowed_by_local_bin() {
                     | Some("/home/demo/.aicore/bin/aicore")
                     | Some("/home/demo/.aicore/bin/aicore-cli")
                     | Some("/home/demo/.aicore/bin/aicore-tui")
+                    | Some("/home/demo/.aicore/bin/aicore-web")
             )
         },
     );
@@ -707,6 +737,7 @@ fn cargo_workflow_aliases_use_quiet_run() {
         "app-aicore",
         "app-cli",
         "app-tui",
+        "app-web",
     ] {
         assert!(
             config.contains(&format!(

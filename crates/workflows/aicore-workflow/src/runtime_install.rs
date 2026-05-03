@@ -21,7 +21,11 @@ pub fn install_global_runtime_metadata(
     match workflow {
         Workflow::Foundation => install_foundation_metadata(layout),
         Workflow::Kernel => install_kernel_metadata(layout),
-        Workflow::Core | Workflow::AppAicore | Workflow::AppCli | Workflow::AppTui => Ok(()),
+        Workflow::Core
+        | Workflow::AppAicore
+        | Workflow::AppCli
+        | Workflow::AppTui
+        | Workflow::AppWeb => Ok(()),
     }
 }
 
