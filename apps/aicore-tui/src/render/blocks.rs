@@ -5,7 +5,16 @@ use super::width::{fit, wrap};
 
 pub fn render_block(block: &TuiBlock, width: usize) -> Vec<String> {
     let style = style_for(&block.kind);
-    let title = format!("╭─ {} {} / {} ", style.marker, style.label, block.title);
+    let action = match block.kind {
+        crate::state::TuiBlockKind::Code => " [复制] [保存] [展开] ",
+        crate::state::TuiBlockKind::Diff => " [复制] [查看] ",
+        crate::state::TuiBlockKind::Media => " [预览] [打开] ",
+        _ => "",
+    };
+    let title = format!(
+        "╭─ {} {} / {}{} ",
+        style.marker, style.label, block.title, action
+    );
     let mut lines = vec![border_title(&title, width)];
 
     for body in &block.body {

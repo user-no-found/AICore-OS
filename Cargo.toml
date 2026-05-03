@@ -66,3 +66,6 @@ aicore-tool-runtime = { path = "crates/tool/aicore-tool-runtime" }
 aicore-tools = { path = "crates/tools/aicore-tools" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+ratatui = { version = "0.30.0", default-features = false, features = ["crossterm_0_29"] }
+crossterm = { version = "0.29.0", features = ["osc52"] }
+unicode-width = "0.2.0"

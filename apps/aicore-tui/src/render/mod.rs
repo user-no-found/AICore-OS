@@ -5,7 +5,7 @@ mod width;
 
 use crate::state::{TuiBlock, TuiBlockKind, TuiModel};
 
-pub use frame::{input_box_bottom, input_box_prompt, render_live_view, render_snapshot};
+pub use frame::render_snapshot;
 
 pub fn render_transcript(model: &TuiModel, input: &str) -> String {
     let mut model = model.clone();

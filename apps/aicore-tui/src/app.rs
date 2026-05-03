@@ -1,9 +1,9 @@
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
-use crate::interaction::run_interactive;
 use crate::render::render_snapshot;
 use crate::state::build_tui_model;
+use crate::terminal::run_terminal;
 
 pub fn run() -> i32 {
     let cwd = match std::env::current_dir() {
@@ -25,7 +25,7 @@ pub fn run() -> i32 {
     };
 
     if io::stdin().is_terminal() && io::stdout().is_terminal() {
-        return run_interactive(model);
+        return run_terminal(model);
     }
 
     print!("{}", render_snapshot(&model));

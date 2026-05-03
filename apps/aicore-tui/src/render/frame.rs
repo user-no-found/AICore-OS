@@ -10,18 +10,6 @@ pub fn render_snapshot(model: &TuiModel) -> String {
     render_frame(model, true)
 }
 
-pub fn render_live_view(model: &TuiModel) -> String {
-    render_frame(model, false)
-}
-
-pub fn input_box_prompt() -> String {
-    format!("│{}│", fit(" aicore > ", WIDTH - 2))
-}
-
-pub fn input_box_bottom() -> String {
-    format!("╰{}╯", "─".repeat(WIDTH - 2))
-}
-
 fn render_frame(model: &TuiModel, include_composer: bool) -> String {
     let mut out = String::new();
     push_line(&mut out, &top_bar(model));
@@ -119,6 +107,10 @@ fn input_box_hint() -> String {
             WIDTH - 2
         )
     )
+}
+
+fn input_box_bottom() -> String {
+    format!("╰{}╯", "─".repeat(WIDTH - 2))
 }
 
 fn rule(title: &str) -> String {

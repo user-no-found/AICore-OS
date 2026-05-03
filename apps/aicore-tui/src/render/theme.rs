@@ -31,5 +31,17 @@ pub fn style_for(kind: &TuiBlockKind) -> BlockStyle {
             marker: "●",
             label: "系统",
         },
+        TuiBlockKind::Code => BlockStyle {
+            marker: "{}",
+            label: "代码",
+        },
+        TuiBlockKind::Diff => BlockStyle {
+            marker: "±",
+            label: "变更",
+        },
+        TuiBlockKind::Media => BlockStyle {
+            marker: "▣",
+            label: "媒体",
+        },
     }
 }

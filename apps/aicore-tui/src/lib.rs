@@ -1,7 +1,8 @@
 mod app;
-mod interaction;
 mod render;
 mod state;
+mod terminal;
+mod ui;
 
 pub use app::run;
 pub use render::{append_local_echo, render_snapshot, render_transcript};

@@ -3,7 +3,6 @@ use std::path::Path;
 use aicore_foundation::{
     AicoreResult, InstanceKind, ensure_instance_layout, resolve_instance_for_cwd,
 };
-use aicore_kernel::{RuntimeSummary, default_runtime};
 use aicore_surface::{KernelSurface, default_kernel_surface};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +13,9 @@ pub enum TuiBlockKind {
     Approval,
     Terminal,
     Assistant,
+    Code,
+    Diff,
+    Media,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +40,9 @@ pub struct TuiModel {
     pub skills_count: usize,
     pub proposals_count: usize,
     pub blocks: Vec<TuiBlock>,
+    pub terminal_capabilities: TerminalCapabilities,
+    pub copy_button_label: String,
+    pub media_status: String,
 }
 
 impl TuiModel {
@@ -50,11 +55,17 @@ impl TuiModel {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TerminalCapabilities {
+    pub mouse: bool,
+    pub clipboard: String,
+    pub inline_image: String,
+    pub multiplexer: String,
+}
+
 pub fn build_tui_model(cwd: &Path, home: &Path) -> AicoreResult<TuiModel> {
     let binding = resolve_instance_for_cwd(cwd, home)?;
     let paths = ensure_instance_layout(&binding)?;
-    let runtime = default_runtime();
-    let runtime_summary = runtime.summary();
     let surface = default_kernel_surface();
 
     Ok(TuiModel {
@@ -70,23 +81,58 @@ pub fn build_tui_model(cwd: &Path, home: &Path) -> AicoreResult<TuiModel> {
             .display()
             .to_string(),
         state_root: paths.root.display().to_string(),
-        conversation_id: runtime_summary.conversation_id.clone(),
-        event_count: runtime_summary.event_count,
-        queue_len: runtime_summary.queue_len,
-        active_turn: active_turn_label(&runtime_summary),
+        conversation_id: "preview".to_string(),
+        event_count: 0,
+        queue_len: 0,
+        active_turn: "idle".to_string(),
         tools_count: surface.tools.len(),
         memories_count: surface.memories.len(),
         skills_count: surface.skills.len(),
         proposals_count: surface.evolution_proposals.len(),
+        terminal_capabilities: detect_terminal_capabilities(),
+        copy_button_label: "复制".to_string(),
+        media_status: "终端图形协议按能力探测，当前仅显示安全预览卡片。".to_string(),
         blocks: default_blocks(&surface),
     })
 }
 
-fn active_turn_label(runtime_summary: &RuntimeSummary) -> String {
-    if runtime_summary.queue_len > 0 {
-        "queued".to_string()
+fn detect_terminal_capabilities() -> TerminalCapabilities {
+    let term = std::env::var("TERM").unwrap_or_default();
+    let term_program = std::env::var("TERM_PROGRAM").unwrap_or_default();
+    let multiplexer = if std::env::var_os("ZELLIJ").is_some() {
+        "zellij"
+    } else if std::env::var_os("TMUX").is_some() {
+        "tmux"
     } else {
-        "idle".to_string()
+        "direct"
+    };
+    let inline_image = if term_program.contains("WezTerm") {
+        "wezterm-inline"
+    } else if term_program.contains("iTerm") {
+        "iterm2-inline"
+    } else if term.contains("kitty") {
+        "kitty-graphics"
+    } else if term.contains("sixel") || term.contains("xterm") {
+        "sixel-or-halfblock"
+    } else {
+        "metadata-fallback"
+    };
+
+    TerminalCapabilities {
+        mouse: true,
+        clipboard: clipboard_status(),
+        inline_image: inline_image.to_string(),
+        multiplexer: multiplexer.to_string(),
+    }
+}
+
+fn clipboard_status() -> String {
+    if std::env::var_os("TMUX").is_some() || std::env::var_os("ZELLIJ").is_some() {
+        "osc52-limited".to_string()
+    } else if std::env::var_os("SSH_CONNECTION").is_some() {
+        "osc52-remote".to_string()
+    } else {
+        "osc52-request".to_string()
     }
 }
 
@@ -122,9 +168,40 @@ fn default_blocks(surface: &KernelSurface) -> Vec<TuiBlock> {
             body: vec!["当前没有待处理审批。".to_string()],
         },
         TuiBlock {
+            kind: TuiBlockKind::Code,
+            title: "Rust 代码块 · 可点击复制".to_string(),
+            body: vec![
+                "pub struct KernelInvocationResultEnvelope {".to_string(),
+                "    pub write_applied: bool,".to_string(),
+                "    pub audit_closed: bool,".to_string(),
+                "}".to_string(),
+            ],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Diff,
+            title: "Diff 预览".to_string(),
+            body: vec![
+                "+ write_applied: true".to_string(),
+                "+ audit_closed: true".to_string(),
+                "- raw_payload: hidden".to_string(),
+            ],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Media,
+            title: "媒体预览".to_string(),
+            body: vec![
+                "图片：后续按 Kitty / iTerm2 / WezTerm / Sixel / half-block 能力分级渲染。"
+                    .to_string(),
+                "视频：当前只显示封面、元数据和外部打开 action，不假装所有终端都能播放。"
+                    .to_string(),
+            ],
+        },
+        TuiBlock {
             kind: TuiBlockKind::Terminal,
             title: "快捷键".to_string(),
-            body: vec!["输入 q 退出；普通文本会作为本地块追加到会话流。".to_string()],
+            body: vec![
+                "Esc / Ctrl+C 退出；输入内容只进入本地显示，不启动智能体运行时。".to_string(),
+            ],
         },
     ]
 }
