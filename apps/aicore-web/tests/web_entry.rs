@@ -64,16 +64,21 @@ fn writes_fnos_native_package_source() {
     assert!(manifest.contains("appname"));
     assert!(manifest.contains("aicore-web"));
     assert!(manifest.contains("desktop_uidir"));
+    assert!(manifest.contains("platform"));
+    assert!(manifest.contains("service_port"));
     assert!(!manifest.contains("placeholder"));
 
     let main = std::fs::read_to_string(root.path().join("cmd/main")).unwrap();
+    assert!(main.contains("TRIM_APPDEST"));
     assert!(main.contains("TRIM_PKGHOME"));
     assert!(main.contains("TRIM_PKGVAR"));
     assert!(main.contains("SCRIPT_DIR"));
     assert!(main.contains("PKG_ROOT"));
     assert!(main.contains("resolve_app_bin"));
+    assert!(main.contains("APP_DEST"));
     assert!(main.contains("target/server/aicore-web"));
     assert!(main.contains("app/server/aicore-web"));
+    assert!(main.contains("TRIM_SERVICE_PORT"));
     assert!(main.contains("AICORE_WEB_HOST"));
     assert!(main.contains("0.0.0.0"));
 }

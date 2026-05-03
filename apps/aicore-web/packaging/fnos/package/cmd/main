@@ -3,12 +3,13 @@ set -u
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PKG_ROOT=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
+APP_DEST="${TRIM_APPDEST:-${PKG_ROOT}/target}"
 PKG_HOME="${TRIM_PKGHOME:-$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)}"
 PKG_VAR="${TRIM_PKGVAR:-${PKG_HOME}/var}"
 LOG_FILE="${PKG_VAR}/aicore-web.log"
 PID_FILE="${PKG_VAR}/aicore-web.pid"
 HOST="${AICORE_WEB_HOST:-0.0.0.0}"
-PORT="${AICORE_WEB_PORT:-8731}"
+PORT="${AICORE_WEB_PORT:-${TRIM_SERVICE_PORT:-8731}}"
 
 log_msg() {
     mkdir -p "${PKG_VAR}"
@@ -22,6 +23,7 @@ check_process() {
 
 resolve_app_bin() {
     for path in \
+        "${APP_DEST}/server/aicore-web" \
         "${PKG_ROOT}/target/server/aicore-web" \
         "${PKG_ROOT}/server/aicore-web" \
         "${PKG_HOME}/target/server/aicore-web" \
@@ -57,7 +59,7 @@ start_process() {
 
     local app_bin
     if ! app_bin=$(resolve_app_bin); then
-        log_msg "未找到可执行文件，已检查 ${PKG_ROOT}/target/server、${PKG_ROOT}/server、${PKG_HOME}/target/server、${PKG_HOME}/server、${PKG_HOME}/app/server"
+        log_msg "未找到可执行文件，已检查 ${APP_DEST}/server、${PKG_ROOT}/target/server、${PKG_ROOT}/server、${PKG_HOME}/target/server、${PKG_HOME}/server、${PKG_HOME}/app/server"
         return 1
     fi
 

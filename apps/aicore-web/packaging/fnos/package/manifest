@@ -1,10 +1,12 @@
 appname               = aicore-web
-version               = 0.1.0
+version               = 0.1.1
 display_name          = AICore Web 控制台
 desc                  = AICore OS Web 控制台，Vue3 页面与 Rust 后端原生运行
-arch                  = x86_64
+platform              = x86
 source                = thirdparty
 maintainer            = AICore OS
 distributor           = AICore OS
 desktop_uidir         = ui
 desktop_applaunchname = aicore-web.Application
+service_port          = 8731
+checkport             = true

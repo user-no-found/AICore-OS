@@ -76,19 +76,24 @@ mod tests {
         assert!(super::MANIFEST.contains("appname"));
         assert!(super::MANIFEST.contains("aicore-web"));
         assert!(super::MANIFEST.contains("desktop_uidir"));
+        assert!(super::MANIFEST.contains("platform"));
+        assert!(super::MANIFEST.contains("service_port"));
         assert!(!super::MANIFEST.contains("placeholder"));
     }
 
     #[test]
     fn lifecycle_script_runs_host_native_server() {
+        assert!(super::MAIN.contains("TRIM_APPDEST"));
         assert!(super::MAIN.contains("TRIM_PKGHOME"));
         assert!(super::MAIN.contains("TRIM_PKGVAR"));
         assert!(super::MAIN.contains("SCRIPT_DIR"));
         assert!(super::MAIN.contains("PKG_ROOT"));
+        assert!(super::MAIN.contains("APP_DEST"));
         assert!(super::MAIN.contains("resolve_app_bin"));
         assert!(super::MAIN.contains("target/server/aicore-web"));
         assert!(super::MAIN.contains("app/server/aicore-web"));
         assert!(super::MAIN.contains("server/aicore-web"));
+        assert!(super::MAIN.contains("TRIM_SERVICE_PORT"));
         assert!(super::MAIN.contains("--host"));
         assert!(super::MAIN.contains("--port"));
     }
