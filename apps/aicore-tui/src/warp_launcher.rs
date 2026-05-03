@@ -12,6 +12,11 @@ pub fn run_warp_tui(context: &TuiLaunchContext) -> i32 {
         return 0;
     }
 
+    if !graphical_session_available() {
+        print_missing_graphical_session(context);
+        return 3;
+    }
+
     let Some(binary) = locate_warp_binary() else {
         print_missing_binary(context);
         return 2;
@@ -87,6 +92,16 @@ fn apply_context_env(command: &mut Command, context: &TuiLaunchContext) {
     command.env("AICORE_INSTANCE_ROOT", &context.instance_root);
 }
 
+fn graphical_session_available() -> bool {
+    ["WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY"]
+        .iter()
+        .any(|name| env_value_present(name))
+}
+
+fn env_value_present(name: &str) -> bool {
+    std::env::var_os(name).is_some_and(|value| !value.is_empty())
+}
+
 fn print_launch_ready(context: &TuiLaunchContext) {
     println!("AICore TUI Warp fork 启动检查通过。");
     println!("实例：{}", context.instance_id);
@@ -106,6 +121,18 @@ fn print_missing_binary(context: &TuiLaunchContext) {
     eprintln!("  cd apps/aicore-tui-warp");
     eprintln!("  cargo build -p aicore-tui-warp --bin aicore-tui-warp");
     eprintln!("也可以设置 {WARP_BIN_ENV}=<aicore-tui-warp 路径>。");
+}
+
+fn print_missing_graphical_session(context: &TuiLaunchContext) {
+    eprintln!("AICore TUI Warp UI 无法启动：当前环境没有图形会话。");
+    eprintln!("实例：{}", context.instance_id);
+    eprintln!("类型：{}", context.instance_kind_label());
+    eprintln!("工作区：{}", context.workspace_root);
+    eprintln!("状态目录：{}", context.instance_root);
+    eprintln!("需要设置 WAYLAND_DISPLAY、WAYLAND_SOCKET 或 DISPLAY 后再启动。");
+    eprintln!(
+        "如果你在 SSH / headless shell 中运行，请先进入图形桌面会话，或等待后续终端 fallback 接入。"
+    );
 }
 
 #[cfg(test)]

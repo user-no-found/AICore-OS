@@ -24,6 +24,30 @@ fn renders_terminal_tui_snapshot() {
     assert!(workspace.path().join(".gitignore").is_file());
 }
 
+#[test]
+fn reports_missing_graphical_session_without_panic() {
+    let home = TestDir::new("home");
+    let workspace = TestDir::new("workspace");
+    let output = Command::new(env!("CARGO_BIN_EXE_aicore-tui"))
+        .current_dir(workspace.path())
+        .env("HOME", home.path())
+        .env_remove("AICORE_TUI_SKIP_WARP_LAUNCH")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("WAYLAND_SOCKET")
+        .env_remove("DISPLAY")
+        .output()
+        .expect("aicore-tui should run");
+
+    assert_eq!(output.status.code(), Some(3));
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stderr.contains("没有图形会话"));
+    assert!(stderr.contains("WAYLAND_DISPLAY"));
+    assert!(!stderr.contains("panicked"));
+    assert!(!stderr.contains("RUST_BACKTRACE"));
+    assert!(workspace.path().join(".aicore").is_dir());
+}
+
 struct TestDir {
     path: PathBuf,
 }
