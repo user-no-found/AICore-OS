@@ -1,8 +1,0 @@
-[package]
-name = "aicore_bridge"
-edition = "2021"
-publish.workspace = true
-license.workspace = true
-
-[dependencies]
-anyhow.workspace = true

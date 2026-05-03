@@ -1,7 +1,9 @@
+use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
-use crate::state::build_launch_context;
-use crate::warp_launcher::run_warp_tui;
+use crate::interaction::run_interactive;
+use crate::render::render_snapshot;
+use crate::state::build_tui_model;
 
 pub fn run() -> i32 {
     let cwd = match std::env::current_dir() {
@@ -14,13 +16,18 @@ pub fn run() -> i32 {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| cwd.clone());
-    let context = match build_launch_context(&cwd, &home) {
-        Ok(context) => context,
+    let model = match build_tui_model(&cwd, &home) {
+        Ok(model) => model,
         Err(error) => {
             eprintln!("无法绑定当前实例：{error}");
             return 1;
         }
     };
 
-    run_warp_tui(&context)
+    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+        return run_interactive(model);
+    }
+
+    print!("{}", render_snapshot(&model));
+    0
 }

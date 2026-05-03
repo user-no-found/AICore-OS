@@ -10,7 +10,7 @@ use crate::shell_integration::{
 use super::core::{cargo_args_for_workflow, target_dir_for};
 use super::install::{
     install_bin_dir_for, install_layer_with_shell_env, install_manifest_for,
-    install_visibility_warnings, install_warp_tui_binary_for_layout, installed_binary_path,
+    install_visibility_warnings, installed_binary_path,
 };
 
 mod memory_read_manifest_tests;
@@ -539,18 +539,6 @@ fn app_tui_install_writes_global_manifest() {
 
     assert!(manifest.contains("component_id = \"aicore-tui\""));
     assert!(manifest.contains("operation = \"tui.session\""));
-}
-
-#[test]
-fn app_tui_warp_fork_binary_installs_next_to_launcher() {
-    let home_root = temp_home("app-tui-warp-install");
-    let target_dir = fake_app_target("app-tui-warp-target", "aicore-tui-warp");
-    let layout = aicore_foundation::AicoreLayout::new(home_root.clone());
-
-    install_warp_tui_binary_for_layout(&target_dir, &layout)
-        .expect("warp fork binary should install");
-
-    assert!(home_root.join(".aicore/bin/aicore-tui-warp").exists());
 }
 
 #[test]

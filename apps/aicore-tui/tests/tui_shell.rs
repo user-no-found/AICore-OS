@@ -9,40 +9,44 @@ fn renders_terminal_tui_snapshot() {
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-tui"))
         .current_dir(workspace.path())
         .env("HOME", home.path())
-        .env("AICORE_TUI_SKIP_WARP_LAUNCH", "1")
         .output()
         .expect("aicore-tui should run");
 
     assert!(output.status.success());
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
-    assert!(stdout.contains("AICore TUI Warp fork"));
-    assert!(stdout.contains("实例"));
-    assert!(stdout.contains("工作区"));
-    assert!(stdout.contains("已完成实例绑定"));
+    assert!(stdout.contains("AICore OS"));
+    assert!(stdout.contains("当前实例"));
+    assert!(stdout.contains("会话"));
+    assert!(stdout.contains("实例已绑定"));
+    assert!(stdout.contains("能力快照"));
+    assert!(stdout.contains("本地显示"));
+    assert!(stdout.contains("输入"));
+    assert!(stdout.contains("aicore >"));
+    assert!(stdout.contains("Enter 提交"));
+    assert!(stdout.contains("不启动智能体运行时"));
     assert!(workspace.path().join(".aicore").is_dir());
     assert!(workspace.path().join(".gitignore").is_file());
 }
 
 #[test]
-fn reports_missing_graphical_session_without_panic() {
+fn does_not_require_graphical_session() {
     let home = TestDir::new("home");
     let workspace = TestDir::new("workspace");
     let output = Command::new(env!("CARGO_BIN_EXE_aicore-tui"))
         .current_dir(workspace.path())
         .env("HOME", home.path())
-        .env_remove("AICORE_TUI_SKIP_WARP_LAUNCH")
         .env_remove("WAYLAND_DISPLAY")
         .env_remove("WAYLAND_SOCKET")
         .env_remove("DISPLAY")
         .output()
         .expect("aicore-tui should run");
 
-    assert_eq!(output.status.code(), Some(3));
+    assert!(output.status.success());
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
-    assert!(stderr.contains("没有图形会话"));
-    assert!(stderr.contains("WAYLAND_DISPLAY"));
+    assert!(!stderr.contains("没有图形会话"));
+    assert!(!stderr.contains("WAYLAND_DISPLAY"));
     assert!(!stderr.contains("panicked"));
     assert!(!stderr.contains("RUST_BACKTRACE"));
     assert!(workspace.path().join(".aicore").is_dir());

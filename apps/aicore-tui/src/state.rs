@@ -3,16 +3,44 @@ use std::path::Path;
 use aicore_foundation::{
     AicoreResult, InstanceKind, ensure_instance_layout, resolve_instance_for_cwd,
 };
+use aicore_kernel::{RuntimeSummary, default_runtime};
+use aicore_surface::{KernelSurface, default_kernel_surface};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TuiLaunchContext {
+pub enum TuiBlockKind {
+    Prompt,
+    Agent,
+    Tool,
+    Approval,
+    Terminal,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TuiBlock {
+    pub kind: TuiBlockKind,
+    pub title: String,
+    pub body: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TuiModel {
     pub instance_id: String,
     pub instance_kind: String,
     pub workspace_root: String,
-    pub instance_root: String,
+    pub state_root: String,
+    pub conversation_id: String,
+    pub event_count: usize,
+    pub queue_len: usize,
+    pub active_turn: String,
+    pub tools_count: usize,
+    pub memories_count: usize,
+    pub skills_count: usize,
+    pub proposals_count: usize,
+    pub blocks: Vec<TuiBlock>,
 }
 
-impl TuiLaunchContext {
+impl TuiModel {
     pub fn instance_kind_label(&self) -> &'static str {
         match self.instance_kind.as_str() {
             "global-main" => "主实例",
@@ -22,11 +50,14 @@ impl TuiLaunchContext {
     }
 }
 
-pub fn build_launch_context(cwd: &Path, home: &Path) -> AicoreResult<TuiLaunchContext> {
+pub fn build_tui_model(cwd: &Path, home: &Path) -> AicoreResult<TuiModel> {
     let binding = resolve_instance_for_cwd(cwd, home)?;
     let paths = ensure_instance_layout(&binding)?;
+    let runtime = default_runtime();
+    let runtime_summary = runtime.summary();
+    let surface = default_kernel_surface();
 
-    Ok(TuiLaunchContext {
+    Ok(TuiModel {
         instance_id: binding.instance_id.as_str().to_string(),
         instance_kind: match binding.kind {
             InstanceKind::GlobalMain => "global-main".to_string(),
@@ -38,8 +69,64 @@ pub fn build_launch_context(cwd: &Path, home: &Path) -> AicoreResult<TuiLaunchCo
             .unwrap_or(cwd)
             .display()
             .to_string(),
-        instance_root: paths.root.display().to_string(),
+        state_root: paths.root.display().to_string(),
+        conversation_id: runtime_summary.conversation_id.clone(),
+        event_count: runtime_summary.event_count,
+        queue_len: runtime_summary.queue_len,
+        active_turn: active_turn_label(&runtime_summary),
+        tools_count: surface.tools.len(),
+        memories_count: surface.memories.len(),
+        skills_count: surface.skills.len(),
+        proposals_count: surface.evolution_proposals.len(),
+        blocks: default_blocks(&surface),
     })
+}
+
+fn active_turn_label(runtime_summary: &RuntimeSummary) -> String {
+    if runtime_summary.queue_len > 0 {
+        "queued".to_string()
+    } else {
+        "idle".to_string()
+    }
+}
+
+fn default_blocks(surface: &KernelSurface) -> Vec<TuiBlock> {
+    vec![
+        TuiBlock {
+            kind: TuiBlockKind::Assistant,
+            title: "实例已绑定".to_string(),
+            body: vec!["当前目录已绑定到 AICore instance，TUI 正在等待输入。".to_string()],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Terminal,
+            title: "运行边界".to_string(),
+            body: vec![
+                "当前版本是本地显示与输入界面，不启动智能体运行时。".to_string(),
+                "统一 I/O 广播和真实会话接入在后续阶段打开。".to_string(),
+            ],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Tool,
+            title: "能力快照".to_string(),
+            body: vec![format!(
+                "工具 {}，记忆 {}，技能 {}，提案 {}。",
+                surface.tools.len(),
+                surface.memories.len(),
+                surface.skills.len(),
+                surface.evolution_proposals.len()
+            )],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Approval,
+            title: "审批".to_string(),
+            body: vec!["当前没有待处理审批。".to_string()],
+        },
+        TuiBlock {
+            kind: TuiBlockKind::Terminal,
+            title: "快捷键".to_string(),
+            body: vec!["输入 q 退出；普通文本会作为本地块追加到会话流。".to_string()],
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -47,18 +134,17 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::build_launch_context;
+    use super::build_tui_model;
 
     #[test]
-    fn workspace_launch_context_uses_project_aicore_root() {
+    fn workspace_model_uses_project_aicore_root() {
         let home = TestDir::new("home");
         let workspace = TestDir::new("workspace");
-        let context = build_launch_context(workspace.path(), home.path()).unwrap();
+        let model = build_tui_model(workspace.path(), home.path()).unwrap();
 
-        assert_eq!(context.instance_kind, "workspace");
-        assert!(context.instance_id.starts_with("workspace."));
-        assert!(context.instance_root.ends_with(".aicore"));
-        assert!(workspace.path().join(".gitignore").is_file());
+        assert_eq!(model.instance_kind, "workspace");
+        assert!(model.instance_id.starts_with("workspace."));
+        assert!(model.state_root.ends_with(".aicore"));
     }
 
     struct TestDir {

@@ -261,6 +261,8 @@ name = "aicore-tui"
 version = "0.1.0"
 dependencies = [
  "aicore-foundation",
+ "aicore-kernel",
+ "aicore-surface",
 ]
 
 [[package]]

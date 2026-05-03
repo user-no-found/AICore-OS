@@ -128,8 +128,6 @@ fn binary_name_for(workflow: Workflow) -> &'static str {
 }
 
 const INSTALLED_COMMANDS: [&str; 3] = ["aicore", "aicore-cli", "aicore-tui"];
-const WARP_TUI_BINARY: &str = "aicore-tui-warp";
-
 fn install_app_binary(
     workflow: Workflow,
     target_dir: &Path,
@@ -171,53 +169,6 @@ fn install_app_binary(
         path_env,
         Path::exists,
     ))
-}
-
-pub(crate) fn install_warp_tui_binary(target_dir: &Path) -> Result<(), String> {
-    let layout = AicoreLayout::new(
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .ok_or_else(|| "HOME 不可用，无法安装 AICore TUI Warp fork。".to_string())?,
-    );
-    install_warp_tui_binary_for_layout(target_dir, &layout)
-}
-
-pub(crate) fn install_warp_tui_binary_for_layout(
-    target_dir: &Path,
-    layout: &AicoreLayout,
-) -> Result<(), String> {
-    let install_dir = install_bin_dir_for(&layout.home_root);
-    fs::create_dir_all(&install_dir)
-        .map_err(|error| format!("创建应用安装目录 {} 失败: {error}", install_dir.display()))?;
-
-    let source_path = target_dir.join("debug").join(WARP_TUI_BINARY);
-    if !source_path.exists() {
-        return Err(format!(
-            "未找到待安装 Warp fork 二进制: {}",
-            source_path.display()
-        ));
-    }
-
-    let target_path = install_dir.join(WARP_TUI_BINARY);
-    fs::copy(&source_path, &target_path).map_err(|error| {
-        format!(
-            "复制二进制 {} -> {} 失败: {error}",
-            source_path.display(),
-            target_path.display()
-        )
-    })?;
-
-    #[cfg(unix)]
-    {
-        let mut permissions = fs::metadata(&target_path)
-            .map_err(|error| format!("读取安装后二进制权限失败: {error}"))?
-            .permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&target_path, permissions)
-            .map_err(|error| format!("设置二进制可执行权限失败: {error}"))?;
-    }
-
-    Ok(())
 }
 
 fn install_runtime_binary(
