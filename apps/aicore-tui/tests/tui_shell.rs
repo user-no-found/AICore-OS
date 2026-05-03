@@ -16,10 +16,14 @@ fn renders_terminal_tui_snapshot() {
 
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
     assert!(stdout.contains("AICore OS"));
-    assert!(stdout.contains("实例"));
-    assert!(stdout.contains("会话流"));
-    assert!(stdout.contains("运行时"));
+    assert!(stdout.contains("当前实例"));
+    assert!(stdout.contains("会话"));
+    assert!(stdout.contains("实例已绑定"));
+    assert!(stdout.contains("能力快照"));
+    assert!(stdout.contains("本地显示"));
+    assert!(stdout.contains("输入"));
     assert!(stdout.contains("aicore >"));
+    assert!(stdout.contains("Enter 提交"));
     assert!(stdout.contains("不启动智能体运行时"));
     assert!(workspace.path().join(".aicore").is_dir());
     assert!(workspace.path().join(".gitignore").is_file());

@@ -94,22 +94,22 @@ fn default_blocks(surface: &KernelSurface) -> Vec<TuiBlock> {
     vec![
         TuiBlock {
             kind: TuiBlockKind::Assistant,
-            title: "系统".to_string(),
-            body: vec!["TUI 已绑定当前实例，等待输入。".to_string()],
+            title: "实例已绑定".to_string(),
+            body: vec!["当前目录已绑定到 AICore instance，TUI 正在等待输入。".to_string()],
         },
         TuiBlock {
-            kind: TuiBlockKind::Agent,
-            title: "智能体".to_string(),
+            kind: TuiBlockKind::Terminal,
+            title: "运行边界".to_string(),
             body: vec![
-                "当前版本只负责显示与输入。".to_string(),
-                "智能体运行时、统一 I/O 广播和真实会话接入在后续阶段打开。".to_string(),
+                "当前版本是本地显示与输入界面，不启动智能体运行时。".to_string(),
+                "统一 I/O 广播和真实会话接入在后续阶段打开。".to_string(),
             ],
         },
         TuiBlock {
             kind: TuiBlockKind::Tool,
-            title: "能力摘要".to_string(),
+            title: "能力快照".to_string(),
             body: vec![format!(
-                "tools={} memory={} skills={} proposals={}",
+                "工具 {}，记忆 {}，技能 {}，提案 {}。",
                 surface.tools.len(),
                 surface.memories.len(),
                 surface.skills.len(),
@@ -123,8 +123,8 @@ fn default_blocks(surface: &KernelSurface) -> Vec<TuiBlock> {
         },
         TuiBlock {
             kind: TuiBlockKind::Terminal,
-            title: "终端".to_string(),
-            body: vec!["输入 q 退出；普通文本会在本地回显。".to_string()],
+            title: "快捷键".to_string(),
+            body: vec!["输入 q 退出；普通文本会作为本地块追加到会话流。".to_string()],
         },
     ]
 }
