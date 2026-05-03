@@ -82,6 +82,35 @@ mod tests {
     }
 
     #[test]
+    fn manifest_version_uses_manual_fpk_sequence() {
+        let version_line = super::MANIFEST
+            .lines()
+            .find(|line| line.trim_start().starts_with("version"))
+            .expect("manifest should define version");
+        let version = version_line
+            .split_once('=')
+            .expect("version line should use key-value form")
+            .1
+            .trim();
+        let patch = version
+            .strip_prefix("0.0.")
+            .expect("FPK version should use 0.0.x");
+
+        assert!(!patch.is_empty());
+        assert!(patch.chars().all(|value| value.is_ascii_digit()));
+        assert!(!version.contains('-'));
+    }
+
+    #[test]
+    fn package_script_keeps_manifest_version_without_generated_suffix() {
+        assert!(super::PACKAGE_SH.contains("read_fpk_version"));
+        assert!(super::PACKAGE_SH.contains("0.0.x"));
+        assert!(!super::PACKAGE_SH.contains("AICORE_WEB_FPK_VERSION"));
+        assert!(!super::PACKAGE_SH.contains("rev-parse"));
+        assert!(!super::PACKAGE_SH.contains("sed -i"));
+    }
+
+    #[test]
     fn lifecycle_script_runs_host_native_server() {
         assert!(super::MAIN.contains("TRIM_APPDEST"));
         assert!(super::MAIN.contains("TRIM_PKGHOME"));

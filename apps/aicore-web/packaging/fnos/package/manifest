@@ -1,5 +1,5 @@
 appname               = aicore-web
-version               = 0.1.1
+version               = 0.0.0
 display_name          = AICore Web 控制台
 desc                  = AICore OS Web 控制台，Vue3 页面与 Rust 后端原生运行
 platform              = x86

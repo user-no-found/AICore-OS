@@ -41,24 +41,30 @@ require_command npm
 require_command fnpack
 require_command ffmpeg
 
-resolve_fpk_version() {
-    base_version=$(awk -F '=' '/^[[:space:]]*version[[:space:]]*=/{ gsub(/[[:space:]]/, "", $2); print $2; exit }' "${PACKAGE_TEMPLATE}/manifest")
-    if [ -z "${base_version}" ]; then
+read_fpk_version() {
+    version=$(awk -F '=' '/^[[:space:]]*version[[:space:]]*=/{ gsub(/[[:space:]]/, "", $2); print $2; exit }' "${PACKAGE_TEMPLATE}/manifest")
+    if [ -z "${version}" ]; then
         echo "manifest 缺少 version 字段" >&2
         exit 1
     fi
 
-    if [ -n "${AICORE_WEB_FPK_VERSION:-}" ]; then
-        printf "%s" "${AICORE_WEB_FPK_VERSION}"
-        return 0
-    fi
+    case "${version}" in
+        0.0.*) ;;
+        *)
+            echo "fnOS FPK version 必须使用 0.0.x，并在每次出新包前手动 +1：当前 ${version}" >&2
+            exit 1
+            ;;
+    esac
 
-    if command -v git >/dev/null 2>&1 && git -C "${REPO_ROOT}" rev-parse --short=8 HEAD >/dev/null 2>&1; then
-        printf "%s-%s" "${base_version}" "$(git -C "${REPO_ROOT}" rev-parse --short=8 HEAD)"
-        return 0
-    fi
+    patch="${version#0.0.}"
+    case "${patch}" in
+        ''|*[!0-9]*)
+            echo "fnOS FPK version 必须使用 0.0.x，其中 x 是数字：当前 ${version}" >&2
+            exit 1
+            ;;
+    esac
 
-    printf "%s-local" "${base_version}"
+    printf "%s" "${version}"
 }
 
 cd "${APP_DIR}/web"
@@ -70,8 +76,7 @@ cargo build -p aicore-web --release
 rm -rf "${STAGE_ROOT}" "${OUTPUT_DIR}"
 mkdir -p "${STAGE_ROOT}" "${OUTPUT_DIR}"
 copy_tree "${PACKAGE_TEMPLATE}" "${STAGE_ROOT}"
-fpk_version=$(resolve_fpk_version)
-sed -i "s/^version[[:space:]]*=.*/version               = ${fpk_version}/" "${STAGE_ROOT}/manifest"
+fpk_version=$(read_fpk_version)
 
 mkdir -p "${STAGE_ROOT}/app/server"
 cp "${REPO_ROOT}/target/release/aicore-web" "${STAGE_ROOT}/app/server/aicore-web"
@@ -95,3 +100,4 @@ fnpack build --directory "${STAGE_ROOT}"
 
 echo "fnOS 原生 FPK 已生成：${OUTPUT_DIR}/${FPK_NAME}"
 echo "FPK 版本：${fpk_version}"
+echo "提示：下一次发布新包前必须把 packaging/fnos/package/manifest 中 version 手动 +1。"

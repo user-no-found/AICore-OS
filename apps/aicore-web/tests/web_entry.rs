@@ -75,6 +75,21 @@ fn writes_fnos_native_package_source() {
     assert!(manifest.contains("platform"));
     assert!(manifest.contains("service_port"));
     assert!(!manifest.contains("placeholder"));
+    let version_line = manifest
+        .lines()
+        .find(|line| line.trim_start().starts_with("version"))
+        .expect("manifest should define version");
+    let version = version_line
+        .split_once('=')
+        .expect("version line should use key-value form")
+        .1
+        .trim();
+    let patch = version
+        .strip_prefix("0.0.")
+        .expect("FPK version should use 0.0.x");
+    assert!(!patch.is_empty());
+    assert!(patch.chars().all(|value| value.is_ascii_digit()));
+    assert!(!version.contains('-'));
 
     let main = std::fs::read_to_string(root.path().join("cmd/main")).unwrap();
     assert!(main.contains("TRIM_APPDEST"));
